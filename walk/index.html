@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShardForge Walk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Same lamplit desk as the editor: dark only, by choice. Layout: top bar | world view + tool panel | status. */
+  --ink: #0e1316;
+  --panel: #151c20;
+  --panel-2: #1c252a;
+  --line: #2a363d;
+  --text: #dbe4e8;
+  --muted: #8a9aa2;
+  --gold: #d6aa4c;
+  --gold-ink: #1a1408;
+  --danger: #e07a5f;
+  --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ink); color: var(--text); font: 14px/1.45 var(--font-body); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button, .filebtn {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; display: inline-block;
+}
+button:hover, .filebtn:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible, .filebtn:focus-within { outline: 2px solid var(--gold); outline-offset: 1px; }
+button.primary { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+button[aria-pressed="true"] { border-color: var(--gold); background: #2a2516; }
+.filebtn input { display: none; }
+input[type=text], input[type=number], select { background: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+
+header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-family: var(--font-display); font-size: 19px; letter-spacing: .06em; color: var(--gold); white-space: nowrap; }
+.brand small { font-family: var(--font-body); font-size: 12px; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+header .spacer { flex: 1; }
+header .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+main { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+#stage { position: relative; min-width: 0; min-height: 0; background: #07090a; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+#toast {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--gold);
+  padding: 6px 12px; border-radius: 999px; font-size: 13px; display: none; max-width: 80%; text-align: center;
+}
+#welcome {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; overflow: auto;
+}
+#welcome .card { max-width: 560px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; }
+#welcome h1 { font-family: var(--font-display); color: var(--gold); font-size: 22px; margin: 0 0 6px; text-wrap: balance; }
+#welcome p { color: var(--muted); margin: 8px 0; }
+#welcome ol { padding-left: 20px; margin: 10px 0; }
+#welcome li { margin: 6px 0; }
+#welcome .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+#welcome code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+
+aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.kbd { font: 11px var(--font-mono); color: var(--muted); }
+#search { width: 100%; }
+#results { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; margin-top: 8px; }
+#results button { display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: center; text-align: left; padding: 4px 6px; }
+#results canvas { width: 44px; height: 44px; image-rendering: pixelated; background: #0a0e10; border-radius: 4px; }
+#results .nm { font-size: 13px; }
+#results .id { font: 11px var(--font-mono); color: var(--muted); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.jump { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+.jump input { width: 100%; }
+
+footer { display: flex; gap: 18px; padding: 5px 14px; background: var(--panel); border-top: 1px solid var(--line); font: 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+footer b { color: var(--text); font-weight: 500; }
+
+@media (max-width: 860px) { main { grid-template-columns: 1fr; grid-template-rows: 60vh auto; } body { overflow: auto; } aside { border-left: 0; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ShardForge Walk <small>walk and decorate your world at ground level</small></div>
+  <div class="spacer"></div>
+  <div class="group">
+    <label class="filebtn" title="Pick your Ultima Online client folder (subfolders with built maps are found too)">Open client folder…<input type="file" id="pickDir" webkitdirectory multiple></label>
+    <label class="filebtn" title="Or pick individual files">Open files…<input type="file" id="pickFiles" multiple></label>
+    <select id="mapSel" aria-label="Map to load" disabled><option>No map files yet</option></select>
+    <button id="btnLoad" class="primary" disabled>Load map</button>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <canvas id="view" tabindex="0" aria-label="World view. Arrow keys or WASD walk, Shift runs, click places, Delete removes."></canvas>
+    <div id="welcome">
+      <div class="card">
+        <h1>Walk the world you built</h1>
+        <p>ShardForge Walk draws a map with your own client's tile art, lets you walk it with UO-like movement, and place or remove statics where you stand.</p>
+        <ol>
+          <li><b>Open client folder</b> and pick your Ultima Online folder (for example <code>C:\Games\Electronic Arts\Ultima Online Classic</code>). Built maps in subfolders, like <code>ShardForge-test</code>, are found too.</li>
+          <li>Choose a map in the list and press <b>Load map</b>.</li>
+        </ol>
+        <p>Files are read in your browser and nothing is uploaded. Only the parts needed are read: the art file, tiledata and one map.</p>
+        <p class="kbd">Needs: artLegacyMUL.uop (or art.mul + artidx.mul), tiledata.mul, and map#LegacyMUL.uop or map#.mul with staidx#.mul + statics#.mul.</p>
+      </div>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <aside aria-label="Tools">
+    <section>
+      <h2>Movement</h2>
+      <div class="seg">
+        <button id="modeWalk" aria-pressed="true">Walk</button>
+        <button id="modeFly" aria-pressed="false">Fly</button>
+      </div>
+      <p class="note">Walk follows UO rules: water, mountain rock, trees and walls block you, and you climb only gentle slopes. Fly goes anywhere; click a tile to jump there.</p>
+      <p class="note"><span class="kbd">Arrows / WASD</span> walk · <span class="kbd">Shift</span> run · <span class="kbd">wheel</span> zoom</p>
+    </section>
+    <section>
+      <h2>Go to</h2>
+      <div class="jump">
+        <input type="number" id="jx" aria-label="X" placeholder="x">
+        <input type="number" id="jy" aria-label="Y" placeholder="y">
+        <button id="btnJump">Go</button>
+      </div>
+      <select id="places" aria-label="Known places" style="width:100%;margin-top:6px"><option value="">Known places…</option></select>
+    </section>
+    <section>
+      <h2>Place statics</h2>
+      <input type="text" id="search" placeholder="Search: tree, rock, fence, sign…" aria-label="Search statics by name or hex id">
+      <div id="results"></div>
+      <p class="note" id="selNote">Pick an item, then click a tile to place it on the ground there. <span class="kbd">Delete</span> or right-click removes the top static under the cursor. <span class="kbd">Ctrl+Z</span> undoes.</p>
+      <div class="row" style="margin-top:8px">
+        <button id="btnClearSel" disabled>Stop placing</button>
+        <button id="btnUndo" disabled>Undo</button>
+      </div>
+    </section>
+    <section>
+      <h2>Your edits</h2>
+      <p class="note" id="editCount">No edits yet.</p>
+      <div class="row" style="margin-top:8px"><button id="btnExport" disabled>Export statics (.zip)</button></div>
+      <p class="note">The zip holds <span class="kbd">staidx#.mul</span> and <span class="kbd">statics#.mul</span> for this facet. Copy them next to the map files.</p>
+    </section>
+  </aside>
+</main>
+
+<footer>
+  <span>you <b id="fPos">–</b></span>
+  <span>cursor <b id="fCur">–</b></span>
+  <span>ground <b id="fGround">–</b></span>
+  <span>top <b id="fTop">–</b></span>
+  <span>map <b id="fMap">–</b></span>
+</footer>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+// ===========================================================================
+// File access: everything is read lazily from the picked File objects.
+// ===========================================================================
+const picked = new Map(); // lower-case relative path -> File
+function addFiles(list) {
+  for (const f of list) picked.set((f.webkitRelativePath || f.name).replace(/\\/g, "/").toLowerCase(), f);
+  refreshMapList();
+}
+const dirOf = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+const baseOf = p => p.slice(p.lastIndexOf("/") + 1);
+function findIn(dir, name) { return picked.get(dir ? dir + "/" + name : name) || null; }
+function findAnywhere(name) {
+  let best = null, bestDepth = 1e9;
+  for (const [p, f] of picked) if (baseOf(p) === name) { const d = p.split("/").length; if (d < bestDepth) { best = f; bestDepth = d; } }
+  return best;
+}
+const readBytes = async (file, start, end) => new Uint8Array(await file.slice(start, end).arrayBuffer());
+
+// ===========================================================================
+// UOP (Mythic Package) with lookup3 filename hashes
+// ===========================================================================
+function uopHash(s) {
+  const L = s.length, rot = (x, k) => ((x << k) | (x >>> (32 - k))) >>> 0;
+  const w = j => (s.charCodeAt(j) | (s.charCodeAt(j + 1) << 8) | (s.charCodeAt(j + 2) << 16) | (s.charCodeAt(j + 3) << 24)) >>> 0;
+  let a, b, c; a = b = c = (0xDEADBEEF + L) >>> 0;
+  let i = 0;
+  while (L - i > 12) {
+    a = (a + w(i)) >>> 0; b = (b + w(i + 4)) >>> 0; c = (c + w(i + 8)) >>> 0;
+    a = ((a - c) >>> 0 ^ rot(c, 4)) >>> 0; c = (c + b) >>> 0;
+    b = ((b - a) >>> 0 ^ rot(a, 6)) >>> 0; a = (a + c) >>> 0;
+    c = ((c - b) >>> 0 ^ rot(b, 8)) >>> 0; b = (b + a) >>> 0;
+    a = ((a - c) >>> 0 ^ rot(c, 16)) >>> 0; c = (c + b) >>> 0;
+    b = ((b - a) >>> 0 ^ rot(a, 19)) >>> 0; a = (a + c) >>> 0;
+    c = ((c - b) >>> 0 ^ rot(b, 4)) >>> 0; b = (b + a) >>> 0;
+    i += 12;
+  }
+  const r = L - i;
+  if (r === 0) return BigInt(c) << 32n;
+  for (let k = r - 1; k >= 0; k--) {
+    const v = (s.charCodeAt(i + k) << (8 * (k % 4))) >>> 0;
+    if (k >= 8) c = (c + v) >>> 0; else if (k >= 4) b = (b + v) >>> 0; else a = (a + v) >>> 0;
+  }
+  c = ((c ^ b) - rot(b, 14)) >>> 0; a = ((a ^ c) - rot(c, 11)) >>> 0; b = ((b ^ a) - rot(a, 25)) >>> 0;
+  c = ((c ^ b) - rot(b, 16)) >>> 0; a = ((a ^ c) - rot(c, 4)) >>> 0; b = ((b ^ a) - rot(a, 14)) >>> 0;
+  c = ((c ^ b) - rot(b, 24)) >>> 0;
+  return (BigInt(b) << 32n) | BigInt(c);
+}
+async function openUop(file) {
+  const head = new DataView((await readBytes(file, 0, 28)).buffer);
+  if (head.getUint32(0, true) !== 0x50594D) throw new Error(`${file.name} is not a UOP file.`);
+  let next = Number(head.getBigInt64(12, true));
+  const entries = new Map(), seen = new Set();
+  while (next && !seen.has(next)) {
+    seen.add(next);
+    const h = new DataView((await readBytes(file, next, next + 12)).buffer);
+    const count = h.getInt32(0, true), nxt = Number(h.getBigInt64(4, true));
+    const t = new DataView((await readBytes(file, next + 12, next + 12 + count * 34)).buffer);
+    for (let k = 0; k < count; k++) {
+      const o = k * 34, off = Number(t.getBigInt64(o, true));
+      if (!off) continue;
+      entries.set(t.getBigUint64(o + 20, true), { off: off + t.getInt32(o + 8, true), len: t.getInt32(o + 16, true), comp: t.getInt16(o + 32, true) });
+    }
+    next = nxt;
+  }
+  return {
+    file, entries,
+    async read(name) {
+      const e = entries.get(uopHash(name.toLowerCase()));
+      if (!e) return null;
+      if (e.comp !== 0) throw new Error("Compressed UOP entries are not supported.");
+      return readBytes(file, e.off, e.off + e.len);
+    },
+    has(name) { return entries.has(uopHash(name.toLowerCase())); },
+  };
+}
+
+// ===========================================================================
+// tiledata.mul (64-bit flag layout, falls back to 32-bit)
+// ===========================================================================
+const F = { IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, FOLIAGE: 1 << 17, ROOF: 1 << 28 };
+function parseTiledata(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const longLand = 512 * (4 + 32 * 30), longStatic = 4 + 32 * 41;
+  const long = u8.length > longLand && (u8.length - longLand) % longStatic === 0;
+  const fs = long ? 8 : 4, le = fs + 22, se = fs + 33;
+  const name = (o) => { let s = ""; for (let k = 0; k < 20; k++) { const c = u8[o + k]; if (!c) break; s += String.fromCharCode(c); } return s.trim(); };
+  const land = { flags: new Uint32Array(0x4000), name: new Array(0x4000) };
+  let p = 0;
+  for (let g = 0; g < 512; g++) { p += 4; for (let i = 0; i < 32; i++, p += le) { const id = g * 32 + i; land.flags[id] = dv.getUint32(p, true); land.name[id] = name(p + fs + 2); } }
+  const groups = Math.floor((u8.length - p) / (4 + 32 * se));
+  const n = groups * 32;
+  const st = { flags: new Uint32Array(n), height: new Uint8Array(n), name: new Array(n) };
+  for (let g = 0; g < groups; g++) { p += 4; for (let i = 0; i < 32; i++, p += se) { const id = g * 32 + i; st.flags[id] = dv.getUint32(p, true); st.height[id] = u8[p + fs + 12]; st.name[id] = name(p + fs + 13); } }
+  return { land, st };
+}
+
+// ===========================================================================
+// Art: land diamonds and RLE statics, decoded to canvases on demand
+// ===========================================================================
+function c16(c) { return [((c >> 10) & 31) * 255 / 31 | 0, ((c >> 5) & 31) * 255 / 31 | 0, (c & 31) * 255 / 31 | 0]; }
+function decodeLand(u8) {
+  const img = new ImageData(44, 44), px = img.data;
+  let p = 0;
+  for (let row = 0; row < 44; row++) {
+    const width = row < 22 ? 2 + row * 2 : 44 - (row - 22) * 2, start = 22 - width / 2;
+    for (let i = 0; i < width && p + 1 < u8.length; i++, p += 2) {
+      const [r, g, b] = c16(u8[p] | (u8[p + 1] << 8)), o = (row * 44 + start + i) * 4;
+      px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+    }
+  }
+  return img;
+}
+function decodeStatic(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const w = dv.getUint16(4, true), h = dv.getUint16(6, true);
+  if (!w || !h || w > 1024 || h > 1024) return null;
+  const img = new ImageData(w, h), px = img.data, look = 8, data = 8 + h * 2;
+  for (let y = 0; y < h; y++) {
+    let pos = data + dv.getUint16(look + y * 2, true) * 2, x = 0;
+    while (pos + 4 <= u8.length) {
+      const xo = dv.getUint16(pos, true), run = dv.getUint16(pos + 2, true); pos += 4;
+      if (xo + run === 0) break;
+      x += xo;
+      for (let i = 0; i < run && pos + 1 < u8.length; i++, pos += 2, x++) {
+        if (x >= w) continue;
+        const c = dv.getUint16(pos, true);
+        if (!c) continue;
+        const [r, g, b] = c16(c), o = (y * w + x) * 4;
+        px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+      }
+    }
+  }
+  return img;
+}
+const Art = {
+  uop: null, mul: null, idx: null, cache: new Map(), pending: new Set(),
+  async open() {
+    const u = findAnywhere("artlegacymul.uop");
+    if (u) { this.uop = await openUop(u); return; }
+    const m = findAnywhere("art.mul"), i = findAnywhere("artidx.mul");
+    if (!m || !i) throw new Error("No art found: pick a folder with artLegacyMUL.uop (or art.mul + artidx.mul).");
+    this.mul = m; this.idx = new DataView((await readBytes(i, 0, i.size)).buffer);
+  },
+  async raw(index) {
+    if (this.uop) return this.uop.read(`build/artlegacymul/${String(index).padStart(8, "0")}.tga`);
+    if (index * 12 + 12 > this.idx.byteLength) return null;
+    const off = this.idx.getInt32(index * 12, true), len = this.idx.getInt32(index * 12 + 4, true);
+    return off < 0 || len <= 0 ? null : readBytes(this.mul, off, off + len);
+  },
+  /** Returns a canvas, null (no art), or undefined (loading; onReady fires later). */
+  get(index, onReady) {
+    if (this.cache.has(index)) return this.cache.get(index);
+    if (!this.pending.has(index)) {
+      this.pending.add(index);
+      this.raw(index).then(u8 => {
+        let cv = null;
+        const img = u8 && u8.length >= 8 ? (index < 0x4000 ? decodeLand(u8) : decodeStatic(u8)) : null;
+        if (img) { cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").putImageData(img, 0, 0); }
+        this.cache.set(index, cv); this.pending.delete(index); onReady?.();
+      }).catch(() => { this.cache.set(index, null); this.pending.delete(index); });
+    }
+    return undefined;
+  },
+};
+
+// ===========================================================================
+// Map: land + statics (statics editable per 8x8 block)
+// ===========================================================================
+const FACETS = { 0: ["Felucca", 7168, 4096], 1: ["Trammel", 7168, 4096], 2: ["Ilshenar", 2304, 1600], 3: ["Malas", 2560, 2048], 4: ["Tokuno", 1448, 1448], 5: ["TerMur", 1280, 4096] };
+const PLACES = {
+  0: [["Britain", 1495, 1629], ["Moonglow", 4442, 1172], ["Trinsic", 1823, 2821], ["Minoc", 2498, 561], ["Yew", 542, 985]],
+  1: [["Britain", 1495, 1629], ["Moonglow", 4442, 1172], ["Trinsic", 1823, 2821], ["Minoc", 2498, 561], ["Yew", 542, 985]],
+  2: [["Lakeshire", 1203, 1124], ["Mistas", 819, 1130]],
+  3: [["Luna", 989, 519], ["Umbra", 2049, 1344]],
+  4: [["Isamu-Jima moongate", 1169, 998], ["Makoto-Jima moongate", 802, 1204], ["Homare-Jima moongate", 270, 628]],
+  5: [["Royal City", 750, 3440]],
+};
+const M = { facet: 0, name: "", w: 0, h: 0, bw: 0, bh: 0, land: null, staidx: null, statics: null, blocks: new Map(), dirty: new Set() };
+
+function refreshMapList() {
+  const opts = [];
+  for (const p of picked.keys()) {
+    const m = /^map(\d)(?:legacymul\.uop|\.mul)$/.exec(baseOf(p));
+    if (!m) continue;
+    const dir = dirOf(p), f = +m[1];
+    if (!FACETS[f] || opts.some(o => o.dir === dir && o.f === f)) continue;
+    opts.push({ dir, f });
+  }
+  const sel = $("mapSel");
+  if (!opts.length) { sel.innerHTML = "<option>No map files found</option>"; sel.disabled = true; $("btnLoad").disabled = true; return; }
+  const root = Math.min(...opts.map(o => o.dir.split("/").length));
+  opts.sort((a, b) => (b.dir.split("/").length - a.dir.split("/").length) || a.f - b.f); // built maps (subfolders) first
+  sel.innerHTML = opts.map(o => {
+    const where = o.dir.split("/").length === root ? "client" : o.dir.split("/").pop();
+    return `<option value="${o.f}|${o.dir}">${FACETS[o.f][0]} (facet ${o.f}) · ${escapeHtml(where)}</option>`;
+  }).join("");
+  sel.disabled = false; $("btnLoad").disabled = false;
+}
+
+async function loadMap(f, dir) {
+  const [name, w, h] = FACETS[f];
+  const uop = findIn(dir, `map${f}legacymul.uop`), mul = findIn(dir, `map${f}.mul`);
+  const idx = findIn(dir, `staidx${f}.mul`), sta = findIn(dir, `statics${f}.mul`);
+  const blocks = (w / 8) * (h / 8);
+  let land;
+  if (uop) {
+    const u = await openUop(uop), parts = [];
+    for (let i = 0; u.has(`build/map${f}legacymul/${String(i).padStart(8, "0")}.dat`); i++) parts.push(await u.read(`build/map${f}legacymul/${String(i).padStart(8, "0")}.dat`));
+    land = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+    let o = 0; for (const p of parts) { land.set(p, o); o += p.length; }
+  } else if (mul) land = await readBytes(mul, 0, mul.size);
+  else throw new Error(`No land file for facet ${f}.`);
+  if (land.length < blocks * 196) throw new Error(`The land file is too small for ${name} (${w} x ${h}).`);
+  Object.assign(M, { facet: f, name, w, h, bw: w / 8, bh: h / 8, land, blocks: new Map(), dirty: new Set(),
+    staidx: idx ? await readBytes(idx, 0, idx.size) : new Uint8Array(blocks * 12).fill(255),
+    statics: sta ? await readBytes(sta, 0, sta.size) : new Uint8Array(0) });
+}
+function landAt(x, y) {
+  if (x < 0 || y < 0 || x >= M.w || y >= M.h) return { id: 0, z: 0 };
+  const o = ((x >> 3) * M.bh + (y >> 3)) * 196 + 4 + (((y & 7) << 3) + (x & 7)) * 3;
+  return { id: M.land[o] | (M.land[o + 1] << 8), z: (M.land[o + 2] << 24) >> 24 };
+}
+function blockStatics(bx, by) {
+  const key = bx * M.bh + by;
+  let b = M.blocks.get(key);
+  if (b) return b;
+  b = [];
+  const dv = new DataView(M.staidx.buffer, M.staidx.byteOffset), o = key * 12;
+  if (o + 12 <= M.staidx.length) {
+    const look = dv.getInt32(o, true), len = dv.getInt32(o + 4, true);
+    if (look >= 0 && len > 0 && look + len <= M.statics.length) {
+      const s = new DataView(M.statics.buffer, M.statics.byteOffset + look, len);
+      for (let k = 0; k + 7 <= len; k += 7)
+        b.push({ id: s.getUint16(k, true), x: s.getUint8(k + 2), y: s.getUint8(k + 3), z: s.getInt8(k + 4), hue: s.getUint16(k + 5, true) });
+    }
+  }
+  M.blocks.set(key, b);
+  return b;
+}
+const staticsAt = (x, y) => (x < 0 || y < 0 || x >= M.w || y >= M.h) ? [] : blockStatics(x >> 3, y >> 3).filter(s => s.x === (x & 7) && s.y === (y & 7));
+
+// ===========================================================================
+// Movement rules (close to ServUO's): person height 16, step up 2 onto items,
+// gentle land slopes, impassable land and statics block.
+// ===========================================================================
+let TD = null;
+const PERSON = 16, STEP = 2, LAND_CLIMB = 12;
+function landCorners(x, y) { return [landAt(x, y).z, landAt(x + 1, y).z, landAt(x + 1, y + 1).z, landAt(x, y + 1).z]; } // top right bottom left
+function landAvg(x, y) {
+  const [t, r, b, l] = landCorners(x, y);
+  return Math.abs(t - b) > Math.abs(l - r) ? Math.floor((l + r) / 2) : Math.floor((t + b) / 2);
+}
+function tdHeight(id) { return id < TD.st.height.length ? TD.st.height[id] : 0; }
+function tdFlags(id) { return id < TD.st.flags.length ? TD.st.flags[id] : 0; }
+function surfacesAt(x, y) {
+  const out = [];
+  const land = landAt(x, y);
+  if (!(TD.land.flags[land.id & 0x3FFF] & F.IMPASSABLE) && land.id !== 2) out.push({ top: landAvg(x, y), step: landAvg(x, y), land: true });
+  for (const s of staticsAt(x, y)) {
+    const fl = tdFlags(s.id), h = tdHeight(s.id);
+    if (fl & F.SURFACE) out.push({ top: s.z + h, step: s.z + ((fl & F.BRIDGE) ? (h >> 1) : h), item: s });
+  }
+  return out.sort((a, b) => b.top - a.top);
+}
+function blockedAt(x, y, z, except) {
+  for (const s of staticsAt(x, y)) {
+    if (s === except) continue;
+    const fl = tdFlags(s.id);
+    if (!(fl & (F.IMPASSABLE | F.SURFACE))) continue;
+    const top = s.z + Math.max(1, tdHeight(s.id));
+    if (s.z < z + PERSON && top > z) return true;
+  }
+  return false;
+}
+/** Where you'd stand after stepping onto (x, y) from altitude z, or null if you can't. */
+function stepTo(x, y, z) {
+  if (x < 0 || y < 0 || x >= M.w || y >= M.h) return null;
+  for (const c of surfacesAt(x, y)) {
+    const reach = c.land ? c.step <= z + LAND_CLIMB : c.step <= z + STEP;
+    if (reach && !blockedAt(x, y, c.top, c.item)) return c.top;
+  }
+  return null;
+}
+const topSurface = (x, y) => { const s = surfacesAt(x, y); return s.length ? s[0].top : landAvg(x, y); };
+
+// ===========================================================================
+// Rendering
+// ===========================================================================
+const view = $("view"), ctx = view.getContext("2d");
+const P = { x: 0, y: 0, z: 0, dir: 0 };
+let zoom = 1, hover = null, mode = "walk", placeId = null, loaded = false;
+let redrawQueued = false;
+function requestDraw() { if (!redrawQueued) { redrawQueued = true; requestAnimationFrame(() => { redrawQueued = false; draw(); }); } }
+
+function affineTri(img, s, d) {
+  const [x0, y0] = s[0], [x1, y1] = s[1], [x2, y2] = s[2], [u0, v0] = d[0], [u1, v1] = d[1], [u2, v2] = d[2];
+  const den = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+  if (!den) return;
+  const a = ((u1 - u0) * (y2 - y0) - (u2 - u0) * (y1 - y0)) / den, b = ((v1 - v0) * (y2 - y0) - (v2 - v0) * (y1 - y0)) / den;
+  const c = ((u2 - u0) * (x1 - x0) - (u1 - u0) * (x2 - x0)) / den, e = ((v2 - v0) * (x1 - x0) - (v1 - v0) * (x2 - x0)) / den;
+  const cx = (u0 + u1 + u2) / 3, cy = (v0 + v1 + v2) / 3, grow = p => [p[0] + Math.sign(p[0] - cx) * 0.6, p[1] + Math.sign(p[1] - cy) * 0.6];
+  const g = d.map(grow);
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(g[0][0], g[0][1]); ctx.lineTo(g[1][0], g[1][1]); ctx.lineTo(g[2][0], g[2][1]); ctx.closePath(); ctx.clip();
+  ctx.transform(a, b, c, e, u0 - a * x0 - c * y0, v0 - b * x0 - e * y0);
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+}
+
+function drawLand(x, y, sx, sy, Z) {
+  const land = landAt(x, y), [zt, zr, zb, zl] = landCorners(x, y);
+  const img = Art.get(land.id & 0x3FFF, requestDraw);
+  const T = [sx, sy - zt * Z], R = [sx + 22 * zoom, sy + 22 * zoom - zr * Z], B = [sx, sy + 44 * zoom - zb * Z], L = [sx - 22 * zoom, sy + 22 * zoom - zl * Z];
+  if (!img) { // loading or missing: a neutral diamond so the shape still reads
+    ctx.fillStyle = img === null ? "#1b2328" : "#253038";
+    ctx.beginPath(); ctx.moveTo(...T); ctx.lineTo(...R); ctx.lineTo(...B); ctx.lineTo(...L); ctx.closePath(); ctx.fill();
+    return;
+  }
+  if (zt === zr && zt === zb && zt === zl) {
+    ctx.drawImage(img, sx - 22 * zoom, sy - zt * Z, 44 * zoom, 44 * zoom);
+    return;
+  }
+  affineTri(img, [[22, 0], [44, 22], [0, 22]], [T, R, L]);
+  affineTri(img, [[44, 22], [22, 44], [0, 22]], [R, B, L]);
+  const slope = (zr + zb) - (zt + zl) + (zl - zr) * 0.5;
+  const light = Math.max(0.45, Math.min(1.6, 1 + slope * 0.035));
+  if (Math.abs(light - 1) > 0.02) {
+    ctx.fillStyle = light < 1 ? `rgba(0,0,0,${(1 - light).toFixed(3)})` : `rgba(255,255,230,${((light - 1) * 0.35).toFixed(3)})`;
+    ctx.beginPath(); ctx.moveTo(...T); ctx.lineTo(...R); ctx.lineTo(...B); ctx.lineTo(...L); ctx.closePath(); ctx.fill();
+  }
+}
+function drawStatic(s, sx, sy, Z) {
+  const img = Art.get(0x4000 + s.id, requestDraw);
+  if (!img) return;
+  ctx.drawImage(img, sx - img.width * zoom / 2, sy + (44 - img.height) * zoom - s.z * Z, img.width * zoom, img.height * zoom);
+}
+function drawPlayer(sx, sy, Z) {
+  const fx = sx, fy = sy + 22 * zoom - P.z * Z, k = zoom;
+  ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(fx, fy, 12 * k, 5 * k, 0, 0, Math.PI * 2); ctx.fill();
+  // a robed figure in ankh gold
+  ctx.fillStyle = "#d6aa4c"; ctx.strokeStyle = "#3a2a08"; ctx.lineWidth = 1.5 * k;
+  ctx.beginPath(); ctx.moveTo(fx - 9 * k, fy); ctx.lineTo(fx - 5 * k, fy - 34 * k); ctx.lineTo(fx + 5 * k, fy - 34 * k); ctx.lineTo(fx + 9 * k, fy); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(fx, fy - 41 * k, 7 * k, 0, Math.PI * 2); ctx.fillStyle = "#e8c98a"; ctx.fill(); ctx.stroke();
+  // facing marker
+  const d = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]][P.dir];
+  ctx.fillStyle = "#fff4d6"; ctx.beginPath(); ctx.arc(fx + (d[0] - d[1]) * 6 * k, fy - 41 * k + (d[0] + d[1]) * 3 * k, 2 * k, 0, Math.PI * 2); ctx.fill();
+}
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1, rect = view.getBoundingClientRect();
+  if (view.width !== Math.round(rect.width * dpr) || view.height !== Math.round(rect.height * dpr)) { view.width = Math.round(rect.width * dpr); view.height = Math.round(rect.height * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#07090a"; ctx.fillRect(0, 0, rect.width, rect.height);
+  if (!loaded) return;
+  ctx.imageSmoothingEnabled = zoom < 1;
+  const Z = 4 * zoom, cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
+  const R = Math.ceil(Math.max(rect.width, rect.height + 400) / (22 * zoom) / 2) + 3;
+  for (let sum = -2 * R; sum <= 2 * R; sum++) {
+    for (let dx = Math.max(-R, sum - R); dx <= Math.min(R, sum + R); dx++) {
+      const dy = sum - dx, x = P.x + dx, y = P.y + dy;
+      if (x < 0 || y < 0 || x >= M.w || y >= M.h) continue;
+      const sx = cx + (dx - dy) * 22 * zoom, sy = cy + (dx + dy) * 22 * zoom;
+      if (sx < -80 || sx > rect.width + 80 || sy < -300 || sy > rect.height + 600) continue;
+      drawLand(x, y, sx, sy, Z);
+      const list = staticsAt(x, y);
+      if (list.length) list.slice().sort((a, b) => a.z - b.z || tdHeight(a.id) - tdHeight(b.id)).forEach(s => {
+        if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
+        drawStatic(s, sx, sy, Z);
+      });
+      if (dx === 0 && dy === 0) {
+        drawPlayer(sx, sy, Z);
+        list.filter(s => s.z > P.z).sort((a, b) => a.z - b.z).forEach(s => drawStatic(s, sx, sy, Z));
+      }
+    }
+  }
+  if (hover) {
+    const dx = hover.x - P.x, dy = hover.y - P.y, sx = cx + (dx - dy) * 22 * zoom, sy = cy + (dx + dy) * 22 * zoom;
+    const [zt, zr, zb, zl] = landCorners(hover.x, hover.y);
+    ctx.strokeStyle = placeId != null ? "#d6aa4c" : "rgba(255,255,255,.75)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx, sy - zt * Z); ctx.lineTo(sx + 22 * zoom, sy + 22 * zoom - zr * Z); ctx.lineTo(sx, sy + 44 * zoom - zb * Z); ctx.lineTo(sx - 22 * zoom, sy + 22 * zoom - zl * Z); ctx.closePath(); ctx.stroke();
+    if (placeId != null) { ctx.globalAlpha = 0.6; drawStatic({ id: placeId, z: topSurface(hover.x, hover.y) }, sx, sy, Z); ctx.globalAlpha = 1; }
+  }
+  status();
+}
+
+function screenToCell(mx, my) {
+  const rect = view.getBoundingClientRect(), Z = 4 * zoom;
+  const cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
+  // Try the flat guess, then refine using the ground altitude around it.
+  let best = null;
+  for (const zGuess of [P.z, P.z - 20, P.z + 20, P.z - 40, P.z + 40]) {
+    const u = (mx - cx) / (22 * zoom), v = (my - (cy - zGuess * Z) - 22 * zoom) / (22 * zoom);
+    const x = P.x + Math.round((u + v) / 2), y = P.y + Math.round((v - u) / 2);
+    if (x < 0 || y < 0 || x >= M.w || y >= M.h) continue;
+    const err = Math.abs(landAvg(x, y) - zGuess);
+    if (!best || err < best.err) best = { x, y, err };
+  }
+  return best;
+}
+
+function status() {
+  $("fPos").textContent = `${P.x}, ${P.y}, z ${P.z}`;
+  $("fMap").textContent = `${M.name} ${M.w}×${M.h}`;
+  if (!hover) { $("fCur").textContent = $("fGround").textContent = $("fTop").textContent = "–"; return; }
+  const l = landAt(hover.x, hover.y), st = staticsAt(hover.x, hover.y).sort((a, b) => b.z - a.z)[0];
+  $("fCur").textContent = `${hover.x}, ${hover.y}`;
+  $("fGround").textContent = `${TD.land.name[l.id & 0x3FFF] || "?"} 0x${l.id.toString(16).toUpperCase().padStart(4, "0")} z ${l.z}`;
+  $("fTop").textContent = st ? `${TD.st.name[st.id] || "?"} 0x${st.id.toString(16).toUpperCase().padStart(4, "0")} z ${st.z}` : "–";
+}
+
+// ===========================================================================
+// Input
+// ===========================================================================
+const keys = new Set();
+const KEYDIR = { ArrowUp: [-1, -1], w: [-1, -1], ArrowRight: [1, -1], d: [1, -1], ArrowDown: [1, 1], s: [1, 1], ArrowLeft: [-1, 1], a: [-1, 1] };
+const DIRS = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
+let lastStep = 0;
+function moveTick(t) {
+  if (loaded && keys.size) {
+    let dx = 0, dy = 0;
+    for (const k of keys) { const d = KEYDIR[k]; if (d) { dx += d[0]; dy += d[1]; } }
+    dx = Math.sign(dx); dy = Math.sign(dy);
+    const interval = keys.has("Shift") ? 100 : 200;
+    if ((dx || dy) && t - lastStep >= interval) { lastStep = t; tryStep(dx, dy); }
+  }
+  requestAnimationFrame(moveTick);
+}
+requestAnimationFrame(moveTick);
+function tryStep(dx, dy) {
+  P.dir = DIRS.findIndex(d => d[0] === dx && d[1] === dy);
+  const nx = P.x + dx, ny = P.y + dy;
+  if (mode === "fly") {
+    if (nx < 0 || ny < 0 || nx >= M.w || ny >= M.h) return;
+    P.x = nx; P.y = ny; P.z = topSurface(nx, ny);
+  } else {
+    const z = stepTo(nx, ny, P.z);
+    if (z === null) { bump(); requestDraw(); return; }
+    P.x = nx; P.y = ny; P.z = z;
+  }
+  requestDraw();
+}
+let bumpTimer = null;
+function bump() { toast("Blocked", 500); }
+
+window.addEventListener("keydown", e => {
+  if (e.target.matches("input, select, textarea")) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if (e.key === "Delete" || e.key === "Backspace") { if (hover) { e.preventDefault(); removeTop(hover.x, hover.y); } return; }
+  if (e.key === "Escape") { setPlace(null); return; }
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (KEYDIR[k] || k === "Shift") { keys.add(k); if (KEYDIR[k]) e.preventDefault(); }
+});
+window.addEventListener("keyup", e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys.delete(k); });
+window.addEventListener("blur", () => keys.clear());
+view.addEventListener("mousemove", e => { if (!loaded) return; const r = view.getBoundingClientRect(); hover = screenToCell(e.clientX - r.left, e.clientY - r.top); requestDraw(); });
+view.addEventListener("mouseleave", () => { hover = null; requestDraw(); });
+view.addEventListener("contextmenu", e => { e.preventDefault(); if (hover) removeTop(hover.x, hover.y); });
+view.addEventListener("click", e => {
+  view.focus();
+  if (!loaded || !hover) return;
+  if (placeId != null) placeAt(hover.x, hover.y, placeId);
+  else if (mode === "fly") { P.x = hover.x; P.y = hover.y; P.z = topSurface(P.x, P.y); requestDraw(); }
+});
+view.addEventListener("wheel", e => { e.preventDefault(); zoom = Math.max(0.5, Math.min(2, zoom * Math.exp(-e.deltaY * 0.0015))); requestDraw(); }, { passive: false });
+new ResizeObserver(requestDraw).observe($("stage"));
+
+function setMode(m) { mode = m; $("modeWalk").setAttribute("aria-pressed", m === "walk"); $("modeFly").setAttribute("aria-pressed", m === "fly"); view.focus(); }
+$("modeWalk").onclick = () => setMode("walk");
+$("modeFly").onclick = () => setMode("fly");
+function jump(x, y) {
+  if (!loaded || !(x >= 0 && y >= 0 && x < M.w && y < M.h)) { toast("That spot is outside the map."); return; }
+  P.x = x | 0; P.y = y | 0; P.z = topSurface(P.x, P.y); requestDraw(); view.focus();
+}
+$("btnJump").onclick = () => jump(+$("jx").value, +$("jy").value);
+$("places").onchange = e => { if (e.target.value) { const [x, y] = e.target.value.split(",").map(Number); jump(x, y); e.target.value = ""; } };
+
+let toastTimer = null;
+function toast(text, ms = 2500) { const t = $("toast"); t.textContent = text; t.style.display = "block"; clearTimeout(toastTimer); if (ms) toastTimer = setTimeout(() => t.style.display = "none", ms); }
+const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ===========================================================================
+// Editing statics
+// ===========================================================================
+const undoStack = [];
+function editBlock(x, y, change) {
+  const key = (x >> 3) * M.bh + (y >> 3), list = blockStatics(x >> 3, y >> 3);
+  undoStack.push({ key, before: list.slice() });
+  if (undoStack.length > 200) undoStack.shift();
+  M.blocks.set(key, change(list.slice()));
+  M.dirty.add(key); syncEdits(); requestDraw();
+}
+function placeAt(x, y, id) {
+  const z = topSurface(x, y);
+  editBlock(x, y, l => { l.push({ id, x: x & 7, y: y & 7, z, hue: 0 }); return l; });
+}
+function removeTop(x, y) {
+  const top = staticsAt(x, y).sort((a, b) => b.z - a.z || tdHeight(b.id) - tdHeight(a.id))[0];
+  if (!top) { toast("Nothing to remove here."); return; }
+  editBlock(x, y, l => l.filter(s => s !== top));
+}
+function undo() {
+  const u = undoStack.pop(); if (!u) return;
+  M.blocks.set(u.key, u.before); syncEdits(); requestDraw();
+}
+function syncEdits() {
+  $("btnUndo").disabled = !undoStack.length;
+  $("btnExport").disabled = !M.dirty.size;
+  $("editCount").textContent = M.dirty.size ? `${undoStack.length} change${undoStack.length === 1 ? "" : "s"} in ${M.dirty.size} block${M.dirty.size === 1 ? "" : "s"}.` : "No edits yet.";
+}
+$("btnUndo").onclick = undo;
+
+function setPlace(id) {
+  placeId = id;
+  $("btnClearSel").disabled = id == null;
+  $("selNote").innerHTML = id == null
+    ? `Pick an item, then click a tile to place it on the ground there. <span class="kbd">Delete</span> or right-click removes the top static under the cursor. <span class="kbd">Ctrl+Z</span> undoes.`
+    : `Placing <b>${escapeHtml(TD.st.name[id] || "item")}</b> <span class="kbd">0x${id.toString(16).toUpperCase().padStart(4, "0")}</span>: click tiles to place. <span class="kbd">Esc</span> stops.`;
+  document.querySelectorAll("#results button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.id === id));
+  requestDraw();
+}
+$("btnClearSel").onclick = () => setPlace(null);
+
+let searchTimer = null;
+$("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); });
+function runSearch() {
+  if (!TD) return;
+  const q = $("search").value.trim().toLowerCase();
+  const out = $("results");
+  if (!q) { out.innerHTML = ""; return; }
+  const hex = /^(0x)?[0-9a-f]{1,4}$/.test(q) ? parseInt(q.replace(/^0x/, ""), 16) : null;
+  const ids = [];
+  for (let id = 0; id < TD.st.name.length && ids.length < 60; id++) {
+    const n = TD.st.name[id];
+    if ((hex !== null && id === hex) || (n && n.toLowerCase().includes(q))) ids.push(id);
+  }
+  out.innerHTML = ids.length ? ids.map(id => `<button data-id="${id}" aria-pressed="${id === placeId}"><canvas width="44" height="44" data-thumb="${id}"></canvas><span><span class="nm">${escapeHtml(TD.st.name[id] || "(unnamed)")}</span><br><span class="id">0x${id.toString(16).toUpperCase().padStart(4, "0")}</span></span></button>`).join("")
+    : `<p class="note">No statics named like that.</p>`;
+  out.querySelectorAll("canvas[data-thumb]").forEach(cv => thumb(cv, +cv.dataset.thumb));
+}
+function thumb(cv, id) {
+  const paint = () => {
+    const img = Art.cache.get(0x4000 + id); if (!img) return;
+    const c = cv.getContext("2d"), s = Math.min(44 / img.width, 44 / img.height, 1);
+    c.clearRect(0, 0, 44, 44); c.drawImage(img, (44 - img.width * s) / 2, 44 - img.height * s, img.width * s, img.height * s);
+  };
+  if (Art.get(0x4000 + id, paint)) paint();
+}
+$("results").onclick = e => { const b = e.target.closest("button[data-id]"); if (b) setPlace(+b.dataset.id === placeId ? null : +b.dataset.id); };
+
+// ===========================================================================
+// Export: rebuild staidx/statics and zip them (stored, no compression)
+// ===========================================================================
+function buildStatics() {
+  const total = M.bw * M.bh, idx = new Uint8Array(total * 12), idv = new DataView(idx.buffer);
+  const chunks = []; let size = 0;
+  for (let key = 0; key < total; key++) {
+    const list = M.blocks.get(key) ?? blockStatics(Math.floor(key / M.bh), key % M.bh);
+    if (!M.dirty.has(key)) M.blocks.delete(key); // keep memory low while exporting
+    if (!list.length) { idv.setInt32(key * 12, -1, true); idv.setInt32(key * 12 + 4, -1, true); idv.setInt32(key * 12 + 8, 0, true); continue; }
+    const b = new Uint8Array(list.length * 7), bv = new DataView(b.buffer);
+    list.forEach((s, i) => { bv.setUint16(i * 7, s.id, true); b[i * 7 + 2] = s.x; b[i * 7 + 3] = s.y; bv.setInt8(i * 7 + 4, s.z); bv.setUint16(i * 7 + 5, s.hue, true); });
+    idv.setInt32(key * 12, size, true); idv.setInt32(key * 12 + 4, b.length, true); idv.setInt32(key * 12 + 8, 0, true);
+    chunks.push(b); size += b.length;
+  }
+  const data = new Uint8Array(size); let o = 0; for (const c of chunks) { data.set(c, o); o += c.length; }
+  return { idx, data };
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zip(files) {
+  const parts = [], central = []; let offset = 0;
+  for (const { name, data } of files) {
+    const nm = new TextEncoder().encode(name), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nm.length, true);
+    parts.push(new Uint8Array(h.buffer), nm, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), nm);
+    offset += 30 + nm.length + data.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+}
+let downloads = null;
+$("btnExport").onclick = async () => {
+  const { idx, data } = buildStatics();
+  const blob = zip([{ name: `staidx${M.facet}.mul`, data: idx }, { name: `statics${M.facet}.mul`, data }]);
+  window.__lastExport = blob; // for testing
+  if (!downloads) { toast("Saving files needs the download permission, which this view doesn't have. Open the page on claude.ai.", 5000); return; }
+  try { await downloads.save({ filename: `${M.name.toLowerCase()}-statics.zip`, data: blob }); toast("Exported."); }
+  catch (e) { if (e?.code !== "declined") toast("Export failed: " + (e?.message || e), 5000); }
+};
+
+// ===========================================================================
+// Loading
+// ===========================================================================
+$("pickDir").onchange = e => { addFiles(e.target.files); toast(`${e.target.files.length.toLocaleString()} files found.`); };
+$("pickFiles").onchange = e => { addFiles(e.target.files); toast(`${e.target.files.length} files added.`); };
+$("btnLoad").onclick = async () => {
+  const [f, dir] = $("mapSel").value.split("|");
+  try {
+    $("btnLoad").disabled = true; toast("Loading…", 0);
+    const tdFile = findAnywhere("tiledata.mul");
+    if (!tdFile) throw new Error("tiledata.mul wasn't found. Pick your client folder.");
+    TD = parseTiledata(await readBytes(tdFile, 0, tdFile.size));
+    if (!Art.uop && !Art.mul) await Art.open();
+    await loadMap(+f, dir);
+    loaded = true; undoStack.length = 0; syncEdits();
+    $("welcome").style.display = "none";
+    $("places").innerHTML = `<option value="">Known places…</option>` + (PLACES[M.facet] || []).map(p => `<option value="${p[1]},${p[2]}">${p[0]}</option>`).join("");
+    const start = (PLACES[M.facet] || [["", M.w >> 1, M.h >> 1]])[0];
+    jump(start[1], start[2]);
+    toast(`${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
+    runSearch();
+  } catch (e) { toast("Couldn't load: " + (e?.message || e), 6000); }
+  finally { $("btnLoad").disabled = false; }
+};
+if (window.claude?.use) claude.use("downloads").then(d => { downloads = d; });
+draw();
+</script>
+</body>
+</html>

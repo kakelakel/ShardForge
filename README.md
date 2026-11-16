@@ -40,6 +40,19 @@ haven't kept up with modern clients. This project tries to fill that gap.
 Shortcuts: B paint, G fill, R raise, L lower, S smooth, F flatten, C/M fewer/more plants, I pick, `[` `]` brush
 size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 
+## Walk
+
+`walk/index.html` is an ultralight client for walking a map at ground level, with your own client's art:
+
+- Open your UO client folder (built maps in subfolders, like `ShardForge-test`, are found too), pick a map, load.
+- Isometric view with stretched, lit terrain and statics; arrow keys / WASD to walk, Shift to run.
+- UO-like movement: impassable land (water, mountain rock), trees and walls block; you step up 2 onto items
+  and climb gentle slopes. Fly mode goes anywhere.
+- Search statics by name or hex id, click to place on the ground, Delete/right-click to remove, Ctrl+Z to undo.
+- Export the edited `staidx#.mul` + `statics#.mul` as a zip.
+
+Everything is read locally in the browser; only the art file, tiledata and one map are read.
+
 ## Roadmap
 
 1. ✅ **Reader + renderer**: map, statics, tiledata, radarcol (MUL and UOP), facet to PNG.
@@ -52,8 +65,8 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 7. **In-game test**: load a built facet in ClassicUO + ServUO.
 8. **Real tile art in the editor** when zoomed in (the art reader already exists in Core).
 9. **Coastlines**: shallow-water statics along shores, like the original maps.
-10. **Walk mode**: an ultralight isometric client to walk the world at ground level and place statics,
-    houses and other multis where you stand; export, or later sync live with a server.
+10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
+    Next: multis (whole houses), hues, animated character, live sync with a server.
 11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
 
 ## Requirements
@@ -87,6 +100,7 @@ players arriving through a public moongate land on solid ground.
 | Path | What |
 |---|---|
 | `editor` | Browser world editor (single HTML file) |
+| `walk` | Browser walk-around client (single HTML file) |
 | `src/ShardForge.Core` | File formats (UOP, map, statics, tiledata, radarcol), project build, rendering, PNG output |
 | `src/ShardForge.Cli` | `shardforge` command-line tool |
 | `tests/ShardForge.Tests` | Unit tests (synthetic data, no game files needed) |
