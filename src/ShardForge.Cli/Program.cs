@@ -11,7 +11,9 @@ ShardForge - forge your own shard.
 Usage:
   shardforge info   <clientDir> <facet>
   shardforge render <clientDir> <facet> <out.png> [--scale N] [--no-statics] [--no-shade]
-  shardforge build  <project.shardforge.json> <outDir> [--facet N] [--client <clientDir>]
+  shardforge build  <project.shardforge.json> <outDir> [--facet N] [--client <clientDir>] [--no-transitions]
+  shardforge iso    <mapDir> <facet> <x> <y> <radius> <out.png> [--client <clientDir>] [--size W H] [--no-statics]
+  shardforge mine-transitions <clientDir> <out.json> <facet,facet,...>
   shardforge tiles  <clientDir> <facet> <name,name,...>
   shardforge uop    <file.uop>
 
@@ -26,6 +28,9 @@ try
         ["render", var dir, var f, var output, .. var rest] => Render(dir, int.Parse(f), output, rest),
         ["uop", var path] => DumpUop(path),
         ["build", var project, var outDir, .. var rest] => Build(project, outDir, rest),
+        ["iso", var mapDir, var f, var cx, var cy, var r, var output, .. var rest] =>
+            Iso(mapDir, int.Parse(f), int.Parse(cx), int.Parse(cy), int.Parse(r), output, rest),
+        ["mine-transitions", var dir, var output, var facets] => MineTransitions(dir, output, facets),
         ["tiles", var dir, var f, var filter] => TileStats(dir, int.Parse(f), filter),
         _ => Fail(Usage),
     };
@@ -88,19 +93,21 @@ static int Build(string projectPath, string outDir, string[] rest)
 {
     int facetIndex = 0;
     string? client = null;
+    bool transitions = true;
     for (int i = 0; i < rest.Length; i++)
     {
         switch (rest[i])
         {
             case "--facet" when i + 1 < rest.Length: facetIndex = int.Parse(rest[++i]); break;
             case "--client" when i + 1 < rest.Length: client = rest[++i]; break;
+            case "--no-transitions": transitions = false; break;
             default: return Fail($"Unknown option '{rest[i]}'.\n\n{Usage}");
         }
     }
 
     var sw = Stopwatch.StartNew();
     var project = ShardForge.Core.Project.ShardProject.Load(projectPath);
-    var facet = project.Build(facetIndex);
+    var facet = project.Build(facetIndex, transitions ? ShardForge.Core.Terrain.TransitionTable.BuiltIn : null);
     var files = FacetWriter.WriteAll(facet, outDir, facetIndex);
     Console.WriteLine($"Built '{project.Name}' ({facet.Width} x {facet.Height}, {facet.StaticCount:N0} statics) as facet {facetIndex} in {sw.ElapsedMilliseconds} ms:");
     foreach (var f in files) Console.WriteLine($"  {f} ({new FileInfo(f).Length:N0} bytes)");
@@ -123,6 +130,47 @@ static int Build(string projectPath, string outDir, string[] rest)
         Console.WriteLine($"Preview with the client's radar colours: {png}");
     }
     return landOk && staticsOk && mulOk ? 0 : 2;
+}
+
+static int Iso(string mapDir, int facetIndex, int cx, int cy, int radius, string output, string[] rest)
+{
+    string client = mapDir; bool statics = true; int? w = null, h = null;
+    for (int i = 0; i < rest.Length; i++)
+    {
+        switch (rest[i])
+        {
+            case "--client" when i + 1 < rest.Length: client = rest[++i]; break;
+            case "--size" when i + 2 < rest.Length: w = int.Parse(rest[++i]); h = int.Parse(rest[++i]); break;
+            case "--no-statics": statics = false; break;
+            default: return Fail($"Unknown option '{rest[i]}'.\n\n{Usage}");
+        }
+    }
+    var info = w is int ww && h is int hh ? new FacetInfo(facetIndex, $"facet {facetIndex}", ww, hh) : null;
+    var facet = FacetLoader.Load(mapDir, facetIndex, info);
+    using var art = new ShardForge.Core.Art.ArtReader(client);
+    var tiles = TileData.Load(Path.Combine(client, "tiledata.mul"));
+    var (iw, ih, rgb) = IsoRenderer.Render(facet, art, tiles, cx, cy, radius, statics);
+    PngWriter.WriteRgb(output, iw, ih, rgb);
+    Console.WriteLine($"Rendered {radius * 2 + 1} x {radius * 2 + 1} tiles around {cx},{cy} to {output} ({iw} x {ih})");
+    return 0;
+}
+
+static int MineTransitions(string dir, string output, string facetList)
+{
+    var facets = facetList.Split(',').Select(f => FacetLoader.Load(dir, int.Parse(f))).ToList();
+    using var art = File.Exists(Path.Combine(dir, "artLegacyMUL.uop")) || File.Exists(Path.Combine(dir, "art.mul"))
+        ? new ShardForge.Core.Art.ArtReader(dir) : null;
+    var table = ShardForge.Core.Terrain.TransitionMiner.Mine(facets, averageColor: art is null ? null : art.LandAverage);
+    table.Save(output);
+    var tiles = TileData.Load(Path.Combine(dir, "tiledata.mul"));
+    Console.WriteLine($"{table.Source}: {table.Pairs.Count} terrain pairs");
+    foreach (var (pair, byPattern) in table.Pairs.OrderByDescending(p => p.Value.Values.Sum(l => l.Sum(c => c.Count))))
+    {
+        int total = byPattern.Values.Sum(l => l.Sum(c => c.Count));
+        var patterns = string.Join(" ", Enumerable.Range(1, 14).Select(p => byPattern.ContainsKey(p.ToString()) ? p.ToString("X") : "."));
+        Console.WriteLine($"  {pair,-20} {total,8:N0} uses   patterns [{patterns}]");
+    }
+    return 0;
 }
 
 static int TileStats(string dir, int facetIndex, string filter)

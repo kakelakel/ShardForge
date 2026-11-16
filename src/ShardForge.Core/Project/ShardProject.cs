@@ -80,8 +80,12 @@ public sealed class ShardProject
         }
     }
 
-    /// <summary>Bakes the painted layers into a facet: land tiles + altitude, then populated statics.</summary>
-    public Facet Build(int facetIndex)
+    /// <summary>
+    /// Bakes the painted layers into a facet: land tiles + altitude, then populated statics.
+    /// With a transition table, cells on a border between two terrains get the matching edge or corner
+    /// tile. A cell's corners are the terrains of itself and its east, south and south-east neighbours.
+    /// </summary>
+    public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null)
     {
         byte[] terrain = Convert.FromBase64String(Layers.Terrain);
         byte[] height = Convert.FromBase64String(Layers.Height);
@@ -103,6 +107,8 @@ public sealed class ShardProject
             var def = Terrains[t];
 
             ushort tile = (ushort)def.LandTiles[(int)(HRand(x, y, Seed, 0) * def.LandTiles.Length)];
+            if (transitions is not null && TransitionTile(terrain, x, y, transitions) is int edge)
+                tile = (ushort)edge;
             sbyte z = def.FixedZ is int fz ? (sbyte)fz : (sbyte)height[i];
             facet.SetLand(x, y, new LandCell(tile, z));
 
@@ -123,5 +129,29 @@ public sealed class ShardProject
         for (int b = 0; b < blockStatics.Length; b++)
             if (blockStatics[b] is { } list) facet.Statics[b] = list.ToArray();
         return facet;
+    }
+
+    private int? TransitionTile(byte[] terrain, int x, int y, ShardForge.Core.Terrain.TransitionTable table)
+    {
+        int x1 = Math.Min(x + 1, Width - 1), y1 = Math.Min(y + 1, Height - 1);
+        Span<int> c = [terrain[x + y * Width], terrain[x1 + y * Width], terrain[x + y1 * Width], terrain[x1 + y1 * Width]];
+        int own = c[0];
+        if (c[1] == own && c[2] == own && c[3] == own) return null;
+
+        // The other terrain: the most common non-own corner (three-way junctions collapse onto it).
+        int other = -1, otherCount = 0;
+        for (int i = 1; i < 4; i++)
+        {
+            if (c[i] == own) continue;
+            int n = 0;
+            for (int j = 1; j < 4; j++) if (c[j] == c[i]) n++;
+            if (n > otherCount) { other = c[i]; otherCount = n; }
+        }
+
+        var corners = ShardForge.Core.Terrain.Corners.None;
+        for (int i = 0; i < 4; i++)
+            if (c[i] != own) corners |= (ShardForge.Core.Terrain.Corners)(1 << i);
+
+        return table.Pick(Terrains[own].Key, Terrains[other].Key, corners, HRand(x, y, Seed, 50));
     }
 }

@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Terrain\transitions.json" LogicalName="ShardForge.Core.Terrain.transitions.json" />
+  </ItemGroup>
+
 </Project>
