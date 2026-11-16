@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShardForge.Cli/ShardForge.Cli.csproj" />
+    <Project Path="src/ShardForge.Core/ShardForge.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShardForge.Tests/ShardForge.Tests.csproj" />
+  </Folder>
+</Solution>
