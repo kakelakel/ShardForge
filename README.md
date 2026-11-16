@@ -48,7 +48,13 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 - Isometric view with stretched, lit terrain and statics; arrow keys / WASD to walk, Shift to run.
 - UO-like movement: impassable land (water, mountain rock), trees and walls block; you step up 2 onto items
   and climb gentle slopes. Fly mode goes anywhere.
-- Search statics by name or hex id, click to place on the ground, Delete/right-click to remove, Ctrl+Z to undo.
+- **Builder palette**: ~36,000 statics with art in a category tree (Nature, Building, Furniture, Lighting, Decor,
+  Crafting, Items, Ships & siege, Magic & special, Other) built from tiledata names and flags; search by name or
+  hex id; Favourites and Recent (kept in your browser); an Animated tab.
+- **Animated statics** (fires, water, forges...) animate in the world and in the palette, from `animdata.mul`.
+- **Placement modes**: single, line, rectangle fill, scatter brush (with density) and erase brush. Select several
+  items and each placement picks one at random. Height offset (PgUp/PgDn), Alt-click picks up an item from the
+  world, ghosts preview exactly what will be placed, and every click or stroke is one undo step.
 - Export the edited `staidx#.mul` + `statics#.mul` as a zip.
 
 Everything is read locally in the browser; only the art file, tiledata and one map are read.
@@ -66,6 +72,7 @@ Everything is read locally in the browser; only the art file, tiledata and one m
 8. **Real tile art in the editor** when zoomed in (the art reader already exists in Core).
 9. **Coastlines**: shallow-water statics along shores, like the original maps.
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
+    Builder with categories, favourites, animation and placement modes.
     Next: multis (whole houses), hues, animated character, live sync with a server.
 11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
 12. **ShardForge Server**: host the editor and Walk from your own PC (a small self-hosted server alongside

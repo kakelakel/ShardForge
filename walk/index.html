@@ -45,7 +45,7 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; backg
 header .spacer { flex: 1; }
 header .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
-main { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
 #stage { position: relative; min-width: 0; min-height: 0; background: #07090a; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
 #toast {
@@ -69,11 +69,37 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: v
 .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
 .kbd { font: 11px var(--font-mono); color: var(--muted); }
 #search { width: 100%; }
-#results { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; margin-top: 8px; }
-#results button { display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: center; text-align: left; padding: 4px 6px; }
-#results canvas { width: 44px; height: 44px; image-rendering: pixelated; background: #0a0e10; border-radius: 4px; }
-#results .nm { font-size: 13px; }
-#results .id { font: 11px var(--font-mono); color: var(--muted); }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.tabs button { font-size: 12px; padding: 4px 9px; border-radius: 999px; }
+.tree { max-height: 230px; overflow-y: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.tree details > summary { cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; justify-content: space-between; gap: 6px; list-style: none; }
+.tree details > summary::before { content: "▸"; color: var(--muted); width: 12px; }
+.tree details[open] > summary::before { content: "▾"; }
+.tree details > summary span:first-of-type { flex: 1; }
+.tree .sub { display: flex; justify-content: space-between; width: 100%; padding: 3px 6px 3px 24px; border: 0; background: none; border-radius: 4px; text-align: left; font-size: 13px; }
+.tree .sub:hover { background: var(--panel-2); }
+.tree .sub[aria-pressed="true"] { background: #2a2516; color: var(--gold); }
+.tree .n { font: 11px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.crumb { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 4px; margin-top: 6px; max-height: 300px; overflow-y: auto; align-content: start; }
+.grid button { position: relative; padding: 2px; aspect-ratio: 1; display: grid; place-items: center; }
+.grid canvas { width: 100%; height: 100%; }
+.grid .fav { position: absolute; top: 1px; right: 3px; font-size: 11px; color: var(--gold); }
+.grid .an { position: absolute; bottom: 1px; left: 3px; font: 9px var(--font-mono); color: var(--gold); opacity: .8; }
+.grid button[aria-pressed="true"] { border-color: var(--gold); background: #2a2516; }
+.details { display: grid; grid-template-columns: 88px 1fr; gap: 10px; align-items: start; }
+.details canvas { width: 88px; height: 88px; background: #0a0e10; border-radius: 6px; }
+.details .nm { font-weight: 600; }
+.details .meta { font: 12px var(--font-mono); color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.chip { font-size: 11px; padding: 2px 4px 2px 8px; border-radius: 999px; border: 1px solid var(--line); display: inline-flex; gap: 4px; align-items: center; }
+.chip button { border: 0; background: none; padding: 0 4px; color: var(--muted); }
+.modes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.modes button { font-size: 12px; padding: 5px 2px; }
+.opts { display: grid; grid-template-columns: auto 1fr 3.5em; gap: 6px 8px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.opts output { font: 12px var(--font-mono); color: var(--text); text-align: right; }
+.opts input[type=range] { width: 100%; accent-color: var(--gold); }
+.opts input[type=number] { width: 100%; padding: 3px 6px; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .jump { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
 .jump input { width: 100%; }
@@ -99,7 +125,7 @@ footer b { color: var(--text); font-weight: 500; }
 
 <main>
   <div id="stage">
-    <canvas id="view" tabindex="0" aria-label="World view. Arrow keys or WASD walk, Shift runs, click places, Delete removes."></canvas>
+    <canvas id="view" tabindex="0" aria-label="World view. Arrow keys or WASD walk, Shift runs. Click places the selected item, Delete or right-click removes, Alt-click picks up."></canvas>
     <div id="welcome">
       <div class="card">
         <h1>Walk the world you built</h1>
@@ -109,7 +135,7 @@ footer b { color: var(--text); font-weight: 500; }
           <li>Choose a map in the list and press <b>Load map</b>.</li>
         </ol>
         <p>Files are read in your browser and nothing is uploaded. Only the parts needed are read: the art file, tiledata and one map.</p>
-        <p class="kbd">Needs: artLegacyMUL.uop (or art.mul + artidx.mul), tiledata.mul, and map#LegacyMUL.uop or map#.mul with staidx#.mul + statics#.mul.</p>
+        <p class="kbd">Needs: artLegacyMUL.uop (or art.mul + artidx.mul), tiledata.mul, animdata.mul (for animations), and map#LegacyMUL.uop or map#.mul with staidx#.mul + statics#.mul.</p>
       </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
@@ -134,20 +160,45 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <select id="places" aria-label="Known places" style="width:100%;margin-top:6px"><option value="">Known places…</option></select>
     </section>
-    <section>
-      <h2>Place statics</h2>
-      <input type="text" id="search" placeholder="Search: tree, rock, fence, sign…" aria-label="Search statics by name or hex id">
-      <div id="results"></div>
-      <p class="note" id="selNote">Pick an item, then click a tile to place it on the ground there. <span class="kbd">Delete</span> or right-click removes the top static under the cursor. <span class="kbd">Ctrl+Z</span> undoes.</p>
-      <div class="row" style="margin-top:8px">
-        <button id="btnClearSel" disabled>Stop placing</button>
-        <button id="btnUndo" disabled>Undo</button>
+    <section aria-label="Builder palette">
+      <h2>Builder</h2>
+      <input type="text" id="search" placeholder="Search all statics: tree, fence, 0x0CD6…" aria-label="Search statics by name or hex id">
+      <div class="tabs" role="tablist">
+        <button id="tabBrowse" aria-pressed="true">Browse</button>
+        <button id="tabFavs" aria-pressed="false">★ Favourites</button>
+        <button id="tabRecent" aria-pressed="false">Recent</button>
+        <button id="tabAnim" aria-pressed="false">Animated</button>
       </div>
+      <div class="tree" id="tree"></div>
+      <div class="crumb" id="crumb">Load a map to browse statics.</div>
+      <div class="grid" id="grid" aria-label="Statics"></div>
+      <div class="row" style="margin-top:6px"><button id="btnMore" hidden>Show more</button></div>
+      <p class="note">Click an item to select it. <span class="kbd">Ctrl</span>/<span class="kbd">Shift</span>-click adds more: each placement then picks one at random. <span class="kbd">Alt</span>-click in the world picks up what's there.</p>
     </section>
-    <section>
+    <section aria-label="Selected item">
+      <h2>Selected</h2>
+      <div id="details" class="note">Nothing selected.</div>
+    </section>
+    <section aria-label="Placement">
+      <h2>Placement</h2>
+      <div class="modes">
+        <button data-mode="single" aria-pressed="true" title="Place one item per click (1)">Single</button>
+        <button data-mode="line" aria-pressed="false" title="Drag a line (2)">Line</button>
+        <button data-mode="rect" aria-pressed="false" title="Drag to fill a rectangle (3)">Rect</button>
+        <button data-mode="scatter" aria-pressed="false" title="Paint items at random (4)">Scatter</button>
+        <button data-mode="erase" aria-pressed="false" title="Paint to remove statics (5)">Erase</button>
+      </div>
+      <div class="opts">
+        <label for="zOff">Height offset</label><input type="range" id="zOff" min="-40" max="60" value="0"><output id="zOffOut">0</output>
+        <label for="brush">Brush size</label><input type="range" id="brush" min="1" max="12" value="3"><output id="brushOut">3</output>
+        <label for="density">Density</label><input type="range" id="density" min="2" max="100" value="25"><output id="densityOut">25%</output>
+      </div>
+      <p class="note" id="modeHint">Click a tile to place the item on the ground there. <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> raise or lower it.</p>
+    </section>
+    <section aria-label="Your edits">
       <h2>Your edits</h2>
       <p class="note" id="editCount">No edits yet.</p>
-      <div class="row" style="margin-top:8px"><button id="btnExport" disabled>Export statics (.zip)</button></div>
+      <div class="row" style="margin-top:8px"><button id="btnUndo" disabled>Undo</button><button id="btnExport" disabled>Export statics (.zip)</button></div>
       <p class="note">The zip holds <span class="kbd">staidx#.mul</span> and <span class="kbd">statics#.mul</span> for this facet. Copy them next to the map files.</p>
     </section>
   </aside>
@@ -245,6 +296,69 @@ async function openUop(file) {
 // tiledata.mul (64-bit flag layout, falls back to 32-bit)
 // ===========================================================================
 const F = { IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, FOLIAGE: 1 << 17, ROOF: 1 << 28 };
+
+// Builder categories: a two-level tree from tiledata names and flags (first matching rule wins).
+const FL = { WEAPON: 1 << 1, WALL: 1 << 4, IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, WINDOW: 1 << 12,
+  FOLIAGE: 1 << 17, CONTAINER: 1 << 21, WEARABLE: 1 << 22, LIGHT: 1 << 23, ANIMATION: 1 << 24, ARMOR: 1 << 27, ROOF: 1 << 28,
+  DOOR: 1 << 29, STAIRBACK: 1 << 30, STAIRRIGHT: 1 << 31 };
+const has = (f, bit) => (f & bit) !== 0;
+const JUNK = /^(missing_name|noname|valid_art|unused|cursor|assigned|nodraw|no draw|test|blank|dummy)/;
+const CATEGORY_RULES = [
+  ["Ships & siege", "Ship hulls & parts", n => /ship|hull|serpentdesign|galleon|\bmast|\bsail|\bdeck\b|tiller|\bhatch|anchor|\boar\b|plank_|rudder|figurehead/.test(n)],
+  ["Ships & siege", "Siege engines & cannons", n => /ballista|catapult|catupult|cannon|trebuchet|battering|siege/.test(n)],
+  ["Lighting", "Fires & braziers", n => /fire|brazier|hearth|campfire|flame|embers|fireplace/.test(n)],
+  ["Lighting", "Lamps, torches & candles", (n, f) => /lamp|lantern|torch|candle|sconce|chandelier|candelabra/.test(n) || (has(f, FL.LIGHT) && !/fire|brazier/.test(n))],
+  ["Nature", "Trees", (n, f) => /\b(tree|trunk|sapling|palm|yew|cypress|willow|oak|cedar|walnut|birch|pine|apple tree|peach tree|pear tree)s?\b/.test(n) && !/leaves|foliage|roof|frond|thatch/.test(n) && !has(f, FL.ROOF)],
+  ["Nature", "Leaves & canopy", n => /leaves|foliage|canopy|branches/.test(n)],
+  ["Nature", "Flowers", n => /flower|rose|poppy|poppies|tulip|orchid|foxglove|daisy|daisies|snapdragon|orfluer|lilies|lily|campion|blossom/.test(n)],
+  ["Nature", "Grass, bushes & plants", (n, f) => /bush|fern|plant|grass|reed|vine|weed|cattail|bulrush|shrub|hedge|ivy|moss|sapling|undergrowth|brush\b|cotton|flax|hay/.test(n) || has(f, FL.FOLIAGE)],
+  ["Nature", "Mushrooms & cacti", n => /mushroom|cactus|cacti|toadstool/.test(n)],
+  ["Nature", "Rocks & crystals", n => /\brocks?\b|boulder|stalagmite|stalactite|crystal|stone\b(?! (wall|floor|stair|pillar|column|arch))/.test(n)],
+  ["Nature", "Water & shore", (n, f) => has(f, FL.WET) || /water|waterfall|stream|shore|puddle|swamp|lava|canal|pond/.test(n)],
+  ["Nature", "Caves & dungeon", n => /\bcave|dungeon|web\b|cobweb|spike|sinkhole|chasm|pit\b|\bslime|stalag/.test(n)],
+  ["Nature", "Ground patches", n => /^(dirt|snow|sand|mud|land|gravel|refuse|leaves pile|ash)\b|patch/.test(n)],
+  ["Building", "Doors & gates", (n, f) => has(f, FL.DOOR) || /\bdoor|portcullis|\bgate\b/.test(n)],
+  ["Building", "Windows", (n, f) => has(f, FL.WINDOW) || /window|shutter/.test(n)],
+  ["Building", "Roofs", (n, f) => has(f, FL.ROOF) || /roof|shingle|thatch/.test(n)],
+  ["Building", "Stairs & ladders", (n, f) => /stair|steps?\b|ladder|ramp/.test(n) || (has(f, FL.STAIRBACK) && !/floor|wheat|grass|altar/.test(n))],
+  ["Building", "Fences & railings", n => /fence|railing|\brail\b|picket|palisade/.test(n)],
+  ["Building", "Columns & arches", n => /pillar|column|\barch|post\b|beam|support/.test(n)],
+  ["Building", "Walls", (n, f) => has(f, FL.WALL) || /\bwall/.test(n)],
+  ["Building", "Floors & paving", (n, f) => has(f, FL.SURFACE) && /floor|tile|flagstone|cobble|paver|plank|board|marble|brick|paving|dirt|sand|grass/.test(n)],
+  ["Building", "Bridges & docks", (n, f) => has(f, FL.BRIDGE) || /bridge|dock|pier|boardwalk/.test(n)],
+  ["Furniture", "Tables, desks & counters", n => /table|desk|counter|\bbar\b|podium|lectern/.test(n)],
+  ["Furniture", "Chairs, benches & thrones", n => /chair|stool|bench|throne|couch|sofa|seat/.test(n)],
+  ["Furniture", "Beds", n => /\bbed\b|bedroll|pillow|\bcot\b|bed\s/.test(n)],
+  ["Furniture", "Chests, crates & barrels", (n, f) => /chest|crate|barrel|\bbox\b|basket|keg|coffer/.test(n) || (has(f, FL.CONTAINER) && !/bag|backpack|pouch/.test(n))],
+  ["Furniture", "Shelves & cabinets", n => /cabinet|armoire|dresser|drawer|shelf|shelves|bookcase|bookshelf|\bcase\b|wardrobe|cupboard|rack/.test(n)],
+  ["Decor", "Signs, banners & flags", n => /\bsign|banner|\bflag|tapestry|pennant|shield crest|heraldic/.test(n)],
+  ["Decor", "Statues & sculpture", n => /statue|bust|sculpture|figurine|gargoyle|idol|totem/.test(n)],
+  ["Decor", "Paintings & mirrors", n => /painting|portrait|mirror|picture|frame/.test(n)],
+  ["Decor", "Rugs, curtains & textiles", n => /\brug|carpet|curtain|blanket|drape|bunting|tapestry|quilt|cushion/.test(n)],
+  ["Decor", "Fountains, wells & gardens", n => /fountain|well\b|garden|birdbath|planter|trellis|gazebo/.test(n)],
+  ["Decor", "Trophies & mounted", n => /trophy|mounted|stuffed|antler|deer head|bear head/.test(n)],
+  ["Decor", "Machinery & instruments", n => /telescope|machine|pulley|gong|bell|clock|orrery|lever|gear|instrument|harp|lute|drum|piano|organ|pillory|stocks/.test(n)],
+  ["Decor", "Pots, vases & tableware", n => /\bpot\b|pots\b|vase|\burn\b|\bjar\b|jug|bottle|pitcher|plate|bowl|\bcup|goblet|mug|tray|tankard|decanter|kettle|cauldron/.test(n)],
+  ["Decor", "Bones, graves & remains", n => /bone|skull|skeleton|corpse|blood|gore|remains|grave|tomb|coffin|headstone|sarcophag|ribcage|torso|entrails/.test(n)],
+  ["Crafting", "Workstations", n => /forge|anvil|loom|spinning|oven|stove|smelter|kiln|\bstill\b|press\b|\bmill|wheel|workbench|tanning|dye ?tub|water trough|trough|well\b/.test(n)],
+  ["Crafting", "Tools & materials", n => /hammer|\bsaw\b|tongs|pickaxe|shovel|scissors|needle|tool|hatchet|skillet|rolling pin|pitchfork|scythe|ingot|\blogs?\b|boards|cloth|bolt of|yarn|thread|hides?\b|leather|ore\b|feathers?/.test(n)],
+  ["Items", "Food & drink", n => /bread|cheese|meat|\bfish|apple|pear|grape|fruit|vegetable|carrot|onion|\bpie\b|cake|cookie|wine|\bale\b|\bham\b|ribs|\beggs?\b|honey|pumpkin|melon|squash|lettuce|cabbage|corn|wheat|flour|dough|sausage|bacon|lemon|lime|banana|coconut|dates|peach|turnip|garlic|ginseng|mandrake|nightshade/.test(n)],
+  ["Items", "Weapons", (n, f) => has(f, FL.WEAPON) || /sword|\baxe\b|\bbow\b|crossbow|mace|spear|dagger|halberd|katana|club\b|staff\b|kryss|scimitar|cutlass|maul|warhammer|lance/.test(n)],
+  ["Items", "Armor & clothing", (n, f) => has(f, FL.ARMOR) || has(f, FL.WEARABLE) || /armor|helm|gorget|gloves|boots|shoes|robe|cloak|tunic|shirt|pants|skirt|dress|hat\b|cap\b|sash|apron/.test(n)],
+  ["Items", "Books, scrolls & maps", n => /book|scroll|\bmaps?\b|parchment|tome|letter|\bnote|spellbook|globe/.test(n)],
+  ["Items", "Treasure & gems", n => /gold|silver|coin|\bgem|jewel|ruby|sapphire|emerald|diamond|amethyst|citrine|tourmaline|treasure|nugget|necklace|\bring\b|bracelet|earring/.test(n)],
+  ["Ships & siege", "Wagons & carts", n => /wagon|\bcart\b|carriage|wheelbarrow/.test(n)],
+  ["Building", "Large structures", n => /lighthouse|igloo|entrance|tower|tent|hut\b|pavilion|scaffold|stable/.test(n)],
+  ["Magic & special", "Effects & smoke", n => /explosion|smoke|steam|spark|flash|beam|lightning|aura|mist|fog/.test(n)],
+  ["Magic & special", "Magic & effects", n => /magic|portal|moongate|energy|\bfield\b|\brune|crystal ball|\borb\b|pentagram|altar|shrine|ankh|spell|magical|scrying|glow|sparkle|effect/.test(n)],
+];
+function classify(name, flags) {
+  const n = name.toLowerCase();
+  if (JUNK.test(n)) return ["", ""];
+  for (const [top, sub, test] of CATEGORY_RULES) if (test(n, flags)) return [top, sub];
+  return null;
+}
+
 function parseTiledata(u8) {
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   const longLand = 512 * (4 + 32 * 30), longStatic = 4 + 32 * 41;
@@ -314,6 +428,11 @@ const Art = {
     const off = this.idx.getInt32(index * 12, true), len = this.idx.getInt32(index * 12 + 4, true);
     return off < 0 || len <= 0 ? null : readBytes(this.mul, off, off + len);
   },
+  has(index) {
+    if (this.uop) return this.uop.has(`build/artlegacymul/${String(index).padStart(8, "0")}.tga`);
+    if (!this.idx || index * 12 + 12 > this.idx.byteLength) return false;
+    return this.idx.getInt32(index * 12, true) >= 0 && this.idx.getInt32(index * 12 + 4, true) > 0;
+  },
   /** Returns a canvas, null (no art), or undefined (loading; onReady fires later). */
   get(index, onReady) {
     if (this.cache.has(index)) return this.cache.get(index);
@@ -328,6 +447,27 @@ const Art = {
     }
     return undefined;
   },
+};
+
+// ===========================================================================
+// animdata.mul: frame offsets for animated statics (fires, water, forges...)
+// Groups of 8 entries: int header, then 64 signed frame offsets, unknown, count, interval, start.
+// ===========================================================================
+const Anim = {
+  map: new Map(), TICK: 50, // the client's item animation tick (ms per interval unit)
+  parse(u8) {
+    this.map.clear();
+    const groups = Math.floor(u8.length / 548);
+    for (let g = 0; g < groups; g++) for (let i = 0; i < 8; i++) {
+      const o = g * 548 + 4 + i * 68, count = u8[o + 65];
+      if (!count) continue;
+      const frames = [];
+      for (let k = 0; k < Math.min(count, 64); k++) frames.push((u8[o + k] << 24) >> 24);
+      this.map.set(g * 8 + i, { frames, delay: Math.max(1, u8[o + 66]) * this.TICK });
+    }
+  },
+  is(id) { return this.map.has(id) && (tdFlags(id) & FL.ANIMATION) !== 0; },
+  frame(id, now) { const a = this.map.get(id); return a && (tdFlags(id) & FL.ANIMATION) ? id + a.frames[Math.floor(now / a.delay) % a.frames.length] : id; },
 };
 
 // ===========================================================================
@@ -455,7 +595,7 @@ const topSurface = (x, y) => { const s = surfacesAt(x, y); return s.length ? s[0
 // ===========================================================================
 const view = $("view"), ctx = view.getContext("2d");
 const P = { x: 0, y: 0, z: 0, dir: 0 };
-let zoom = 1, hover = null, mode = "walk", placeId = null, loaded = false;
+let zoom = 1, hover = null, mode = "walk", loaded = false;
 let redrawQueued = false;
 function requestDraw() { if (!redrawQueued) { redrawQueued = true; requestAnimationFrame(() => { redrawQueued = false; draw(); }); } }
 
@@ -496,8 +636,11 @@ function drawLand(x, y, sx, sy, Z) {
     ctx.beginPath(); ctx.moveTo(...T); ctx.lineTo(...R); ctx.lineTo(...B); ctx.lineTo(...L); ctx.closePath(); ctx.fill();
   }
 }
+let animSeen = false, animTimer = null;
 function drawStatic(s, sx, sy, Z) {
-  const img = Art.get(0x4000 + s.id, requestDraw);
+  let id = s.id;
+  if (Anim.is(id)) { id = Anim.frame(id, performance.now()); animSeen = true; }
+  const img = Art.get(0x4000 + id, requestDraw);
   if (!img) return;
   ctx.drawImage(img, sx - img.width * zoom / 2, sy + (44 - img.height) * zoom - s.z * Z, img.width * zoom, img.height * zoom);
 }
@@ -519,6 +662,7 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#07090a"; ctx.fillRect(0, 0, rect.width, rect.height);
   if (!loaded) return;
+  animSeen = false;
   ctx.imageSmoothingEnabled = zoom < 1;
   const Z = 4 * zoom, cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
   const R = Math.ceil(Math.max(rect.width, rect.height + 400) / (22 * zoom) / 2) + 3;
@@ -540,13 +684,30 @@ function draw() {
       }
     }
   }
-  if (hover) {
-    const dx = hover.x - P.x, dy = hover.y - P.y, sx = cx + (dx - dy) * 22 * zoom, sy = cy + (dx + dy) * 22 * zoom;
-    const [zt, zr, zb, zl] = landCorners(hover.x, hover.y);
-    ctx.strokeStyle = placeId != null ? "#d6aa4c" : "rgba(255,255,255,.75)"; ctx.lineWidth = 2;
+  const at = (x, y) => { const dx = x - P.x, dy = y - P.y; return [cx + (dx - dy) * 22 * zoom, cy + (dx + dy) * 22 * zoom]; };
+  const outline = (x, y, style) => {
+    const [sx, sy] = at(x, y), [zt, zr, zb, zl] = landCorners(x, y);
+    ctx.strokeStyle = style; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(sx, sy - zt * Z); ctx.lineTo(sx + 22 * zoom, sy + 22 * zoom - zr * Z); ctx.lineTo(sx, sy + 44 * zoom - zb * Z); ctx.lineTo(sx - 22 * zoom, sy + 22 * zoom - zl * Z); ctx.closePath(); ctx.stroke();
-    if (placeId != null) { ctx.globalAlpha = 0.6; drawStatic({ id: placeId, z: topSurface(hover.x, hover.y) }, sx, sy, Z); ctx.globalAlpha = 1; }
+  };
+  // Ghosts show exactly what a click or drag will place.
+  const ghosts = ghostCells();
+  if (ghosts.length) {
+    ctx.globalAlpha = 0.6;
+    for (const g of ghosts) { const [sx, sy] = at(g.x, g.y); drawStatic({ id: g.id, z: g.z }, sx, sy, Z); }
+    ctx.globalAlpha = 1;
+    if (ghosts.length > 1) for (const g of ghosts) outline(g.x, g.y, "rgba(214,170,76,.5)");
   }
+  if (hover) {
+    if (B.mode === "scatter" || B.mode === "erase") {
+      const [sx, sy] = at(hover.x, hover.y);
+      ctx.strokeStyle = B.mode === "erase" ? "#e07a5f" : "#d6aa4c"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.ellipse(sx, sy + 22 * zoom - landAvg(hover.x, hover.y) * Z, (B.brush + 0.5) * 22 * Math.SQRT2 * zoom, (B.brush + 0.5) * 22 * Math.SQRT2 * zoom, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    outline(hover.x, hover.y, B.sel.length ? "#d6aa4c" : "rgba(255,255,255,.75)");
+  }
+  if (animSeen && !animTimer) animTimer = setTimeout(() => { animTimer = null; requestDraw(); }, 100);
   status();
 }
 
@@ -612,21 +773,47 @@ function bump() { toast("Blocked", 500); }
 window.addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
-  if (e.key === "Delete" || e.key === "Backspace") { if (hover) { e.preventDefault(); removeTop(hover.x, hover.y); } return; }
-  if (e.key === "Escape") { setPlace(null); return; }
+  if (e.key === "Delete" || e.key === "Backspace") { if (hover && loaded) { e.preventDefault(); beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); } return; }
+  if (e.key === "Escape") { selectItems([]); return; }
+  if (e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); setZOff(B.zOff + (e.key === "PageUp" ? 1 : -1) * (e.shiftKey ? 5 : 1)); return; }
+  if (/^[1-5]$/.test(e.key) && !e.ctrlKey && !e.metaKey) { setBuildMode(["single", "line", "rect", "scatter", "erase"][+e.key - 1]); return; }
+  if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && B.sel.length) { toggleFav(B.sel[0]); return; }
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIR[k] || k === "Shift") { keys.add(k); if (KEYDIR[k]) e.preventDefault(); }
 });
 window.addEventListener("keyup", e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys.delete(k); });
 window.addEventListener("blur", () => keys.clear());
-view.addEventListener("mousemove", e => { if (!loaded) return; const r = view.getBoundingClientRect(); hover = screenToCell(e.clientX - r.left, e.clientY - r.top); requestDraw(); });
+view.addEventListener("mousemove", e => {
+  if (!loaded) return;
+  const r = view.getBoundingClientRect(), h = screenToCell(e.clientX - r.left, e.clientY - r.top);
+  const moved = !hover || !h || h.x !== hover.x || h.y !== hover.y;
+  hover = h;
+  if (moved && drag && (drag.mode === "scatter" || drag.mode === "erase")) brushStroke();
+  requestDraw();
+});
 view.addEventListener("mouseleave", () => { hover = null; requestDraw(); });
-view.addEventListener("contextmenu", e => { e.preventDefault(); if (hover) removeTop(hover.x, hover.y); });
-view.addEventListener("click", e => {
+view.addEventListener("contextmenu", e => e.preventDefault());
+view.addEventListener("mousedown", e => {
   view.focus();
   if (!loaded || !hover) return;
-  if (placeId != null) placeAt(hover.x, hover.y, placeId);
-  else if (mode === "fly") { P.x = hover.x; P.y = hover.y; P.z = topSurface(P.x, P.y); requestDraw(); }
+  if (e.button === 2) { beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); return; }
+  if (e.button !== 0) return;
+  if (e.altKey) { pickFromWorld(hover.x, hover.y); return; }
+  if (B.mode === "erase") { beginTx(); drag = { mode: "erase", visited: new Set() }; brushStroke(); return; }
+  if (!B.sel.length) { if (mode === "fly") { P.x = hover.x; P.y = hover.y; P.z = topSurface(P.x, P.y); requestDraw(); } return; }
+  if (B.mode === "single") { beginTx(); placeCell(hover.x, hover.y); commitTx(); B.seed++; return; }
+  if (B.mode === "line" || B.mode === "rect") { drag = { mode: B.mode, start: { x: hover.x, y: hover.y } }; requestDraw(); return; }
+  if (B.mode === "scatter") { beginTx(); drag = { mode: "scatter", visited: new Set() }; brushStroke(); }
+});
+window.addEventListener("mouseup", () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.mode === "line" || d.mode === "rect") {
+    const cells = dragCells(d, Infinity);
+    if (cells.length > 20000) { toast("That area is too big (over 20,000 tiles). Drag a smaller one."); requestDraw(); return; }
+    beginTx(); for (const c of cells) placeCell(c.x, c.y); commitTx();
+  } else commitTx();
+  B.seed++;
 });
 view.addEventListener("wheel", e => { e.preventDefault(); zoom = Math.max(0.5, Math.min(2, zoom * Math.exp(-e.deltaY * 0.0015))); requestDraw(); }, { passive: false });
 new ResizeObserver(requestDraw).observe($("stage"));
@@ -646,73 +833,302 @@ function toast(text, ms = 2500) { const t = $("toast"); t.textContent = text; t.
 const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // ===========================================================================
-// Editing statics
+// Editing statics: every click, line, rectangle or brush stroke is one undo step
 // ===========================================================================
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem("sfwalk." + k)); return v ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("sfwalk." + k, JSON.stringify(v)); } catch { /* storage unavailable */ } },
+};
+const B = {
+  catalog: null, view: "browse", top: null, sub: null, shown: 120, sel: [], seed: 1,
+  favs: new Set(store.get("favs", []).filter(Number.isInteger)), recent: store.get("recent", []).filter(Number.isInteger),
+  mode: "single", zOff: 0, brush: 3, density: 0.25,
+};
+let drag = null;
 const undoStack = [];
-function editBlock(x, y, change) {
-  const key = (x >> 3) * M.bh + (y >> 3), list = blockStatics(x >> 3, y >> 3);
-  undoStack.push({ key, before: list.slice() });
-  if (undoStack.length > 200) undoStack.shift();
-  M.blocks.set(key, change(list.slice()));
-  M.dirty.add(key); syncEdits(); requestDraw();
+let tx = null;
+const keyOf = (x, y) => (x >> 3) * M.bh + (y >> 3);
+function beginTx() { tx = new Map(); }
+function touchBlock(key) {
+  const list = blockStatics(Math.floor(key / M.bh), key % M.bh);
+  if (tx && !tx.has(key)) tx.set(key, list.slice());
+  return list;
 }
-function placeAt(x, y, id) {
-  const z = topSurface(x, y);
-  editBlock(x, y, l => { l.push({ id, x: x & 7, y: y & 7, z, hue: 0 }); return l; });
+function commitTx() {
+  if (tx && tx.size) { undoStack.push([...tx].map(([key, before]) => ({ key, before }))); if (undoStack.length > 200) undoStack.shift(); }
+  tx = null; syncEdits(); requestDraw();
+}
+function addStatic(x, y, id, z) {
+  if (!validId(id)) return;
+  const key = keyOf(x, y);
+  touchBlock(key).push({ id, x: x & 7, y: y & 7, z: Math.max(-128, Math.min(127, z)), hue: 0 });
+  M.dirty.add(key);
 }
 function removeTop(x, y) {
   const top = staticsAt(x, y).sort((a, b) => b.z - a.z || tdHeight(b.id) - tdHeight(a.id))[0];
-  if (!top) { toast("Nothing to remove here."); return; }
-  editBlock(x, y, l => l.filter(s => s !== top));
+  if (!top) return false;
+  const key = keyOf(x, y), list = touchBlock(key);
+  list.splice(list.indexOf(top), 1); M.dirty.add(key);
+  return true;
+}
+function removeAll(x, y) {
+  const here = staticsAt(x, y);
+  if (!here.length) return;
+  const key = keyOf(x, y), list = touchBlock(key);
+  for (const s of here) list.splice(list.indexOf(s), 1);
+  M.dirty.add(key);
 }
 function undo() {
   const u = undoStack.pop(); if (!u) return;
-  M.blocks.set(u.key, u.before); syncEdits(); requestDraw();
+  for (const { key, before } of u) M.blocks.set(key, before);
+  syncEdits(); requestDraw();
 }
 function syncEdits() {
   $("btnUndo").disabled = !undoStack.length;
   $("btnExport").disabled = !M.dirty.size;
-  $("editCount").textContent = M.dirty.size ? `${undoStack.length} change${undoStack.length === 1 ? "" : "s"} in ${M.dirty.size} block${M.dirty.size === 1 ? "" : "s"}.` : "No edits yet.";
+  $("editCount").textContent = M.dirty.size ? `${undoStack.length} step${undoStack.length === 1 ? "" : "s"} to undo · ${M.dirty.size} block${M.dirty.size === 1 ? "" : "s"} changed.` : "No edits yet.";
 }
 $("btnUndo").onclick = undo;
 
-function setPlace(id) {
-  placeId = id;
-  $("btnClearSel").disabled = id == null;
-  $("selNote").innerHTML = id == null
-    ? `Pick an item, then click a tile to place it on the ground there. <span class="kbd">Delete</span> or right-click removes the top static under the cursor. <span class="kbd">Ctrl+Z</span> undoes.`
-    : `Placing <b>${escapeHtml(TD.st.name[id] || "item")}</b> <span class="kbd">0x${id.toString(16).toUpperCase().padStart(4, "0")}</span>: click tiles to place. <span class="kbd">Esc</span> stops.`;
-  document.querySelectorAll("#results button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.id === id));
+/** Which selected item goes on (x, y): stable during a drag, so the ghosts match the result. */
+function pick(x, y) {
+  if (B.sel.length === 1) return B.sel[0];
+  let h = (Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(B.seed, 0x9e3779b9)) >>> 0;
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h = (h ^ (h >>> 12)) >>> 0;
+  return B.sel[h % B.sel.length];
+}
+const placeZ = (x, y) => topSurface(x, y) + B.zOff;
+function placeCell(x, y) {
+  if (x < 0 || y < 0 || x >= M.w || y >= M.h) return;
+  const id = pick(x, y);
+  addStatic(x, y, id, placeZ(x, y));
+  noteRecent(id);
+}
+function lineCells(a, b) {
+  const out = []; let x = a.x, y = a.y;
+  const dx = Math.abs(b.x - a.x), dy = -Math.abs(b.y - a.y), sx = a.x < b.x ? 1 : -1, sy = a.y < b.y ? 1 : -1;
+  let err = dx + dy;
+  for (;;) { out.push({ x, y }); if (x === b.x && y === b.y) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x += sx; } if (e2 <= dx) { err += dx; y += sy; } }
+  return out;
+}
+function dragCells(d, cap) {
+  if (!hover) return [];
+  if (d.mode === "line") return lineCells(d.start, hover);
+  const out = [];
+  for (let y = Math.min(d.start.y, hover.y); y <= Math.max(d.start.y, hover.y); y++)
+    for (let x = Math.min(d.start.x, hover.x); x <= Math.max(d.start.x, hover.x); x++) { out.push({ x, y }); if (out.length > cap) return out; }
+  return out;
+}
+function ghostCells() {
+  if (!loaded || !hover || !B.sel.length || B.mode === "erase" || B.mode === "scatter") return [];
+  const cells = drag && (drag.mode === "line" || drag.mode === "rect") ? dragCells(drag, 900) : [{ x: hover.x, y: hover.y }];
+  return cells.slice(0, 900).map(c => ({ ...c, id: pick(c.x, c.y), z: placeZ(c.x, c.y) }));
+}
+function brushStroke() {
+  if (!hover || !drag) return;
+  const r = B.brush;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (dx * dx + dy * dy > r * r + r) continue;
+    const x = hover.x + dx, y = hover.y + dy, k = x + "," + y;
+    if (drag.visited.has(k) || x < 0 || y < 0 || x >= M.w || y >= M.h) continue;
+    drag.visited.add(k);
+    if (drag.mode === "erase") removeAll(x, y);
+    else if (Math.random() < B.density) placeCell(x, y);
+  }
+  syncEdits(); requestDraw();
+}
+function pickFromWorld(x, y) {
+  const top = staticsAt(x, y).sort((a, b) => b.z - a.z)[0];
+  if (!top) { toast("No static here to pick up."); return; }
+  selectItems([top.id]);
+  toast(`Picked ${TD.st.name[top.id] || "item"} 0x${hex(top.id)}.`);
+}
+const validId = id => Number.isInteger(id) && id >= 0 && TD && id < TD.st.name.length;
+function noteRecent(id) {
+  if (!validId(id) || B.recent[0] === id) return;
+  B.recent = [id, ...B.recent.filter(r => r !== id)].slice(0, 48);
+  store.set("recent", B.recent);
+  if (B.view === "recent") renderGrid();
+}
+
+// ===========================================================================
+// Builder palette: category tree, search, favourites, recent, animated
+// ===========================================================================
+const hex = id => id.toString(16).toUpperCase().padStart(4, "0");
+const FLAG_NAMES = [[FL.IMPASSABLE, "Impassable"], [FL.SURFACE, "Surface"], [FL.WALL, "Wall"], [FL.DOOR, "Door"], [FL.WINDOW, "Window"], [FL.ROOF, "Roof"],
+  [FL.BRIDGE, "Bridge"], [FL.LIGHT, "Light source"], [FL.CONTAINER, "Container"], [FL.ANIMATION, "Animated"], [FL.FOLIAGE, "Foliage"], [FL.WET, "Wet"]];
+
+function buildCatalog() {
+  const t0 = performance.now();
+  const tree = new Map(), where = new Map(), animated = [], other = new Map();
+  for (let id = 0; id < TD.st.name.length; id++) {
+    const name = TD.st.name[id];
+    if (!name || !Art.has(0x4000 + id)) continue;
+    const c = classify(name, TD.st.flags[id]);
+    if (c && !c[0]) continue; // placeholder / junk names
+    if (Anim.is(id)) animated.push(id);
+    if (c) {
+      if (!tree.has(c[0])) tree.set(c[0], new Map());
+      const subs = tree.get(c[0]);
+      if (!subs.has(c[1])) subs.set(c[1], []);
+      subs.get(c[1]).push(id); where.set(id, c);
+    } else {
+      const w = name.toLowerCase().split(/[\s_]+/)[0];
+      if (!other.has(w)) other.set(w, []);
+      other.get(w).push(id);
+    }
+  }
+  const otherSubs = new Map(), misc = [];
+  for (const [w, ids] of [...other].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (ids.length >= 12) otherSubs.set(w.charAt(0).toUpperCase() + w.slice(1), ids); else misc.push(...ids);
+  }
+  if (misc.length) otherSubs.set("Misc", misc);
+  for (const [sub, ids] of otherSubs) for (const id of ids) where.set(id, ["Other", sub]);
+  tree.set("Other", otherSubs);
+  B.catalog = { tree, where, animated, total: where.size, ms: Math.round(performance.now() - t0) };
+}
+
+function setView(v) {
+  B.view = v; B.shown = 120;
+  for (const [id, name] of [["tabBrowse", "browse"], ["tabFavs", "favs"], ["tabRecent", "recent"], ["tabAnim", "animated"]]) $(id).setAttribute("aria-pressed", v === name);
+  $("tree").hidden = v !== "browse";
+  renderGrid();
+}
+$("tabBrowse").onclick = () => setView("browse");
+$("tabFavs").onclick = () => setView("favs");
+$("tabRecent").onclick = () => setView("recent");
+$("tabAnim").onclick = () => setView("animated");
+
+function renderTree() {
+  const t = B.catalog.tree;
+  const order = ["Nature", "Building", "Furniture", "Lighting", "Decor", "Crafting", "Items", "Ships & siege", "Magic & special", "Other"];
+  $("tree").innerHTML = order.filter(k => t.has(k)).map(top => {
+    const subs = [...t.get(top)], count = subs.reduce((s, [, ids]) => s + ids.length, 0);
+    return `<details ${top === B.top ? "open" : ""}><summary><span>${escapeHtml(top)}</span><span class="n">${count.toLocaleString()}</span></summary>${
+      subs.map(([sub, ids]) => `<button class="sub" data-top="${escapeHtml(top)}" data-sub="${escapeHtml(sub)}" aria-pressed="${top === B.top && sub === B.sub}"><span>${escapeHtml(sub)}</span><span class="n">${ids.length.toLocaleString()}</span></button>`).join("")
+    }</details>`;
+  }).join("");
+}
+$("tree").onclick = e => {
+  const b = e.target.closest("button.sub"); if (!b) return;
+  B.top = b.dataset.top; B.sub = b.dataset.sub; B.shown = 120;
+  document.querySelectorAll("#tree .sub").forEach(x => x.setAttribute("aria-pressed", x === b));
+  $("search").value = ""; renderGrid();
+};
+
+function currentIds() {
+  const q = $("search").value.trim().toLowerCase();
+  if (q) {
+    const hx = /^(0x)?[0-9a-f]{1,4}$/.test(q) ? parseInt(q.replace(/^0x/, ""), 16) : null, out = [];
+    for (const id of B.catalog.where.keys()) if (id === hx || TD.st.name[id].toLowerCase().includes(q)) out.push(id);
+    if (hx !== null && !B.catalog.where.has(hx) && Art.has(0x4000 + hx)) out.unshift(hx);
+    return { ids: out, label: `${out.length.toLocaleString()} match${out.length === 1 ? "" : "es"} for "${q}"` };
+  }
+  if (B.view === "favs") return { ids: [...B.favs], label: B.favs.size ? `${B.favs.size} favourite${B.favs.size === 1 ? "" : "s"}` : "No favourites yet: select an item and press ★ (or F)." };
+  if (B.view === "recent") return { ids: B.recent, label: B.recent.length ? "Recently placed" : "Nothing placed yet." };
+  if (B.view === "animated") return { ids: B.catalog.animated, label: `${B.catalog.animated.length.toLocaleString()} animated statics` };
+  if (!B.top) return { ids: [], label: `${B.catalog.total.toLocaleString()} statics in ${[...B.catalog.tree.values()].reduce((s, m) => s + m.size, 0)} groups. Pick a group, or search.` };
+  const ids = B.catalog.tree.get(B.top)?.get(B.sub) || [];
+  return { ids, label: `${B.top} › ${B.sub} · ${ids.length.toLocaleString()}` };
+}
+
+const thumbObserver = new IntersectionObserver(entries => {
+  for (const en of entries) {
+    const cv = en.target;
+    if (en.isIntersecting) { visibleThumbs.add(cv); drawThumb(cv); } else visibleThumbs.delete(cv);
+  }
+}, { root: $("grid"), rootMargin: "120px" });
+const visibleThumbs = new Set();
+function drawThumb(cv) {
+  const id = +cv.dataset.id, fid = Anim.is(id) ? Anim.frame(id, performance.now()) : id;
+  const img = Art.get(0x4000 + fid, () => drawThumb(cv));
+  if (!img) return;
+  const c = cv.getContext("2d"), S = cv.width, s = Math.min(S / img.width, S / img.height, 1);
+  c.clearRect(0, 0, S, S); c.drawImage(img, (S - img.width * s) / 2, S - img.height * s, img.width * s, img.height * s);
+}
+setInterval(() => { // animate visible animated thumbnails and the selection preview
+  if (!loaded) return;
+  for (const cv of visibleThumbs) if (cv.dataset.anim) drawThumb(cv);
+  const d = $("detailCanvas"); if (d && d.dataset.anim) drawThumb(d);
+}, 100);
+
+function renderGrid() {
+  if (!B.catalog) return;
+  const { label } = currentIds(), ids = currentIds().ids.filter(validId);
+  $("crumb").textContent = label;
+  for (const cv of visibleThumbs) thumbObserver.unobserve(cv);
+  visibleThumbs.clear();
+  const sel = new Set(B.sel);
+  $("grid").innerHTML = ids.slice(0, B.shown).map(id =>
+    `<button data-id="${id}" aria-pressed="${sel.has(id)}" title="${escapeHtml(TD.st.name[id] || "")} · 0x${hex(id)}${B.catalog.where.has(id) ? " · " + escapeHtml(B.catalog.where.get(id).join(" › ")) : ""}">` +
+    `<canvas width="56" height="56" data-id="${id}"${Anim.is(id) ? ' data-anim="1"' : ""}></canvas>` +
+    (B.favs.has(id) ? `<span class="fav">★</span>` : "") + (Anim.is(id) ? `<span class="an">anim</span>` : "") + `</button>`).join("");
+  $("grid").querySelectorAll("canvas").forEach(cv => thumbObserver.observe(cv));
+  $("btnMore").hidden = ids.length <= B.shown;
+  $("btnMore").textContent = `Show more (${(ids.length - B.shown).toLocaleString()} left)`;
+}
+$("btnMore").onclick = () => { B.shown += 240; renderGrid(); };
+let searchTimer = null;
+$("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { B.shown = 120; renderGrid(); }, 150); });
+$("grid").onclick = e => {
+  const b = e.target.closest("button[data-id]"); if (!b) return;
+  const id = +b.dataset.id;
+  if (e.ctrlKey || e.metaKey || e.shiftKey) selectItems(B.sel.includes(id) ? B.sel.filter(x => x !== id) : [...B.sel, id]);
+  else selectItems(B.sel.length === 1 && B.sel[0] === id ? [] : [id]);
+};
+$("grid").ondblclick = e => { const b = e.target.closest("button[data-id]"); if (b) toggleFav(+b.dataset.id); };
+
+function selectItems(ids) {
+  B.sel = ids.filter(validId); ids = B.sel; B.seed++;
+  if (ids.length && B.mode === "erase") setBuildMode("single");
+  document.querySelectorAll("#grid button[data-id]").forEach(b => b.setAttribute("aria-pressed", ids.includes(+b.dataset.id)));
+  renderDetails(); requestDraw();
+}
+function toggleFav(id) {
+  if (B.favs.has(id)) B.favs.delete(id); else B.favs.add(id);
+  store.set("favs", [...B.favs]);
+  renderDetails(); renderGrid();
+}
+function renderDetails() {
+  const d = $("details");
+  if (!B.sel.length) { d.className = "note"; d.innerHTML = "Nothing selected."; return; }
+  const id = B.sel[0], fl = tdFlags(id), cat = B.catalog?.where.get(id);
+  const flags = FLAG_NAMES.filter(([bit]) => fl & bit).map(([, n]) => n);
+  d.className = "";
+  d.innerHTML = `<div class="details">
+      <canvas id="detailCanvas" width="88" height="88" data-id="${id}"${Anim.is(id) ? ' data-anim="1"' : ""}></canvas>
+      <div><div class="nm">${escapeHtml(TD.st.name[id] || "(unnamed)")}</div>
+        <div class="meta">0x${hex(id)} · height ${tdHeight(id)}</div>
+        <div class="meta">${cat ? escapeHtml(cat.join(" › ")) : "uncategorised"}</div>
+        <div class="note">${flags.length ? flags.join(", ") : "No special flags"}</div>
+        <div class="row" style="margin-top:6px"><button id="btnFav">${B.favs.has(id) ? "★ Favourite" : "☆ Add to favourites"}</button><button id="btnClearSel">Clear</button></div>
+      </div></div>
+      ${B.sel.length > 1 ? `<div class="chips" aria-label="Random set">${B.sel.map(s => `<span class="chip">${escapeHtml(TD.st.name[s] || "?")} <button data-rm="${s}" aria-label="Remove from set">×</button></span>`).join("")}</div>
+      <p class="note">${B.sel.length} items: each placement picks one at random.</p>` : ""}`;
+  drawThumb($("detailCanvas"));
+  $("btnFav").onclick = () => toggleFav(id);
+  $("btnClearSel").onclick = () => selectItems([]);
+  d.querySelectorAll("button[data-rm]").forEach(b => b.onclick = () => selectItems(B.sel.filter(x => x !== +b.dataset.rm)));
+}
+
+const MODE_HINTS = {
+  single: `Click a tile to place on the ground there. <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> raise or lower it.`,
+  line: `Drag from one tile to another to place a line: fences, walls, roads of stones.`,
+  rect: `Drag to fill a rectangle: floors, fields, carpets. Up to 20,000 tiles at once.`,
+  scatter: `Paint to place items at random under the brush, at the chosen density. Great with several items selected.`,
+  erase: `Paint to remove every static under the brush. Right-click removes just the top one.`,
+};
+function setBuildMode(m) {
+  B.mode = m;
+  document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m));
+  $("modeHint").innerHTML = MODE_HINTS[m];
   requestDraw();
 }
-$("btnClearSel").onclick = () => setPlace(null);
-
-let searchTimer = null;
-$("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); });
-function runSearch() {
-  if (!TD) return;
-  const q = $("search").value.trim().toLowerCase();
-  const out = $("results");
-  if (!q) { out.innerHTML = ""; return; }
-  const hex = /^(0x)?[0-9a-f]{1,4}$/.test(q) ? parseInt(q.replace(/^0x/, ""), 16) : null;
-  const ids = [];
-  for (let id = 0; id < TD.st.name.length && ids.length < 60; id++) {
-    const n = TD.st.name[id];
-    if ((hex !== null && id === hex) || (n && n.toLowerCase().includes(q))) ids.push(id);
-  }
-  out.innerHTML = ids.length ? ids.map(id => `<button data-id="${id}" aria-pressed="${id === placeId}"><canvas width="44" height="44" data-thumb="${id}"></canvas><span><span class="nm">${escapeHtml(TD.st.name[id] || "(unnamed)")}</span><br><span class="id">0x${id.toString(16).toUpperCase().padStart(4, "0")}</span></span></button>`).join("")
-    : `<p class="note">No statics named like that.</p>`;
-  out.querySelectorAll("canvas[data-thumb]").forEach(cv => thumb(cv, +cv.dataset.thumb));
-}
-function thumb(cv, id) {
-  const paint = () => {
-    const img = Art.cache.get(0x4000 + id); if (!img) return;
-    const c = cv.getContext("2d"), s = Math.min(44 / img.width, 44 / img.height, 1);
-    c.clearRect(0, 0, 44, 44); c.drawImage(img, (44 - img.width * s) / 2, 44 - img.height * s, img.width * s, img.height * s);
-  };
-  if (Art.get(0x4000 + id, paint)) paint();
-}
-$("results").onclick = e => { const b = e.target.closest("button[data-id]"); if (b) setPlace(+b.dataset.id === placeId ? null : +b.dataset.id); };
+document.querySelectorAll(".modes button").forEach(b => b.onclick = () => setBuildMode(b.dataset.mode));
+function setZOff(v) { B.zOff = Math.max(-40, Math.min(60, v)); $("zOff").value = B.zOff; $("zOffOut").textContent = (B.zOff > 0 ? "+" : "") + B.zOff; requestDraw(); }
+$("zOff").oninput = e => setZOff(+e.target.value);
+$("brush").oninput = e => { B.brush = +e.target.value; $("brushOut").textContent = B.brush; requestDraw(); };
+$("density").oninput = e => { B.density = e.target.value / 100; $("densityOut").textContent = e.target.value + "%"; };
 
 // ===========================================================================
 // Export: rebuild staidx/statics and zip them (stored, no compression)
@@ -773,6 +1189,8 @@ $("btnLoad").onclick = async () => {
     if (!tdFile) throw new Error("tiledata.mul wasn't found. Pick your client folder.");
     TD = parseTiledata(await readBytes(tdFile, 0, tdFile.size));
     if (!Art.uop && !Art.mul) await Art.open();
+    const ad = findAnywhere("animdata.mul");
+    if (ad) Anim.parse(await readBytes(ad, 0, ad.size));
     await loadMap(+f, dir);
     loaded = true; undoStack.length = 0; syncEdits();
     $("welcome").style.display = "none";
@@ -780,7 +1198,7 @@ $("btnLoad").onclick = async () => {
     const start = (PLACES[M.facet] || [["", M.w >> 1, M.h >> 1]])[0];
     jump(start[1], start[2]);
     toast(`${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
-    runSearch();
+    buildCatalog(); renderTree(); setView(B.view); renderDetails();
   } catch (e) { toast("Couldn't load: " + (e?.message || e), 6000); }
   finally { $("btnLoad").disabled = false; }
 };
