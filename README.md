@@ -15,7 +15,7 @@ statics.png  ─┘   (tiles + transitions + scattered statics)
 Then polish towns and dungeons by hand in [CentrED#](https://github.com/kaczy93/centredsharp).
 
 > Status: early prototype. Read/render existing maps, paint a new world in the editor, ask Claude to shape it,
-> and build it into UO map files. Not yet tested in a live client.
+> and build it into UO map files with proper terrain transitions. Not yet tested in a live client.
 
 ## Why
 
@@ -34,7 +34,8 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
-- **Export** a `.shardforge.json` project.
+- **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
+- Sizes from 512 x 512 up to 7168 x 4096, including every standard facet size.
 
 Shortcuts: B paint, G fill, R raise, L lower, S smooth, F flatten, C/M fewer/more plants, I pick, `[` `]` brush
 size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
@@ -44,11 +45,16 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 1. ✅ **Reader + renderer**: map, statics, tiledata, radarcol (MUL and UOP), facet to PNG.
 2. ✅ **Writer**: map#.mul, map#LegacyMUL.uop, staidx/statics; verified by reading back.
 3. ✅ **Editor prototype** with Claude assistance and project export; `build` turns a project into map files.
-4. **In-game test**: load a built facet in ClassicUO + ServUO.
-5. **Transition tiles**: proper edges between terrains (grass→sand, grass→rock...) instead of hard seams.
-6. **Mountains as cliffs**: UO's stretched rock tiles and cliff statics.
-7. **Bigger maps** (7168 x 4096) in the editor: tiled storage, lighter undo.
-8. **Places**: towns, dungeons entrances, regions and spawners exported for ServUO.
+4. ✅ **Transition tiles**: edge and corner tiles between terrains, learned from the client's own maps
+   (`mine-transitions`), filtered by art so only true blends are used.
+5. ✅ **Craggy mountains**: rock and snow get UO-like relief at build time; rivers carve valleys.
+6. ✅ **Full-size maps**: the editor handles 7168 x 4096 (chunked undo, compressed projects).
+7. **In-game test**: load a built facet in ClassicUO + ServUO.
+8. **Real tile art in the editor** when zoomed in (the art reader already exists in Core).
+9. **Coastlines**: shallow-water statics along shores, like the original maps.
+10. **Walk mode**: an ultralight isometric client to walk the world at ground level and place statics,
+    houses and other multis where you stand; export, or later sync live with a server.
+11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
 
 ## Requirements
 

@@ -93,3 +93,18 @@ public class ProjectTests
         Assert.Throws<InvalidDataException>(p.Validate);
     }
 }
+
+public class LayerEncodingTests
+{
+    [Fact]
+    public void DecodesGzipLayersFromTheEditor()
+    {
+        var data = Enumerable.Range(0, 4096).Select(i => (byte)(i % 7)).ToArray();
+        using var ms = new MemoryStream();
+        using (var gz = new System.IO.Compression.GZipStream(ms, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+            gz.Write(data);
+        var layers = new ProjectLayers { Encoding = "gzip-base64" };
+        Assert.Equal(data, layers.Decode(Convert.ToBase64String(ms.ToArray())));
+        Assert.Equal(data, new ProjectLayers().Decode(Convert.ToBase64String(data)));
+    }
+}

@@ -72,6 +72,9 @@ public static class IsoRenderer
     private static void BlitStretched(uint[] dst, int dw, int dh, Sprite s, int dx, int dy, int zTop, int zRight, int zBottom, int zLeft)
     {
         const int Steps = 88;
+        // Light from the north-west, like the client: faces tilted toward the top-left of the screen are brighter.
+        double slope = (zRight + zBottom) - (zTop + zLeft) + (zLeft - zRight) * 0.5;
+        double light = Math.Clamp(1.0 + slope * 0.035, 0.45, 1.6);
         for (int ia = 0; ia <= Steps; ia++)
         for (int ib = 0; ib <= Steps; ib++)
         {
@@ -82,8 +85,14 @@ public static class IsoRenderer
             if (c == 0) continue;
             double z = zTop * (1 - a) * (1 - b) + zRight * a * (1 - b) + zBottom * a * b + zLeft * (1 - a) * b;
             int tx = dx + (int)(22 + (a - b) * 22), ty = dy + (int)((a + b) * 22 - z * 4);
-            if ((uint)tx < (uint)dw && (uint)ty < (uint)dh) dst[ty * dw + tx] = c;
+            if ((uint)tx < (uint)dw && (uint)ty < (uint)dh) dst[ty * dw + tx] = Shade(c, light);
         }
+    }
+
+    private static uint Shade(uint c, double f)
+    {
+        uint r = (uint)Math.Min(255, ((c >> 16) & 255) * f), g = (uint)Math.Min(255, ((c >> 8) & 255) * f), b = (uint)Math.Min(255, (c & 255) * f);
+        return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 
     private static void Blit(uint[] dst, int dw, int dh, Sprite s, int dx, int dy)

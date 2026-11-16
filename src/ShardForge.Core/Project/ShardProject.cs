@@ -20,11 +20,32 @@ public sealed class TerrainDef
     [JsonPropertyName("color")] public string Color { get; set; } = "";
     [JsonPropertyName("landTiles")] public int[] LandTiles { get; set; } = [];
     [JsonPropertyName("fixedZ")] public int? FixedZ { get; set; }
+    /// <summary>
+    /// Craggy relief added at build time, in altitude units (UO mountains are rough: neighbouring rock tiles
+    /// typically differ by 4 and often by 12+). Ramped in from the terrain's border. Null = default for the key.
+    /// </summary>
+    [JsonPropertyName("crag")] public int? Crag { get; set; }
+
+    public int EffectiveCrag => Crag ?? Key switch { "rock" => 30, "snow" => 16, _ => 0 };
     [JsonPropertyName("populate")] public PopulateRule[] Populate { get; set; } = [];
 }
 
 public sealed class ProjectLayers
 {
+    /// <summary>"base64" (default, raw bytes) or "gzip-base64" (gzip-compressed, then base64).</summary>
+    [JsonPropertyName("encoding")] public string? Encoding { get; set; }
+
+    public byte[] Decode(string layer)
+    {
+        byte[] raw = Convert.FromBase64String(layer);
+        if (Encoding is null or "base64") return raw;
+        if (Encoding != "gzip-base64") throw new InvalidDataException($"Unknown layer encoding '{Encoding}'.");
+        using var gz = new System.IO.Compression.GZipStream(new MemoryStream(raw), System.IO.Compression.CompressionMode.Decompress);
+        using var ms = new MemoryStream();
+        gz.CopyTo(ms);
+        return ms.ToArray();
+    }
+
     [JsonPropertyName("terrain")] public string Terrain { get; set; } = "";
     [JsonPropertyName("height")] public string Height { get; set; } = "";
     [JsonPropertyName("density")] public string Density { get; set; } = "";
@@ -87,12 +108,14 @@ public sealed class ShardProject
     /// </summary>
     public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null)
     {
-        byte[] terrain = Convert.FromBase64String(Layers.Terrain);
-        byte[] height = Convert.FromBase64String(Layers.Height);
-        byte[] density = Convert.FromBase64String(Layers.Density);
+        byte[] terrain = Layers.Decode(Layers.Terrain);
+        byte[] height = Layers.Decode(Layers.Height);
+        byte[] density = Layers.Decode(Layers.Density);
         int n = Width * Height;
         if (terrain.Length != n || height.Length != n || density.Length != n)
             throw new InvalidDataException("Layer sizes do not match the map size.");
+
+        height = ApplyCrags(terrain, height);
 
         var info = new FacetInfo(facetIndex, Name, Width, Height);
         var facet = new Facet(info);
@@ -129,6 +152,58 @@ public sealed class ShardProject
         for (int b = 0; b < blockStatics.Length; b++)
             if (blockStatics[b] is { } list) facet.Statics[b] = list.ToArray();
         return facet;
+    }
+
+    /// <summary>Roughens craggy terrains (rock, snow): smooth noise plus per-tile jitter, only ever upward,
+    /// faded in over the first few tiles from the terrain's edge so the mountain foot meets its neighbours.</summary>
+    private byte[] ApplyCrags(byte[] terrain, byte[] height)
+    {
+        var crag = Terrains.Select(t => t.EffectiveCrag).ToArray();
+        if (crag.All(c => c == 0)) return height;
+
+        const int Ramp = 3;
+        int n = Width * Height;
+        var dist = new byte[n];
+        var queue = new Queue<int>();
+        for (int i = 0; i < n; i++)
+        {
+            int t = terrain[i];
+            if (t >= crag.Length || crag[t] == 0) continue;
+            int x = i % Width, y = i / Width;
+            bool edge = x == 0 || y == 0 || x == Width - 1 || y == Height - 1
+                || crag[terrain[i - 1]] == 0 || crag[terrain[i + 1]] == 0 || crag[terrain[i - Width]] == 0 || crag[terrain[i + Width]] == 0;
+            if (edge) { dist[i] = 1; queue.Enqueue(i); } else dist[i] = Ramp + 1;
+        }
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue(), x = i % Width, y = i / Width;
+            if (dist[i] >= Ramp) continue;
+            foreach (int j in (ReadOnlySpan<int>)[x > 0 ? i - 1 : -1, x < Width - 1 ? i + 1 : -1, y > 0 ? i - Width : -1, y < Height - 1 ? i + Width : -1])
+                if (j >= 0 && dist[j] > dist[i] + 1) { dist[j] = (byte)(dist[i] + 1); queue.Enqueue(j); }
+        }
+
+        var result = (byte[])height.Clone();
+        for (int i = 0; i < n; i++)
+        {
+            int t = terrain[i];
+            if (t >= crag.Length || crag[t] == 0) continue;
+            int x = i % Width, y = i / Width;
+            double ramp = Math.Min(1.0, (dist[i] - 1) / (double)Ramp);
+            double rough = 0.35 * ValueNoise(x / 7.0, y / 7.0, Seed + 300) + 0.30 * ValueNoise(x / 2.0, y / 2.0, Seed + 301)
+                + 0.35 * HRand(x, y, Seed, 302);
+            int z = (sbyte)height[i] + (int)Math.Round(crag[t] * ramp * rough);
+            result[i] = (byte)(sbyte)Math.Clamp(z, -128, 127);
+        }
+        return result;
+    }
+
+    private static double ValueNoise(double x, double y, int seed)
+    {
+        int xi = (int)Math.Floor(x), yi = (int)Math.Floor(y);
+        double xf = x - xi, yf = y - yi;
+        double u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+        double a = HRand(xi, yi, seed, 7), b = HRand(xi + 1, yi, seed, 7), c = HRand(xi, yi + 1, seed, 7), d = HRand(xi + 1, yi + 1, seed, 7);
+        return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
     }
 
     private int? TransitionTile(byte[] terrain, int x, int y, ShardForge.Core.Terrain.TransitionTable table)
