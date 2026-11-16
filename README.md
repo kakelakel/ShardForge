@@ -76,6 +76,12 @@ dotnet run --project src/ShardForge.Cli -- render "C:\Games\Electronic Arts\Ulti
 Facets: 0 Felucca, 1 Trammel, 2 Ilshenar, 3 Malas, 4 Tokuno, 5 TerMur.
 Land is read from `map#LegacyMUL.uop` (modern clients) or `map#.mul`; statics from `staidx#.mul` / `statics#.mul`.
 
+## Samples
+
+`samples/test-isles.shardforge.json` is the in-game test world: a Tokuno-sized map (build with `--facet 4`)
+with cobblestone plazas at the exact positions and altitudes of Tokuno's three moongate destinations, so
+players arriving through a public moongate land on solid ground.
+
 ## Layout
 
 | Path | What |
