@@ -68,6 +68,10 @@ Everything is read locally in the browser; only the art file, tiledata and one m
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Next: multis (whole houses), hues, animated character, live sync with a server.
 11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
+12. **ShardForge Server**: host the editor and Walk from your own PC (a small self-hosted server alongside
+    ServUO) for complete web-based cooperative world building: accounts and user levels (viewer, builder,
+    admin), shared projects and maps, several people editing at once with live updates, change history
+    with per-user undo/review, and one-click publish of a reviewed map to the shard.
 
 ## Requirements
 
