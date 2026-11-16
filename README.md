@@ -14,7 +14,8 @@ statics.png  ─┘   (tiles + transitions + scattered statics)
 
 Then polish towns and dungeons by hand in [CentrED#](https://github.com/kaczy93/centredsharp).
 
-> Status: early. Step 1 (read + render existing maps) works.
+> Status: early prototype. Read/render existing maps, paint a new world in the editor, ask Claude to shape it,
+> and build it into UO map files. Not yet tested in a live client.
 
 ## Why
 
@@ -22,15 +23,32 @@ Then polish towns and dungeons by hand in [CentrED#](https://github.com/kaczy93/
 building a whole new facet tile by tile is impractical. Older paint-to-map tools (Dragon, UO Landscaper)
 haven't kept up with modern clients. This project tries to fill that gap.
 
+## Editor
+
+`editor/index.html` is a single-page world editor (open it in a browser, or use the hosted copy on claude.ai):
+
+- **Paint** 12 terrains (water, grass, forest, jungle, sand, dirt, mountain rock, snow, lava, cobblestone road,
+  farmland, cave floor), **sculpt** altitude (raise, lower, smooth, flatten) and **thin or thicken vegetation**.
+- **Preview population**: trees, rocks, grasses and flowers are placed by a deterministic hash shared with the
+  exporter, so the preview is exactly what gets built.
+- **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
+  into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
+  Every change can be undone.
+- **Export** a `.shardforge.json` project.
+
+Shortcuts: B paint, G fill, R raise, L lower, S smooth, F flatten, C/M fewer/more plants, I pick, `[` `]` brush
+size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
+
 ## Roadmap
 
-1. ✅ **Reader + renderer**: load `map#` / `statics#` / `staidx#` (MUL and UOP) plus `tiledata` and `radarcol`,
-   and render a facet to PNG. Verify against real client files.
-2. **Round-trip**: write files back byte-identical so we can trust the writer.
-3. **Terrain converter**: color-coded terrain image + heightmap → land tiles, with correct
-   transition tiles between terrain types.
-4. **Static scatter**: rules-based trees, rocks, grass and so on per terrain type, written to statics.
-5. **Painting front end** (maybe): a browser-based canvas for painting terrain, height and biomes.
+1. ✅ **Reader + renderer**: map, statics, tiledata, radarcol (MUL and UOP), facet to PNG.
+2. ✅ **Writer**: map#.mul, map#LegacyMUL.uop, staidx/statics; verified by reading back.
+3. ✅ **Editor prototype** with Claude assistance and project export; `build` turns a project into map files.
+4. **In-game test**: load a built facet in ClassicUO + ServUO.
+5. **Transition tiles**: proper edges between terrains (grass→sand, grass→rock...) instead of hard seams.
+6. **Mountains as cliffs**: UO's stretched rock tiles and cliff statics.
+7. **Bigger maps** (7168 x 4096) in the editor: tiled storage, lighter undo.
+8. **Places**: towns, dungeons entrances, regions and spawners exported for ServUO.
 
 ## Requirements
 
@@ -56,7 +74,8 @@ Land is read from `map#LegacyMUL.uop` (modern clients) or `map#.mul`; statics fr
 
 | Path | What |
 |---|---|
-| `src/ShardForge.Core` | File formats (UOP, map, statics, tiledata, radarcol), rendering, PNG output |
+| `editor` | Browser world editor (single HTML file) |
+| `src/ShardForge.Core` | File formats (UOP, map, statics, tiledata, radarcol), project build, rendering, PNG output |
 | `src/ShardForge.Cli` | `shardforge` command-line tool |
 | `tests/ShardForge.Tests` | Unit tests (synthetic data, no game files needed) |
 

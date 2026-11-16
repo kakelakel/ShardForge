@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShardForge Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* One visual world: a lamplit cartographer's desk at night. Dark only, by choice. */
+  --ink: #0e1316;
+  --panel: #151c20;
+  --panel-2: #1c252a;
+  --line: #2a363d;
+  --text: #dbe4e8;
+  --muted: #8a9aa2;
+  --gold: #d6aa4c;        /* accent: ankh gold */
+  --gold-ink: #1a1408;
+  --danger: #e07a5f;
+  --ok: #7fbf7f;
+  --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  /* layout: toolbar | canvas | assistant, status bar along the bottom */
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ink); color: var(--text); font: 14px/1.45 var(--font-body);
+  display: grid; grid-template-rows: auto 1fr auto; overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, canvas:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 1px;
+}
+button.primary { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+
+header {
+  display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.brand { font-family: var(--font-display); font-size: 19px; letter-spacing: .06em; color: var(--gold); white-space: nowrap; }
+.brand small { font-family: var(--font-body); font-size: 12px; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+#projName { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; width: 180px; }
+#projName:hover, #projName:focus { border-color: var(--line); }
+header .spacer { flex: 1; }
+header .group { display: flex; gap: 6px; align-items: center; }
+
+main { display: grid; grid-template-columns: 228px 1fr 340px; min-height: 0; }
+aside { background: var(--panel); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+aside.left { border-right: 1px solid var(--line); }
+aside.right { border-left: 1px solid var(--line); }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+
+.tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tools button { text-align: left; display: flex; justify-content: space-between; gap: 4px; }
+.tools button kbd { font: 11px var(--font-mono); color: var(--muted); }
+.tools button[aria-pressed="true"] { border-color: var(--gold); background: #2a2516; }
+
+.palette { display: grid; gap: 4px; }
+.palette button { display: flex; align-items: center; gap: 8px; text-align: left; padding: 5px 8px; }
+.palette button[aria-pressed="true"] { border-color: var(--gold); background: #2a2516; }
+.swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(255,255,255,.18); flex: none; }
+.palette .pct { margin-left: auto; font: 11px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.field { display: grid; gap: 4px; }
+.field label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+.field output { font-family: var(--font-mono); color: var(--text); }
+input[type=range] { width: 100%; accent-color: var(--gold); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.check input { accent-color: var(--gold); }
+
+#stage { position: relative; min-width: 0; min-height: 0; background: #0a0e10; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+#busy {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  background: var(--panel-2); border: 1px solid var(--gold); color: var(--text);
+  padding: 6px 12px; border-radius: 999px; font-size: 13px; display: none;
+}
+.zoombox { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 4px; }
+.zoombox button { padding: 4px 9px; background: rgba(21,28,32,.9); }
+
+/* Assistant */
+.assistant { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+#log { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; min-height: 120px; }
+.msg { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); font-size: 13px; }
+.msg.user { border-color: #3c4a52; background: transparent; }
+.msg .who { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+.msg.error { border-color: var(--danger); }
+.msg ol { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.msg code { font-family: var(--font-mono); font-size: 12px; }
+#prompt { width: 100%; min-height: 84px; resize: vertical; background: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font-size: 12px; padding: 4px 8px; border-radius: 999px; }
+.note { font-size: 12px; color: var(--muted); }
+
+footer {
+  display: flex; gap: 18px; padding: 5px 14px; background: var(--panel); border-top: 1px solid var(--line);
+  font: 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap;
+}
+footer b { color: var(--text); font-weight: 500; }
+
+dialog {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px; width: min(420px, 92vw);
+}
+dialog::backdrop { background: rgba(0,0,0,.6); }
+dialog h3 { margin: 0 0 10px; font-family: var(--font-display); color: var(--gold); font-size: 17px; }
+dialog .row { justify-content: flex-end; margin-top: 14px; }
+dialog select, dialog input[type=number] { background: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px; width: 100%; }
+
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto; overflow-y: auto; }
+  body { overflow: auto; }
+  aside.left, aside.right { border: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ShardForge <small>world editor for Ultima Online</small></div>
+  <input id="projName" aria-label="Project name" value="New Sosaria">
+  <div class="spacer"></div>
+  <div class="group">
+    <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="btnRedo" title="Redo (Ctrl+Y)">Redo</button>
+  </div>
+  <div class="group">
+    <button id="btnNew">New map…</button>
+    <button id="btnOpen">Open…</button>
+    <input type="file" id="fileOpen" accept=".json,application/json" hidden>
+    <button id="btnExport" class="primary">Export project</button>
+  </div>
+</header>
+
+<main>
+  <aside class="left" aria-label="Tools">
+    <section>
+      <h2>Tool</h2>
+      <div class="tools" id="tools"></div>
+    </section>
+    <section>
+      <h2>Terrain</h2>
+      <div class="palette" id="palette"></div>
+    </section>
+    <section class="field">
+      <label for="brushSize">Brush size <output id="brushSizeOut">12</output></label>
+      <input type="range" id="brushSize" min="1" max="96" value="12">
+      <label for="brushStrength">Strength <output id="brushStrengthOut">40%</output></label>
+      <input type="range" id="brushStrength" min="5" max="100" value="40">
+    </section>
+    <section>
+      <h2>View</h2>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="showPlants" checked> Preview trees &amp; rocks</label>
+        <label class="check"><input type="checkbox" id="showShade" checked> Hill shading</label>
+        <label class="check"><input type="checkbox" id="showBlocks"> 8×8 block grid (zoomed in)</label>
+      </div>
+    </section>
+  </aside>
+
+  <div id="stage">
+    <canvas id="view" tabindex="0" aria-label="Map canvas. Left-drag paints, right-drag or space-drag pans, wheel zooms."></canvas>
+    <div id="busy" role="status" aria-live="polite"></div>
+    <div class="zoombox">
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomFit">Fit</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </div>
+  </div>
+
+  <aside class="right" aria-label="Claude assistant">
+    <div class="assistant">
+      <h2>Ask Claude</h2>
+      <div id="log" aria-live="polite">
+        <div class="msg"><div class="who">Claude</div>
+          Describe what you want and I'll shape the map: a whole continent, a mountain range, a river to the sea, a clearing for a town. I change the map with the same tools you have, and every change can be undone.
+        </div>
+      </div>
+      <div class="chips" id="chips"></div>
+      <label for="prompt" class="note">Your request</label>
+      <textarea id="prompt" placeholder="Raise a snowy mountain range along the east coast, with a river running from it to the southern bay."></textarea>
+      <div class="row">
+        <button id="btnAsk" class="primary">Ask Claude</button>
+        <button id="btnStop" hidden>Stop</button>
+      </div>
+      <p class="note" id="aiNote"></p>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <span>x <b id="sx">–</b> y <b id="sy">–</b></span>
+  <span>terrain <b id="st">–</b></span>
+  <span>z <b id="sz">–</b></span>
+  <span>block <b id="sb">–</b></span>
+  <span>map <b id="sm">–</b></span>
+  <span>zoom <b id="szoom">–</b></span>
+</footer>
+
+<dialog id="dlgNew">
+  <form method="dialog" id="newForm">
+    <h3>New map</h3>
+    <div class="field">
+      <label for="newSize">Size in tiles</label>
+      <select id="newSize">
+        <option value="512">512 × 512</option>
+        <option value="1024" selected>1024 × 1024</option>
+        <option value="1448">1448 × 1448 (Tokuno size)</option>
+        <option value="2048">2048 × 2048</option>
+      </select>
+    </div>
+    <div class="field" style="margin-top:10px">
+      <label for="newStart">Start with</label>
+      <select id="newStart">
+        <option value="island">A generated island</option>
+        <option value="ocean">Open ocean</option>
+        <option value="grass">Flat grassland</option>
+      </select>
+    </div>
+    <div class="row">
+      <button value="cancel">Cancel</button>
+      <button value="ok" class="primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Terrain definitions. Land tile IDs are real UO land tiles (most common variants
+// in the client's own maps). Populate rules are exported with the project and the
+// ShardForge CLI places statics with the same deterministic hash, so the preview
+// shows exactly what gets built.
+// ---------------------------------------------------------------------------
+const TREES = [[0x0CCD,0x0CCE],[0x0CD0,0x0CD1],[0x0CD3,0x0CD4],[0x0CDA,0x0CDB],[0x0CDD,0x0CDE],[0x0CE0,0x0CE1],[0x0CE3,0x0CE4],[0x0CE6,0x0CE7],[0x0CD6],[0x0CD8]];
+const GRASSES = [[0x0CAF],[0x0CB0],[0x0CB5],[0x0CB6],[0x0CAC],[0x0CAD]];
+const FLOWERS = [[0x0D2F],[0x0D2D],[0x0D2B],[0x0D29],[0x0C85],[0x0C84]];
+const FERNS = [[0x0CA3],[0x0CA2],[0x0CA4],[0x0CA1],[0x0CA0],[0x0C9F]];
+const MUSHROOMS = [[0x0D16],[0x0D19],[0x0D15]];
+const CACTI = [[0x0D2E],[0x0D2C],[0x0D28],[0x0D2A]];
+const ROCKS = [[0x1774],[0x177C],[0x1778],[0x1773],[0x1777],[0x177B]];
+
+const TERRAINS = [
+  { key: "water", name: "Water", color: "#1d4a6e", land: [0xA8,0xA9,0xAA,0xAB], fixedZ: -5, populate: [] },
+  { key: "grass", name: "Grass", color: "#5a8231", land: [0x03,0x04,0x05,0x06], populate: [
+      { kind: "tree", items: TREES, density: 0.008 }, { kind: "small", items: GRASSES, density: 0.10 }, { kind: "small", items: FLOWERS, density: 0.015 } ] },
+  { key: "forest", name: "Forest", color: "#2f5d24", land: [0xC4,0xC5,0xC6,0xC7], populate: [
+      { kind: "tree", items: TREES, density: 0.20 }, { kind: "small", items: FERNS, density: 0.05 }, { kind: "small", items: MUSHROOMS, density: 0.01 } ] },
+  { key: "jungle", name: "Jungle", color: "#3f7a33", land: [0xAC,0xAD,0xAE,0xAF], populate: [
+      { kind: "tree", items: TREES, density: 0.12 }, { kind: "small", items: FERNS, density: 0.18 } ] },
+  { key: "sand", name: "Sand", color: "#d2b97e", land: [0x16,0x17,0x18,0x19], populate: [
+      { kind: "small", items: CACTI, density: 0.002 } ] },
+  { key: "dirt", name: "Dirt", color: "#7d5d3c", land: [0x71,0x72,0x73,0x74], populate: [
+      { kind: "small", items: GRASSES, density: 0.02 } ] },
+  { key: "rock", name: "Mountain rock", color: "#85817a", land: [0x22C,0x22D,0x22E,0x22F], populate: [
+      { kind: "rock", items: ROCKS, density: 0.02 } ] },
+  { key: "snow", name: "Snow", color: "#e6edf1", land: [0x11A,0x11B,0x11C,0x11D], populate: [] },
+  { key: "lava", name: "Lava", color: "#c0461d", land: [0x1F4,0x1F5,0x1F6,0x1F7], populate: [] },
+  { key: "cobblestone", name: "Cobblestone road", color: "#9a9284", land: [0x3E9,0x3EA,0x3EB,0x3EC], populate: [] },
+  { key: "farmland", name: "Farmland", color: "#8f6c3c", land: [0x09], populate: [] },
+  { key: "cave", name: "Cave floor", color: "#4d4239", land: [0x245,0x246,0x247,0x248], populate: [] },
+];
+const TKEY = Object.fromEntries(TERRAINS.map((t, i) => [t.key, i]));
+const TRGB = TERRAINS.map(t => [1,3,5].map(o => parseInt(t.color.slice(o, o + 2), 16)));
+const GRID_CHARS = "WgFJsdRSLcfC"; // one char per terrain, for Claude's overview
+
+// ---------------------------------------------------------------------------
+// Deterministic hash (identical in the C# exporter): lowbias32 over (x, y, seed, k).
+// ---------------------------------------------------------------------------
+function hrand(x, y, seed, k) {
+  let h = (seed ^ Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(k, 0x9e3779b9)) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15; h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+/** Which populate group (index) lands on this cell, or -1. Mirrors the exporter. */
+function populateGroup(x, y, t, densByte, seed) {
+  const rules = TERRAINS[t].populate;
+  const mult = densByte / 128;
+  for (let g = 0; g < rules.length; g++)
+    if (hrand(x, y, seed, 1 + g) < rules[g].density * mult) return g;
+  return -1;
+}
+
+// Smooth value noise for generation (editor-only; results are baked into layers).
+function vnoise(x, y, seed) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const s = t => t * t * (3 - 2 * t);
+  const a = hrand(xi, yi, seed, 7), b = hrand(xi + 1, yi, seed, 7);
+  const c = hrand(xi, yi + 1, seed, 7), d = hrand(xi + 1, yi + 1, seed, 7);
+  const u = s(xf), v = s(yf);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x, y, seed, oct = 5) {
+  let sum = 0, amp = 0.5, f = 1, norm = 0;
+  for (let i = 0; i < oct; i++) { sum += amp * vnoise(x * f, y * f, seed + i * 1013); norm += amp; amp *= 0.5; f *= 2; }
+  return sum / norm;
+}
+
+// ---------------------------------------------------------------------------
+// World state
+// ---------------------------------------------------------------------------
+const W = { width: 0, height: 0, seed: 1, terrain: null, height_: null, density: null };
+const clampZ = z => Math.max(-128, Math.min(127, Math.round(z)));
+
+function newWorld(size, start) {
+  W.width = size; W.height = size;
+  W.seed = (Math.random() * 2 ** 31) | 0;
+  W.terrain = new Uint8Array(size * size);
+  W.height_ = new Int8Array(size * size);
+  W.density = new Uint8Array(size * size).fill(128);
+  if (start === "grass") { W.terrain.fill(TKEY.grass); }
+  else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
+  undoStack.length = 0; redoStack.length = 0;
+  if (start === "island") applyOps(starterOps(size), false);
+  resetImage(); fitView(); updateStats();
+}
+
+function starterOps(n) {
+  const s = n / 1024;
+  const P = (x, y) => [Math.round(x * s), Math.round(y * s)];
+  return [
+    { op: "island", cx: 512 * s, cy: 500 * s, radius: 400 * s, peak: 45, roughness: 0.6, seed: 11 },
+    { op: "island", cx: 860 * s, cy: 200 * s, radius: 110 * s, peak: 30, roughness: 0.7, seed: 4 },
+    { op: "mountain", cx: 640 * s, cy: 360 * s, radius: 170 * s, peak: 95, snow: true },
+    { op: "patches", terrain: "forest", within: ["grass"], coverage: 0.45, scale: 60 * s },
+    { op: "path", points: [P(630, 380), P(560, 520), P(590, 660), P(520, 840), P(470, 940)], width: 7, terrain: "water", height: -5, heightMode: "set", jitter: 10 },
+    { op: "path", points: [P(300, 520), P(420, 560), P(700, 600), P(780, 700)], width: 3, terrain: "cobblestone" },
+    { op: "beaches", width: 3 },
+    { op: "ellipse", cx: 420 * s, cy: 560 * s, rx: 36 * s, ry: 28 * s, terrain: "dirt", height: 6, heightMode: "set", falloff: 0.2 },
+    { op: "density", cx: 420 * s, cy: 560 * s, rx: 50 * s, ry: 40 * s, value: 0 },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Edit operations: used by the brushes' bigger siblings and by Claude.
+// ---------------------------------------------------------------------------
+function setHeight(i, value, mode, w) {
+  const h = W.height_[i];
+  let n = h;
+  switch (mode) {
+    case "add": n = h + value * w; break;
+    case "max": n = Math.max(h, h + (value - h) * w); break;
+    case "min": n = Math.min(h, h + (value - h) * w); break;
+    default: n = h + (value - h) * w; // set (blended by weight)
+  }
+  W.height_[i] = clampZ(n);
+}
+function applyCell(i, o, w) {
+  if (o.terrain != null && w >= 0.5) W.terrain[i] = TKEY[o.terrain];
+  if (typeof o.height === "number") setHeight(i, o.height, o.heightMode || "set", w);
+  if (o.terrain === "water" && w >= 0.5 && o.height == null) W.height_[i] = -5;
+}
+const smooth01 = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+function bbox(x0, y0, x1, y1) {
+  return [Math.max(0, Math.floor(x0)), Math.max(0, Math.floor(y0)), Math.min(W.width - 1, Math.ceil(x1)), Math.min(W.height - 1, Math.ceil(y1))];
+}
+function terrainOk(o) { return o.within == null || [].concat(o.within).map(k => TKEY[k]); }
+
+const OPS = {
+  fill(o) {
+    for (let i = 0; i < W.terrain.length; i++) applyCell(i, o, 1);
+  },
+  ellipse(o) {
+    const rx = Math.max(1, o.rx ?? o.r ?? 10), ry = Math.max(1, o.ry ?? o.r ?? rx);
+    const fall = Math.max(0.001, o.falloff ?? 0.3), jit = o.jitter ?? 0.15, seed = W.seed + 17;
+    const within = terrainOk(o);
+    const [x0, y0, x1, y1] = bbox(o.cx - rx * 1.3, o.cy - ry * 1.3, o.cx + rx * 1.3, o.cy + ry * 1.3);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = x + y * W.width;
+      if (within !== true && !within.includes(W.terrain[i])) continue;
+      let d = Math.hypot((x - o.cx) / rx, (y - o.cy) / ry);
+      d += (fbm(x / 24, y / 24, seed, 3) - 0.5) * jit * 2;
+      if (d > 1) continue;
+      applyCell(i, o, smooth01(1, 1 - fall, d));
+    }
+  },
+  polygon(o) {
+    const pts = o.points; if (!pts || pts.length < 3) return;
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const within = terrainOk(o);
+    const [x0, y0, x1, y1] = bbox(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
+    const jit = o.jitter ?? 6, seed = W.seed + 23;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = x + y * W.width;
+      if (within !== true && !within.includes(W.terrain[i])) continue;
+      const px = x + (fbm(x / 20, y / 20, seed, 3) - 0.5) * jit * 2, py = y + (fbm(x / 20, y / 20, seed + 5, 3) - 0.5) * jit * 2;
+      let inside = false;
+      for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) {
+        const [xa, ya] = pts[a], [xb, yb] = pts[b];
+        if ((ya > py) !== (yb > py) && px < (xb - xa) * (py - ya) / (yb - ya) + xa) inside = !inside;
+      }
+      if (inside) applyCell(i, o, 1);
+    }
+  },
+  path(o) {
+    const pts = o.points; if (!pts || pts.length < 2) return;
+    const half = Math.max(0.5, (o.width ?? 4) / 2), jit = o.jitter ?? 0, seed = W.seed + 31;
+    const within = terrainOk(o);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = half + jit + 2;
+    const [x0, y0, x1, y1] = bbox(Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = x + y * W.width;
+      if (within !== true && !within.includes(W.terrain[i])) continue;
+      const px = x + (fbm(x / 40, y / 40, seed, 3) - 0.5) * jit * 2, py = y + (fbm(x / 40, y / 40, seed + 9, 3) - 0.5) * jit * 2;
+      let best = Infinity;
+      for (let k = 0; k < pts.length - 1; k++) {
+        const [ax, ay] = pts[k], [bx, by] = pts[k + 1];
+        const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L));
+        best = Math.min(best, Math.hypot(px - ax - t * dx, py - ay - t * dy));
+      }
+      if (best <= half) applyCell(i, o, 1);
+    }
+  },
+  island(o) {
+    const r = Math.max(8, o.radius ?? 200), peak = o.peak ?? 40, rough = o.roughness ?? 0.5;
+    const seed = W.seed + (o.seed ?? 1) * 7919;
+    const [x0, y0, x1, y1] = bbox(o.cx - r * 1.5, o.cy - r * 1.5, o.cx + r * 1.5, o.cy + r * 1.5);
+    const sc = r * 0.45;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot(x - o.cx, y - o.cy) / r;
+      const v = (1 - d) + (fbm(x / sc, y / sc, seed) - 0.5) * rough * 1.6;
+      if (v <= 0) continue;
+      const i = x + y * W.width;
+      const z = Math.min(peak, Math.pow(v, 1.3) * peak * 1.8);
+      W.height_[i] = clampZ(Math.max(W.terrain[i] === TKEY.water ? 0 : W.height_[i], z));
+      const moist = fbm(x / (sc * 0.7), y / (sc * 0.7), seed + 99, 4);
+      W.terrain[i] = W.height_[i] > 55 ? TKEY.rock : moist > 0.58 ? TKEY.forest : TKEY.grass;
+    }
+  },
+  mountain(o) {
+    const r = Math.max(6, o.radius ?? 80), peak = o.peak ?? 80, seed = W.seed + 41;
+    const rockLine = o.rockLine ?? 40, snowLine = o.snowLine ?? 75;
+    const [x0, y0, x1, y1] = bbox(o.cx - r, o.cy - r, o.cx + r, o.cy + r);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = x + y * W.width;
+      if (W.terrain[i] === TKEY.water) continue;
+      const d = Math.hypot(x - o.cx, y - o.cy) / r;
+      if (d >= 1) continue;
+      const ridge = 1 - Math.abs(fbm(x / (r * 0.25), y / (r * 0.25), seed, 4) * 2 - 1);
+      const edge = d + (fbm(x / (r * 0.3), y / (r * 0.3), seed + 3, 3) - 0.5) * 0.5; // ragged outline
+      if (edge >= 1) continue;
+      const add = peak * Math.pow(1 - edge, 2) * (0.3 + 0.9 * ridge);
+      W.height_[i] = clampZ(Math.max(W.height_[i], add));
+      const z = W.height_[i], wobble = (fbm(x / 12, y / 12, seed + 7, 3) - 0.5) * 24;
+      if (o.snow && z >= snowLine + wobble) W.terrain[i] = TKEY.snow;
+      else if (z >= rockLine + wobble) W.terrain[i] = TKEY.rock;
+    }
+  },
+  patches(o) {
+    const t = TKEY[o.terrain]; if (t == null) return;
+    const within = o.within ? [].concat(o.within).map(k => TKEY[k]) : null;
+    const cov = o.coverage ?? 0.4, sc = Math.max(4, o.scale ?? 40), seed = W.seed + 53 + t;
+    const rg = o.region ?? { x: 0, y: 0, w: W.width, h: W.height };
+    const [x0, y0, x1, y1] = bbox(rg.x, rg.y, rg.x + rg.w - 1, rg.y + rg.h - 1);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = x + y * W.width;
+      if (within && !within.includes(W.terrain[i])) continue;
+      if (!within && W.terrain[i] === TKEY.water) continue;
+      if (fbm(x / sc, y / sc, seed, 4) > 1 - cov) W.terrain[i] = t;
+    }
+  },
+  density(o) {
+    const rx = Math.max(1, o.rx ?? o.r ?? 20), ry = Math.max(1, o.ry ?? o.r ?? rx);
+    const v = Math.max(0, Math.min(255, Math.round((o.value ?? 1) * 128)));
+    const [x0, y0, x1, y1] = bbox(o.cx - rx, o.cy - ry, o.cx + rx, o.cy + ry);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++)
+      if (Math.hypot((x - o.cx) / rx, (y - o.cy) / ry) <= 1) W.density[x + y * W.width] = v;
+  },
+  smooth(o) {
+    const passes = Math.min(8, o.passes ?? 2), rg = o.region ?? { x: 0, y: 0, w: W.width, h: W.height };
+    const [x0, y0, x1, y1] = bbox(rg.x, rg.y, rg.x + rg.w - 1, rg.y + rg.h - 1);
+    for (let p = 0; p < passes; p++) {
+      const src = W.height_.slice();
+      for (let y = Math.max(1, y0); y <= Math.min(W.height - 2, y1); y++) for (let x = Math.max(1, x0); x <= Math.min(W.width - 2, x1); x++) {
+        const i = x + y * W.width;
+        if (W.terrain[i] === TKEY.water) continue;
+        W.height_[i] = Math.round((src[i] * 4 + src[i - 1] + src[i + 1] + src[i - W.width] + src[i + W.width]) / 8);
+      }
+    }
+  },
+  beaches(o) {
+    const wdt = Math.max(1, Math.min(6, o.width ?? 2)), N = W.width;
+    const soft = new Set([TKEY.grass, TKEY.forest, TKEY.jungle, TKEY.dirt]);
+    let dist = new Uint8Array(W.terrain.length).fill(255);
+    for (let i = 0; i < dist.length; i++) if (W.terrain[i] === TKEY.water) dist[i] = 0;
+    for (let s = 1; s <= wdt; s++) {
+      const next = dist.slice();
+      for (let y = 1; y < W.height - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = x + y * N;
+        if (dist[i] !== 255) continue;
+        if (dist[i - 1] === s - 1 || dist[i + 1] === s - 1 || dist[i - N] === s - 1 || dist[i + N] === s - 1) next[i] = s;
+      }
+      dist = next;
+    }
+    for (let i = 0; i < dist.length; i++)
+      if (dist[i] > 0 && dist[i] <= wdt && soft.has(W.terrain[i]) && W.height_[i] < 12) {
+        W.terrain[i] = TKEY.sand; W.height_[i] = Math.min(W.height_[i], dist[i]);
+      }
+  },
+};
+
+function applyOps(ops, recordUndo = true) {
+  if (recordUndo) pushUndo();
+  const done = [];
+  for (const o of ops) {
+    const fn = OPS[o?.op];
+    if (!fn) { done.push({ o, ok: false, why: "unknown op" }); continue; }
+    if (o.terrain != null && TKEY[o.terrain] == null) { done.push({ o, ok: false, why: `unknown terrain "${o.terrain}"` }); continue; }
+    try { fn(o); done.push({ o, ok: true }); } catch (e) { done.push({ o, ok: false, why: e.message }); }
+  }
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// Undo
+// ---------------------------------------------------------------------------
+const undoStack = [], redoStack = [], UNDO_MAX = 15;
+const snap = () => ({ t: W.terrain.slice(), h: W.height_.slice(), d: W.density.slice() });
+function restore(s) { W.terrain = s.t; W.height_ = s.h; W.density = s.d; }
+function pushUndo() { undoStack.push(snap()); if (undoStack.length > UNDO_MAX) undoStack.shift(); redoStack.length = 0; syncUndo(); }
+function undo() { if (!undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); fullRedraw(); syncUndo(); }
+function redo() { if (!redoStack.length) return; undoStack.push(snap()); restore(redoStack.pop()); fullRedraw(); syncUndo(); }
+function syncUndo() { $("btnUndo").disabled = !undoStack.length; $("btnRedo").disabled = !redoStack.length; }
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const view = $("view"), vctx = view.getContext("2d");
+let img = null, imgData = null, imgCtx = null;
+const cam = { x: 0, y: 0, z: 1 }; // world coordinate at screen top-left, pixels per tile
+
+function resetImage() {
+  img = document.createElement("canvas"); img.width = W.width; img.height = W.height;
+  imgCtx = img.getContext("2d"); imgData = imgCtx.createImageData(W.width, W.height);
+  repaint(0, 0, W.width - 1, W.height - 1);
+}
+function fullRedraw() { repaint(0, 0, W.width - 1, W.height - 1); updateStats(); }
+
+function repaint(x0, y0, x1, y1) {
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W.width - 1, x1); y1 = Math.min(W.height - 1, y1);
+  const px = imgData.data, N = W.width, shade = $("showShade").checked, plants = $("showPlants").checked;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = x + y * N, t = W.terrain[i], c = TRGB[t];
+    let f = 1;
+    if (t === TKEY.water) {
+      f = 0.92 + hrand(x, y, 3, 2) * 0.08;
+    } else {
+      const z = W.height_[i];
+      if (shade) {
+        const nw = W.height_[Math.max(0, x - 1) + Math.max(0, y - 1) * N];
+        f = Math.max(0.55, Math.min(1.5, 1 + (z - nw) * 0.06)) * (0.9 + Math.min(z, 100) * 0.0025);
+      }
+      f *= 0.95 + hrand(x, y, 5, 3) * 0.1;
+      if (plants) {
+        const g = populateGroup(x, y, t, W.density[i], W.seed);
+        if (g >= 0) {
+          const kind = TERRAINS[t].populate[g].kind;
+          if (kind === "tree") f *= 0.55; else if (kind === "rock") f *= 0.75;
+        }
+      }
+    }
+    const o = i * 4;
+    px[o] = Math.min(255, c[0] * f); px[o + 1] = Math.min(255, c[1] * f); px[o + 2] = Math.min(255, c[2] * f); px[o + 3] = 255;
+  }
+  imgCtx.putImageData(imgData, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+  draw();
+}
+
+let drawQueued = false;
+function draw() {
+  if (drawQueued) return; drawQueued = true;
+  requestAnimationFrame(() => {
+    drawQueued = false;
+    if (!img) return;
+    const dpr = window.devicePixelRatio || 1, r = view.getBoundingClientRect();
+    if (view.width !== Math.round(r.width * dpr) || view.height !== Math.round(r.height * dpr)) {
+      view.width = Math.round(r.width * dpr); view.height = Math.round(r.height * dpr);
+    }
+    vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    vctx.fillStyle = "#0a0e10"; vctx.fillRect(0, 0, r.width, r.height);
+    vctx.imageSmoothingEnabled = cam.z < 1;
+    vctx.drawImage(img, -cam.x * cam.z, -cam.y * cam.z, W.width * cam.z, W.height * cam.z);
+    if ($("showBlocks").checked && cam.z >= 6) {
+      vctx.strokeStyle = "rgba(214,170,76,.35)"; vctx.lineWidth = 1; vctx.beginPath();
+      const sx = Math.floor(cam.x / 8) * 8, sy = Math.floor(cam.y / 8) * 8;
+      for (let x = sx; x <= cam.x + r.width / cam.z; x += 8) { const X = Math.round((x - cam.x) * cam.z) + .5; vctx.moveTo(X, 0); vctx.lineTo(X, r.height); }
+      for (let y = sy; y <= cam.y + r.height / cam.z; y += 8) { const Y = Math.round((y - cam.y) * cam.z) + .5; vctx.moveTo(0, Y); vctx.lineTo(r.width, Y); }
+      vctx.stroke();
+    }
+    if (hover && !panning) {
+      vctx.strokeStyle = "rgba(255,255,255,.8)"; vctx.lineWidth = 1; vctx.beginPath();
+      const rad = tool === "fill" || tool === "pick" ? 0.7 : brush.size;
+      vctx.arc((hover.wx - cam.x) * cam.z, (hover.wy - cam.y) * cam.z, Math.max(3, rad * cam.z), 0, Math.PI * 2);
+      vctx.stroke();
+    }
+    $("szoom").textContent = cam.z >= 1 ? `${cam.z.toFixed(cam.z < 4 ? 1 : 0)}×` : `1/${(1 / cam.z).toFixed(1)}`;
+  });
+}
+
+function fitView() {
+  const r = view.getBoundingClientRect();
+  cam.z = Math.min(r.width / W.width, r.height / W.height) * 0.95 || 0.5;
+  cam.x = -(r.width / cam.z - W.width) / 2; cam.y = -(r.height / cam.z - W.height) / 2;
+  draw();
+}
+function zoomAt(sx, sy, factor) {
+  const wx = cam.x + sx / cam.z, wy = cam.y + sy / cam.z;
+  cam.z = Math.max(0.1, Math.min(32, cam.z * factor));
+  cam.x = wx - sx / cam.z; cam.y = wy - sy / cam.z; draw();
+}
+
+// ---------------------------------------------------------------------------
+// Tools and painting
+// ---------------------------------------------------------------------------
+const TOOLS = [
+  { id: "paint", label: "Paint", key: "B" }, { id: "fill", label: "Fill", key: "G" },
+  { id: "raise", label: "Raise", key: "R" }, { id: "lower", label: "Lower", key: "L" },
+  { id: "smooth", label: "Smooth", key: "S" }, { id: "flatten", label: "Flatten", key: "F" },
+  { id: "thin", label: "Clear plants", key: "C" }, { id: "thick", label: "More plants", key: "M" },
+  { id: "pick", label: "Pick", key: "I" },
+];
+let tool = "paint", paintT = TKEY.grass;
+const brush = { size: 12, strength: 0.4 };
+
+function buildUi() {
+  $("tools").innerHTML = TOOLS.map(t => `<button data-tool="${t.id}" aria-pressed="${t.id === tool}">${t.label}<kbd>${t.key}</kbd></button>`).join("");
+  $("tools").onclick = e => { const b = e.target.closest("button"); if (b) setTool(b.dataset.tool); };
+  $("palette").innerHTML = TERRAINS.map((t, i) =>
+    `<button data-t="${i}" aria-pressed="${i === paintT}"><span class="swatch" style="background:${t.color}"></span>${t.name}<span class="pct" id="pct${i}"></span></button>`).join("");
+  $("palette").onclick = e => { const b = e.target.closest("button"); if (b) { paintT = +b.dataset.t; syncPalette(); if (!["paint", "fill"].includes(tool)) setTool("paint"); } };
+}
+function setTool(id) { tool = id; document.querySelectorAll("#tools button").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === id)); draw(); }
+function syncPalette() { document.querySelectorAll("#palette button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.t === paintT)); }
+
+let hover = null, painting = false, panning = false, panStart = null, flattenZ = 0, spaceDown = false, strokeDirty = null;
+
+function stamp(wx, wy) {
+  const r = brush.size, s = brush.strength, N = W.width;
+  const [x0, y0, x1, y1] = bbox(wx - r, wy - r, wx + r, wy + r);
+  const src = tool === "smooth" ? W.height_.slice() : null;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const d = Math.hypot(x + 0.5 - wx, y + 0.5 - wy) / r;
+    if (d > 1) continue;
+    const i = x + y * N, w = smooth01(1, 0.35, d);
+    switch (tool) {
+      case "paint": W.terrain[i] = paintT; if (paintT === TKEY.water) W.height_[i] = -5; break;
+      case "raise": W.height_[i] = clampZ(W.height_[i] + 4 * s * w + (w > 0.5 ? 0.5 : 0)); break;
+      case "lower": W.height_[i] = clampZ(W.height_[i] - 4 * s * w - (w > 0.5 ? 0.5 : 0)); break;
+      case "flatten": W.height_[i] = clampZ(W.height_[i] + (flattenZ - W.height_[i]) * s * w); break;
+      case "smooth": if (x > 0 && y > 0 && x < N - 1 && y < W.height - 1) {
+        const avg = (src[i - 1] + src[i + 1] + src[i - N] + src[i + N] + src[i]) / 5;
+        W.height_[i] = clampZ(src[i] + (avg - src[i]) * s * w); } break;
+      case "thin": W.density[i] = Math.max(0, Math.round(W.density[i] - 64 * s * w - (w > .3 ? 1 : 0))); break;
+      case "thick": W.density[i] = Math.min(255, Math.round(W.density[i] + 64 * s * w + (w > .3 ? 1 : 0))); break;
+    }
+  }
+  repaint(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+  strokeDirty = true;
+}
+function floodFill(sx, sy) {
+  const N = W.width, start = sx + sy * N, from = W.terrain[start];
+  if (from === paintT) return;
+  pushUndo();
+  const stack = [start]; let n = 0;
+  while (stack.length && n < 4_000_000) {
+    const i = stack.pop();
+    if (W.terrain[i] !== from) continue;
+    W.terrain[i] = paintT; if (paintT === TKEY.water) W.height_[i] = -5; n++;
+    const x = i % N;
+    if (x > 0) stack.push(i - 1); if (x < N - 1) stack.push(i + 1);
+    if (i >= N) stack.push(i - N); if (i < W.terrain.length - N) stack.push(i + N);
+  }
+  fullRedraw();
+}
+
+function toWorld(e) {
+  const r = view.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  return { sx, sy, wx: cam.x + sx / cam.z, wy: cam.y + sy / cam.z };
+}
+view.addEventListener("contextmenu", e => e.preventDefault());
+view.addEventListener("pointerdown", e => {
+  view.focus(); view.setPointerCapture(e.pointerId);
+  const p = toWorld(e);
+  if (e.button === 1 || e.button === 2 || spaceDown) { panning = true; panStart = { ...p, cx: cam.x, cy: cam.y }; view.style.cursor = "grabbing"; return; }
+  if (e.button !== 0) return;
+  const x = Math.floor(p.wx), y = Math.floor(p.wy);
+  if (x < 0 || y < 0 || x >= W.width || y >= W.height) return;
+  if (tool === "pick" || e.altKey) { paintT = W.terrain[x + y * W.width]; syncPalette(); setTool("paint"); return; }
+  if (tool === "fill") { floodFill(x, y); return; }
+  pushUndo(); painting = true; flattenZ = W.height_[x + y * W.width];
+  stamp(p.wx, p.wy);
+});
+view.addEventListener("pointermove", e => {
+  const p = toWorld(e); hover = p;
+  if (panning) { cam.x = panStart.cx - (p.sx - panStart.sx) / cam.z; cam.y = panStart.cy - (p.sy - panStart.sy) / cam.z; }
+  else if (painting) stamp(p.wx, p.wy);
+  status(p); draw();
+});
+const endStroke = () => { if (painting && strokeDirty) { updateStats(); } painting = false; panning = false; strokeDirty = null; view.style.cursor = "crosshair"; };
+view.addEventListener("pointerup", endStroke);
+view.addEventListener("pointercancel", endStroke);
+view.addEventListener("pointerleave", () => { hover = null; draw(); });
+view.addEventListener("wheel", e => { e.preventDefault(); const p = toWorld(e); zoomAt(p.sx, p.sy, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+
+function status(p) {
+  const x = Math.floor(p.wx), y = Math.floor(p.wy);
+  if (x < 0 || y < 0 || x >= W.width || y >= W.height) { ["sx", "sy", "st", "sz", "sb"].forEach(id => $(id).textContent = "–"); return; }
+  const i = x + y * W.width, t = W.terrain[i];
+  $("sx").textContent = x; $("sy").textContent = y;
+  $("st").textContent = TERRAINS[t].name;
+  $("sz").textContent = t === TKEY.water ? "-5" : W.height_[i];
+  $("sb").textContent = `${x >> 3},${y >> 3}`;
+}
+
+window.addEventListener("keydown", e => {
+  if (e.target.matches("input, textarea, select")) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+  if (e.key === " ") { spaceDown = true; e.preventDefault(); return; }
+  if (e.key === "[") { setBrush(brush.size - Math.max(1, brush.size * 0.15)); return; }
+  if (e.key === "]") { setBrush(brush.size + Math.max(1, brush.size * 0.15)); return; }
+  const t = TOOLS.find(t => t.key === e.key.toUpperCase());
+  if (t && !e.ctrlKey && !e.metaKey) setTool(t.id);
+});
+window.addEventListener("keyup", e => { if (e.key === " ") spaceDown = false; });
+function setBrush(v) { brush.size = Math.round(Math.max(1, Math.min(96, v))); $("brushSize").value = brush.size; $("brushSizeOut").textContent = brush.size; draw(); }
+$("brushSize").oninput = e => setBrush(+e.target.value);
+$("brushStrength").oninput = e => { brush.strength = e.target.value / 100; $("brushStrengthOut").textContent = e.target.value + "%"; };
+["showPlants", "showShade"].forEach(id => $(id).onchange = () => fullRedraw());
+$("showBlocks").onchange = draw;
+$("zoomIn").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.5); };
+$("zoomOut").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.5); };
+$("zoomFit").onclick = fitView;
+$("btnUndo").onclick = undo; $("btnRedo").onclick = redo;
+new ResizeObserver(draw).observe($("stage"));
+
+function terrainCounts() {
+  const c = new Array(TERRAINS.length).fill(0);
+  for (let i = 0; i < W.terrain.length; i++) c[W.terrain[i]]++;
+  return c;
+}
+function updateStats() {
+  const c = terrainCounts(), n = W.terrain.length;
+  c.forEach((v, i) => { const el = $("pct" + i); if (el) el.textContent = v ? (v * 100 / n < 0.1 ? "<0.1%" : (v * 100 / n).toFixed(1) + "%") : ""; });
+  $("sm").textContent = `${W.width}×${W.height} · seed ${W.seed}`;
+  scheduleSave();
+}
+
+// ---------------------------------------------------------------------------
+// Project files
+// ---------------------------------------------------------------------------
+function b64(u8) {
+  let s = ""; const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(s);
+}
+function unb64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+
+function toProject() {
+  return {
+    format: "shardforge-project", version: 1,
+    name: $("projName").value.trim() || "Untitled",
+    width: W.width, height: W.height, seed: W.seed,
+    terrains: TERRAINS.map(t => ({ key: t.key, name: t.name, color: t.color, landTiles: t.land, fixedZ: t.fixedZ ?? null,
+      populate: t.populate.map(p => ({ kind: p.kind, density: p.density, items: p.items })) })),
+    layers: {
+      terrain: b64(W.terrain),
+      height: b64(new Uint8Array(W.height_.buffer.slice(0))),
+      density: b64(W.density),
+    },
+  };
+}
+function fromProject(p) {
+  if (p?.format !== "shardforge-project") throw new Error("That file is not a ShardForge project.");
+  if (p.width % 8 || p.height % 8) throw new Error("Map width and height must be multiples of 8.");
+  const order = (p.terrains || []).map(t => TKEY[t.key]);
+  const t = unb64(p.layers.terrain), h = new Int8Array(unb64(p.layers.height).buffer), d = unb64(p.layers.density);
+  if (t.length !== p.width * p.height) throw new Error("Terrain layer size does not match the map size.");
+  for (let i = 0; i < t.length; i++) t[i] = order[t[i]] ?? 0;
+  W.width = p.width; W.height = p.height; W.seed = p.seed | 0;
+  W.terrain = t; W.height_ = h; W.density = d;
+  $("projName").value = p.name || "Untitled";
+  undoStack.length = 0; redoStack.length = 0; syncUndo();
+  resetImage(); fitView(); updateStats();
+}
+
+let downloads = null;
+$("btnExport").onclick = async () => {
+  const name = ($("projName").value.trim() || "map").replace(/[^\w\- ]+/g, "").replace(/\s+/g, "-").toLowerCase();
+  const data = JSON.stringify(toProject());
+  if (!downloads) { addMsg("claude", "Exporting needs the download permission, which this view doesn't have. Open the page on claude.ai to export.", "error"); return; }
+  try {
+    await downloads.save({ filename: `${name}.shardforge.json`, data });
+    addMsg("claude", `Exported <code>${name}.shardforge.json</code>. Build it into UO map files with <code>shardforge build ${name}.shardforge.json out/</code>.`);
+  } catch (e) {
+    if (e?.code !== "declined" && e?.code !== "cancelled") addMsg("claude", "Export failed: " + (e?.message || e), "error");
+  }
+};
+$("btnOpen").onclick = () => $("fileOpen").click();
+$("fileOpen").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { fromProject(JSON.parse(await f.text())); addMsg("claude", `Opened <code>${escapeHtml(f.name)}</code>.`); }
+  catch (err) { addMsg("claude", "Couldn't open that file: " + escapeHtml(err.message), "error"); }
+  e.target.value = "";
+};
+$("btnNew").onclick = () => $("dlgNew").showModal();
+$("dlgNew").addEventListener("close", () => {
+  if ($("dlgNew").returnValue !== "ok") return;
+  busy("Generating…");
+  setTimeout(() => { newWorld(+$("newSize").value, $("newStart").value); busy(); }, 30);
+});
+
+// Autosave to this browser (best effort; Export is the real save).
+let saveTimer = null;
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveLocal, 2500); }
+function idb() {
+  return new Promise((res, rej) => {
+    try { const r = indexedDB.open("shardforge", 1); r.onupgradeneeded = () => r.result.createObjectStore("p"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
+    catch (e) { rej(e); }
+  });
+}
+async function saveLocal() {
+  try { const db = await idb(); db.transaction("p", "readwrite").objectStore("p").put(toProject(), "current"); } catch { /* storage unavailable */ }
+}
+async function loadLocal() {
+  try {
+    const db = await idb();
+    return await new Promise(res => { const r = db.transaction("p").objectStore("p").get("current"); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+  } catch { return null; }
+}
+
+// ---------------------------------------------------------------------------
+// Claude
+// ---------------------------------------------------------------------------
+let sample = null, aiAbort = null;
+const OP_DOC = `
+Coordinates are tiles: x grows east (right), y grows south (down), origin top-left.
+Altitude z is UO's: -128..127. Water sits at z -5. Lowland 0-10, hills 15-40, mountains 50-100, peaks up to 120.
+Terrain keys: ${TERRAINS.map(t => t.key).join(", ")}.
+Ops (JSON objects, applied in order):
+- {"op":"island","cx","cy","radius","peak"?:40,"roughness"?:0.5 (0-1, coastline raggedness),"seed"?:int} raises land from the sea with grass/forest by moisture and rock above z 55.
+- {"op":"mountain","cx","cy","radius","peak"?:80,"snow"?:bool,"rockLine"?:28,"snowLine"?:70} adds ridged mountains on land (skips water).
+- {"op":"ellipse","cx","cy","rx","ry","terrain"?,"height"?,"heightMode"?:"set"|"add"|"max"|"min","falloff"?:0-1,"jitter"?:0-1,"within"?:[keys]} paints an organic blob.
+- {"op":"polygon","points":[[x,y],...],"terrain"?,"height"?,"heightMode"?,"jitter"?:tiles,"within"?:[keys]}.
+- {"op":"path","points":[[x,y],...],"width":tiles,"terrain"?,"height"?,"heightMode"?,"jitter"?:tiles,"within"?:[keys]} for rivers (terrain water, height -5, jitter 6-15) and roads (cobblestone or dirt, width 2-4).
+- {"op":"patches","terrain","within"?:[keys],"coverage":0-1,"scale"?:tiles (patch size),"region"?:{"x","y","w","h"}} natural patches, e.g. forest over grass.
+- {"op":"density","cx","cy","rx","ry","value":0-2} vegetation multiplier: 0 clears trees (towns, fields), 2 is dense.
+- {"op":"smooth","passes"?:2,"region"?:{"x","y","w","h"}} softens altitude.
+- {"op":"beaches","width"?:2} turns low shoreline land into sand.
+- {"op":"fill","terrain","height"?} whole map (use only to start over).
+Good order: landmasses, mountains, patches, rivers, roads, beaches, then clearings. Keep everything inside the map.`;
+
+function overview(cols = 48) {
+  const rows = Math.round(cols * W.height / W.width), cw = W.width / cols, ch = W.height / rows;
+  const lines = [];
+  for (let r = 0; r < rows; r++) {
+    let s = "";
+    for (let c = 0; c < cols; c++) {
+      const cnt = new Array(TERRAINS.length).fill(0);
+      for (let y = Math.floor(r * ch); y < Math.floor((r + 1) * ch); y += 2)
+        for (let x = Math.floor(c * cw); x < Math.floor((c + 1) * cw); x += 2) cnt[W.terrain[x + y * W.width]]++;
+      s += GRID_CHARS[cnt.indexOf(Math.max(...cnt))];
+    }
+    lines.push(s);
+  }
+  return { cols, rows, cell: Math.round(cw), text: lines.join("\n") };
+}
+function mapSummary() {
+  const c = terrainCounts(), n = W.terrain.length, ov = overview();
+  let zmin = 127, zmax = -128;
+  for (let i = 0; i < n; i++) if (W.terrain[i] !== TKEY.water) { const z = W.height_[i]; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
+  return `Map: ${W.width} x ${W.height} tiles.
+Terrain share: ${TERRAINS.map((t, i) => c[i] ? `${t.key} ${(c[i] * 100 / n).toFixed(1)}%` : null).filter(Boolean).join(", ")}.
+Land altitude range: ${zmax < zmin ? "no land" : `${zmin}..${zmax}`}.
+Overview grid (${ov.cols}x${ov.rows}, each character covers about ${ov.cell}x${ov.cell} tiles; legend ${TERRAINS.map((t, i) => GRID_CHARS[i] + "=" + t.key).join(" ")}):
+${ov.text}`;
+}
+
+function addMsg(who, html, cls = "") {
+  const d = document.createElement("div");
+  d.className = `msg ${who === "user" ? "user" : ""} ${cls}`;
+  d.innerHTML = `<div class="who">${who === "user" ? "You" : "Claude"}</div>${html}`;
+  $("log").appendChild(d); $("log").scrollTop = $("log").scrollHeight;
+  return d;
+}
+const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function describeOp(o) {
+  const parts = Object.entries(o).filter(([k]) => k !== "op").map(([k, v]) => `${k} ${Array.isArray(v) ? (Array.isArray(v[0]) ? v.length + " points" : v.join("/")) : typeof v === "object" ? JSON.stringify(v) : v}`);
+  return `<code>${escapeHtml(o.op)}</code> ${escapeHtml(parts.join(", "))}`;
+}
+function busy(text) { const b = $("busy"); b.textContent = text || ""; b.style.display = text ? "block" : "none"; }
+
+function extractJson(text) {
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a < 0 || b <= a) throw new Error("Claude's reply had no JSON plan.");
+  return JSON.parse(text.slice(a, b + 1));
+}
+
+async function askClaude(request) {
+  if (!sample) return;
+  addMsg("user", escapeHtml(request));
+  const pending = addMsg("claude", "Thinking…");
+  $("btnAsk").disabled = true; $("btnStop").hidden = false;
+  aiAbort = new AbortController();
+  const prompt = `You are the world-building assistant inside ShardForge, a map editor for Ultima Online shards.
+Turn the user's request into edit operations on the current map. Make the result look natural and like classic UO: ragged coastlines, rivers that run downhill to the sea, forests in patches, roads linking places, clear ground where towns go.
+${OP_DOC}
+
+Current map:
+${mapSummary()}
+
+User request: ${request}
+
+Reply with only a JSON object: {"summary": "one or two sentences on what you did, in plain words", "ops": [ ... ]}`;
+  try {
+    const res = await sample(prompt, {
+      signal: aiAbort.signal, modelTier: "complex", cache: false,
+      onText: ({ text }) => { pending.lastChild.textContent = text.length > 400 ? "Planning the map… (" + text.length + " characters)" : "Planning the map…"; },
+    });
+    const plan = extractJson(res.text);
+    if (!Array.isArray(plan.ops) || !plan.ops.length) throw new Error("The plan had no operations.");
+    busy("Applying " + plan.ops.length + " changes…");
+    await new Promise(r => setTimeout(r, 20));
+    const done = applyOps(plan.ops);
+    fullRedraw(); busy();
+    const failed = done.filter(d => !d.ok);
+    pending.innerHTML = `<div class="who">Claude</div>${escapeHtml(plan.summary || "Done.")}
+      <ol>${done.map(d => `<li>${describeOp(d.o)}${d.ok ? "" : ` <span style="color:var(--danger)">skipped: ${escapeHtml(d.why)}</span>`}</li>`).join("")}</ol>
+      ${failed.length ? "" : `<div class="note" style="margin-top:6px">Undo reverts all of it.</div>`}`;
+  } catch (e) {
+    busy();
+    if (aiAbort.signal.aborted) { pending.innerHTML = `<div class="who">Claude</div>Stopped.`; }
+    else if (e?.code === "not_granted") { pending.innerHTML = `<div class="who">Claude</div>The assistant wasn't allowed to run, so nothing changed.`; pending.classList.add("error"); }
+    else if (e?.code === "rate_limited") { pending.innerHTML = `<div class="who">Claude</div>Too many requests right now. Wait a minute and try again.`; pending.classList.add("error"); }
+    else { pending.innerHTML = `<div class="who">Claude</div>That didn't work: ${escapeHtml(e?.message || String(e))}. Nothing on the map changed.`; pending.classList.add("error"); }
+  } finally {
+    $("btnAsk").disabled = false; $("btnStop").hidden = true; aiAbort = null;
+  }
+}
+
+const SUGGESTIONS = [
+  "Raise a snowy mountain range along the north, with a river from it to the sea",
+  "Clear a spot for a town by the river and connect it to the other land with a road",
+  "Add a jungle-covered volcanic island in the south-east with lava at the top",
+  "Turn the west into a sandy desert with a few oases",
+];
+$("chips").innerHTML = SUGGESTIONS.map((s, i) => `<button data-i="${i}">${escapeHtml(s.split(",")[0].split(" with ")[0])}</button>`).join("");
+$("chips").onclick = e => { const b = e.target.closest("button"); if (b) { $("prompt").value = SUGGESTIONS[+b.dataset.i]; $("prompt").focus(); } };
+$("btnAsk").onclick = () => { const q = $("prompt").value.trim(); if (q) askClaude(q); };
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("btnAsk").click(); });
+$("btnStop").onclick = () => aiAbort?.abort();
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+buildUi(); syncUndo();
+$("btnAsk").disabled = true;
+$("aiNote").textContent = "Connecting to Claude…";
+(async () => {
+  const saved = await loadLocal();
+  if (saved) { try { fromProject(saved); } catch { newWorld(1024, "island"); } }
+  else newWorld(1024, "island");
+})();
+if (window.claude?.use) {
+  claude.use("sample").then(s => {
+    sample = s;
+    $("btnAsk").disabled = !s;
+    $("aiNote").textContent = s ? "Ctrl+Enter sends. Claude edits the map with the same tools you have." : "Claude isn't available in this view, but painting and export still work.";
+  });
+  claude.use("downloads").then(d => { downloads = d; });
+} else {
+  $("aiNote").textContent = "Claude isn't available in this view, but painting works.";
+}
+</script>
+</body>
+</html>
