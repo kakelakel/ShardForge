@@ -22,7 +22,7 @@ a { color: var(--gold); }
 button, input, select { font: inherit; color: inherit; }
 button, .btn {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer;
-  text-decoration: none; display: inline-flex; align-items: center; gap: 6px; color: var(--text);
+  text-decoration: none; display: inline-flex; align-items: center; gap: 6px; color: var(--text); white-space: nowrap;
 }
 button:hover, .btn:hover { border-color: var(--muted); }
 button.primary, .btn.primary { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); font-weight: 600; }

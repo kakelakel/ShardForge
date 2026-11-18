@@ -59,6 +59,18 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 
 Everything is read locally in the browser; only the art file, tiledata and one map are read.
 
+## Server
+
+`src/ShardForge.Server` hosts the editor and Walk from your own PC for cooperative building: accounts with Viewer,
+Builder and Admin levels, shared projects with revision history and conflict detection, **Build & walk** on the
+server, and live co-building in Walk (everyone sees each other and every edit at once).
+
+```sh
+dotnet run --project src/ShardForge.Server     # then open http://localhost:2595 on this PC to create the admin
+```
+
+See [docs/SERVER.md](docs/SERVER.md) for settings, sharing it with your team, security and the API.
+
 ## Roadmap
 
 1. ✅ **Reader + renderer**: map, statics, tiledata, radarcol (MUL and UOP), facet to PNG.
@@ -75,10 +87,9 @@ Everything is read locally in the browser; only the art file, tiledata and one m
     Builder with categories, favourites, animation and placement modes.
     Next: multis (whole houses), hues, animated character, live sync with a server.
 11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
-12. **ShardForge Server**: host the editor and Walk from your own PC (a small self-hosted server alongside
-    ServUO) for complete web-based cooperative world building: accounts and user levels (viewer, builder,
-    admin), shared projects and maps, several people editing at once with live updates, change history
-    with per-user undo/review, and one-click publish of a reviewed map to the shard.
+12. ✅ **ShardForge Server** (first version): self-hosted, accounts and user levels, shared projects with history,
+    server-side build, live co-building in Walk. Next: live terrain co-editing in the editor, Ask Claude via a
+    server key, publish straight to ServUO.
 
 ## Requirements
 
@@ -112,6 +123,8 @@ players arriving through a public moongate land on solid ground.
 |---|---|
 | `editor` | Browser world editor (single HTML file) |
 | `walk` | Browser walk-around client (single HTML file) |
+| `src/ShardForge.Server` | Self-hosted server for cooperative building |
+| `docs` | Server guide |
 | `src/ShardForge.Core` | File formats (UOP, map, statics, tiledata, radarcol), project build, rendering, PNG output |
 | `src/ShardForge.Cli` | `shardforge` command-line tool |
 | `tests/ShardForge.Tests` | Unit tests (synthetic data, no game files needed) |

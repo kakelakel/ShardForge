@@ -37,6 +37,13 @@ button.primary { background: var(--gold); color: var(--gold-ink); border-color: 
 button:disabled { opacity: .5; cursor: default; }
 button[aria-pressed="true"] { border-color: var(--gold); background: #2a2516; }
 .filebtn input { display: none; }
+.filebtn[hidden] { display: none; }
+#userBox a { color: var(--muted); text-decoration: none; }
+#userBox a:hover { color: var(--text); }
+.pill { font: 11px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.peer { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }
+.peer i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+#activity { margin-top: 8px; }
 input[type=text], input[type=number], select { background: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 
 header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -116,11 +123,12 @@ footer b { color: var(--text); font-weight: 500; }
   <div class="brand">ShardForge Walk <small>walk and decorate your world at ground level</small></div>
   <div class="spacer"></div>
   <div class="group">
-    <label class="filebtn" title="Pick your Ultima Online client folder (subfolders with built maps are found too)">Open client folder…<input type="file" id="pickDir" webkitdirectory multiple></label>
-    <label class="filebtn" title="Or pick individual files">Open files…<input type="file" id="pickFiles" multiple></label>
+    <label class="filebtn" id="pickDirBtn" title="Pick your Ultima Online client folder (subfolders with built maps are found too)">Open client folder…<input type="file" id="pickDir" webkitdirectory multiple></label>
+    <label class="filebtn" id="pickFilesBtn" title="Or pick individual files">Open files…<input type="file" id="pickFiles" multiple></label>
     <select id="mapSel" aria-label="Map to load" disabled><option>No map files yet</option></select>
     <button id="btnLoad" class="primary" disabled>Load map</button>
   </div>
+  <div class="group" id="userBox" hidden></div>
 </header>
 
 <main>
@@ -142,6 +150,11 @@ footer b { color: var(--text); font-weight: 500; }
   </div>
 
   <aside aria-label="Tools">
+    <section id="liveSection" hidden>
+      <h2>Here now</h2>
+      <div class="chips" id="peers"></div>
+      <p class="note" id="activity">Edits are shared live with everyone on this map.</p>
+    </section>
     <section>
       <h2>Movement</h2>
       <div class="seg">
@@ -160,7 +173,7 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <select id="places" aria-label="Known places" style="width:100%;margin-top:6px"><option value="">Known places…</option></select>
     </section>
-    <section aria-label="Builder palette">
+    <section aria-label="Builder palette" class="build-only">
       <h2>Builder</h2>
       <input type="text" id="search" placeholder="Search all statics: tree, fence, 0x0CD6…" aria-label="Search statics by name or hex id">
       <div class="tabs" role="tablist">
@@ -175,11 +188,11 @@ footer b { color: var(--text); font-weight: 500; }
       <div class="row" style="margin-top:6px"><button id="btnMore" hidden>Show more</button></div>
       <p class="note">Click an item to select it. <span class="kbd">Ctrl</span>/<span class="kbd">Shift</span>-click adds more: each placement then picks one at random. <span class="kbd">Alt</span>-click in the world picks up what's there.</p>
     </section>
-    <section aria-label="Selected item">
+    <section aria-label="Selected item" class="build-only">
       <h2>Selected</h2>
       <div id="details" class="note">Nothing selected.</div>
     </section>
-    <section aria-label="Placement">
+    <section aria-label="Placement" class="build-only">
       <h2>Placement</h2>
       <div class="modes">
         <button data-mode="single" aria-pressed="true" title="Place one item per click (1)">Single</button>
@@ -195,7 +208,7 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <p class="note" id="modeHint">Click a tile to place the item on the ground there. <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> raise or lower it.</p>
     </section>
-    <section aria-label="Your edits">
+    <section aria-label="Your edits" class="build-only">
       <h2>Your edits</h2>
       <p class="note" id="editCount">No edits yet.</p>
       <div class="row" style="margin-top:8px"><button id="btnUndo" disabled>Undo</button><button id="btnExport" disabled>Export statics (.zip)</button></div>
@@ -504,8 +517,9 @@ function refreshMapList() {
   sel.disabled = false; $("btnLoad").disabled = false;
 }
 
-async function loadMap(f, dir) {
-  const [name, w, h] = FACETS[f];
+async function loadMap(f, dir, wOverride, hOverride, nameOverride) {
+  const [fname, fw, fh] = FACETS[f] || [`Facet ${f}`, wOverride, hOverride];
+  const name = nameOverride || fname, w = wOverride || fw, h = hOverride || fh;
   const uop = findIn(dir, `map${f}legacymul.uop`), mul = findIn(dir, `map${f}.mul`);
   const idx = findIn(dir, `staidx${f}.mul`), sta = findIn(dir, `statics${f}.mul`);
   const blocks = (w / 8) * (h / 8);
@@ -588,6 +602,15 @@ function stepTo(x, y, z) {
   }
   return null;
 }
+/** Closest tile you could stand on, searching outward in rings (custom maps rarely have land at the classic spots). */
+function nearestWalkable(cx, cy, maxR = 400) {
+  const ok = (x, y) => x >= 0 && y >= 0 && x < M.w && y < M.h && surfacesAt(x, y).length > 0 && !blockedAt(x, y, topSurface(x, y));
+  if (ok(cx, cy)) return [cx, cy];
+  for (let r = 1; r <= maxR; r++)
+    for (let d = -r; d <= r; d++)
+      for (const [x, y] of [[cx + d, cy - r], [cx + d, cy + r], [cx - r, cy + d], [cx + r, cy + d]]) if (ok(x, y)) return [x, y];
+  return null;
+}
 const topSurface = (x, y) => { const s = surfacesAt(x, y); return s.length ? s[0].top : landAvg(x, y); };
 
 // ===========================================================================
@@ -644,16 +667,24 @@ function drawStatic(s, sx, sy, Z) {
   if (!img) return;
   ctx.drawImage(img, sx - img.width * zoom / 2, sy + (44 - img.height) * zoom - s.z * Z, img.width * zoom, img.height * zoom);
 }
-function drawPlayer(sx, sy, Z) {
-  const fx = sx, fy = sy + 22 * zoom - P.z * Z, k = zoom;
+function drawPlayer(sx, sy, Z) { drawFigure(sx, sy, Z, P.z, P.dir, "#d6aa4c", "#e8c98a", null); }
+function drawFigure(sx, sy, Z, fz, dir, robe, face, label) {
+  const fx = sx, fy = sy + 22 * zoom - fz * Z, k = zoom;
   ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(fx, fy, 12 * k, 5 * k, 0, 0, Math.PI * 2); ctx.fill();
   // a robed figure in ankh gold
-  ctx.fillStyle = "#d6aa4c"; ctx.strokeStyle = "#3a2a08"; ctx.lineWidth = 1.5 * k;
+  ctx.fillStyle = robe; ctx.strokeStyle = "#1d1608"; ctx.lineWidth = 1.5 * k;
   ctx.beginPath(); ctx.moveTo(fx - 9 * k, fy); ctx.lineTo(fx - 5 * k, fy - 34 * k); ctx.lineTo(fx + 5 * k, fy - 34 * k); ctx.lineTo(fx + 9 * k, fy); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.arc(fx, fy - 41 * k, 7 * k, 0, Math.PI * 2); ctx.fillStyle = "#e8c98a"; ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(fx, fy - 41 * k, 7 * k, 0, Math.PI * 2); ctx.fillStyle = face; ctx.fill(); ctx.stroke();
   // facing marker
-  const d = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]][P.dir];
+  const d = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]][dir] || [0, 1];
   ctx.fillStyle = "#fff4d6"; ctx.beginPath(); ctx.arc(fx + (d[0] - d[1]) * 6 * k, fy - 41 * k + (d[0] + d[1]) * 3 * k, 2 * k, 0, Math.PI * 2); ctx.fill();
+  if (label) {
+    ctx.font = `600 ${Math.round(12 * Math.max(0.8, k))}px "IBM Plex Sans", system-ui, sans-serif`;
+    const tw = ctx.measureText(label).width + 10, ty = fy - 58 * k;
+    ctx.fillStyle = "rgba(14,19,22,.82)"; ctx.fillRect(fx - tw / 2, ty - 14, tw, 18);
+    ctx.fillStyle = robe; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label, fx, ty - 5);
+    ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+  }
 }
 
 function draw() {
@@ -666,6 +697,8 @@ function draw() {
   ctx.imageSmoothingEnabled = zoom < 1;
   const Z = 4 * zoom, cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
   const R = Math.ceil(Math.max(rect.width, rect.height + 400) / (22 * zoom) / 2) + 3;
+  const peerAt = new Map();
+  for (const p of Server.peers.values()) { const k = p.x + "," + p.y; if (!peerAt.has(k)) peerAt.set(k, []); peerAt.get(k).push(p); }
   for (let sum = -2 * R; sum <= 2 * R; sum++) {
     for (let dx = Math.max(-R, sum - R); dx <= Math.min(R, sum + R); dx++) {
       const dy = sum - dx, x = P.x + dx, y = P.y + dy;
@@ -678,6 +711,8 @@ function draw() {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
         drawStatic(s, sx, sy, Z);
       });
+      const here = peerAt.size ? peerAt.get(x + "," + y) : null;
+      if (here) for (const p of here) drawFigure(sx, sy, Z, p.z, p.dir, p.color, "#f3e6cc", p.name);
       if (dx === 0 && dy === 0) {
         drawPlayer(sx, sy, Z);
         list.filter(s => s.z > P.z).sort((a, b) => a.z - b.z).forEach(s => drawStatic(s, sx, sy, Z));
@@ -765,6 +800,7 @@ function tryStep(dx, dy) {
     if (z === null) { bump(); requestDraw(); return; }
     P.x = nx; P.y = ny; P.z = z;
   }
+  Server.sendPos();
   requestDraw();
 }
 let bumpTimer = null;
@@ -796,6 +832,7 @@ view.addEventListener("contextmenu", e => e.preventDefault());
 view.addEventListener("mousedown", e => {
   view.focus();
   if (!loaded || !hover) return;
+  if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase")) { toast("Viewers can look around but not build."); return; }
   if (e.button === 2) { beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); return; }
   if (e.button !== 0) return;
   if (e.altKey) { pickFromWorld(hover.x, hover.y); return; }
@@ -823,7 +860,7 @@ $("modeWalk").onclick = () => setMode("walk");
 $("modeFly").onclick = () => setMode("fly");
 function jump(x, y) {
   if (!loaded || !(x >= 0 && y >= 0 && x < M.w && y < M.h)) { toast("That spot is outside the map."); return; }
-  P.x = x | 0; P.y = y | 0; P.z = topSurface(P.x, P.y); requestDraw(); view.focus();
+  P.x = x | 0; P.y = y | 0; P.z = topSurface(P.x, P.y); Server.sendPos(); requestDraw(); view.focus();
 }
 $("btnJump").onclick = () => jump(+$("jx").value, +$("jy").value);
 $("places").onchange = e => { if (e.target.value) { const [x, y] = e.target.value.split(",").map(Number); jump(x, y); e.target.value = ""; } };
@@ -855,8 +892,10 @@ function touchBlock(key) {
   return list;
 }
 function commitTx() {
+  const changed = tx ? [...tx.keys()] : [];
   if (tx && tx.size) { undoStack.push([...tx].map(([key, before]) => ({ key, before }))); if (undoStack.length > 200) undoStack.shift(); }
   tx = null; syncEdits(); requestDraw();
+  if (changed.length) Server.pushBlocks(changed);
 }
 function addStatic(x, y, id, z) {
   if (!validId(id)) return;
@@ -882,9 +921,15 @@ function undo() {
   const u = undoStack.pop(); if (!u) return;
   for (const { key, before } of u) M.blocks.set(key, before);
   syncEdits(); requestDraw();
+  Server.pushBlocks(u.map(e => e.key));
 }
 function syncEdits() {
   $("btnUndo").disabled = !undoStack.length;
+  if (Server.on) {
+    $("btnExport").disabled = !loaded;
+    $("editCount").textContent = `Shared with everyone on this map${Server.rev ? ` · ${Server.rev} saved change${Server.rev === 1 ? "" : "s"}` : ""}.`;
+    return;
+  }
   $("btnExport").disabled = !M.dirty.size;
   $("editCount").textContent = M.dirty.size ? `${undoStack.length} step${undoStack.length === 1 ? "" : "s"} to undo · ${M.dirty.size} block${M.dirty.size === 1 ? "" : "s"} changed.` : "No edits yet.";
 }
@@ -1168,6 +1213,7 @@ function zip(files) {
 }
 let downloads = null;
 $("btnExport").onclick = async () => {
+  if (Server.on) { location.href = `/api/maps/${encodeURIComponent(Server.map.id)}/export`; return; }
   const { idx, data } = buildStatics();
   const blob = zip([{ name: `staidx${M.facet}.mul`, data: idx }, { name: `statics${M.facet}.mul`, data }]);
   window.__lastExport = blob; // for testing
@@ -1183,6 +1229,7 @@ $("pickDir").onchange = e => { addFiles(e.target.files); toast(`${e.target.files
 $("pickFiles").onchange = e => { addFiles(e.target.files); toast(`${e.target.files.length} files added.`); };
 $("btnLoad").onclick = async () => {
   const [f, dir] = $("mapSel").value.split("|");
+  const srv = f === "srv" ? Server.maps.find(m => m.id === dir) : null;
   try {
     $("btnLoad").disabled = true; toast("Loading…", 0);
     const tdFile = findAnywhere("tiledata.mul");
@@ -1191,17 +1238,170 @@ $("btnLoad").onclick = async () => {
     if (!Art.uop && !Art.mul) await Art.open();
     const ad = findAnywhere("animdata.mul");
     if (ad) Anim.parse(await readBytes(ad, 0, ad.size));
-    await loadMap(+f, dir);
+    if (srv) { Server.leave(); await loadMap(srv.facet, `maps/${srv.id}`, srv.width, srv.height, srv.name); await Server.afterLoad(srv); }
+    else await loadMap(+f, dir);
     loaded = true; undoStack.length = 0; syncEdits();
     $("welcome").style.display = "none";
     $("places").innerHTML = `<option value="">Known places…</option>` + (PLACES[M.facet] || []).map(p => `<option value="${p[1]},${p[2]}">${p[0]}</option>`).join("");
     const start = (PLACES[M.facet] || [["", M.w >> 1, M.h >> 1]])[0];
-    jump(start[1], start[2]);
-    toast(`${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
+    const land = nearestWalkable(start[1], start[2]) || nearestWalkable(M.w >> 1, M.h >> 1);
+    jump(...(land || [start[1], start[2]]));
+    toast(srv ? `${M.name} loaded. Everyone here sees you and your edits live.` : `${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
     buildCatalog(); renderTree(); setView(B.view); renderDetails();
   } catch (e) { toast("Couldn't load: " + (e?.message || e), 6000); }
   finally { $("btnLoad").disabled = false; }
 };
+// ===========================================================================
+// ShardForge Server mode: when this page is served by ShardForge Server, files come from the
+// server (range requests), statics edits are shared, and everyone on a map sees each other.
+// ===========================================================================
+function remoteFile(url, name, size) {
+  return {
+    name, size,
+    slice(start = 0, end = size) {
+      return {
+        async arrayBuffer() {
+          if (end <= start) return new ArrayBuffer(0);
+          const r = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` }, credentials: "same-origin" });
+          if (r.status === 401) { location.href = "/login.html?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("Signed out."); }
+          if (!r.ok) throw new Error(`${name}: ${r.status}`);
+          const buf = await r.arrayBuffer();
+          return r.status === 200 && (start > 0 || end < size) ? buf.slice(start, end) : buf;
+        },
+      };
+    },
+  };
+}
+function encodeBlock(list) {
+  const b = new Uint8Array(list.length * 7), v = new DataView(b.buffer);
+  list.forEach((s, i) => { v.setUint16(i * 7, s.id, true); b[i * 7 + 2] = s.x; b[i * 7 + 3] = s.y; v.setInt8(i * 7 + 4, s.z); v.setUint16(i * 7 + 5, s.hue, true); });
+  let str = ""; for (let i = 0; i < b.length; i++) str += String.fromCharCode(b[i]);
+  return btoa(str);
+}
+function decodeBlock(b64) {
+  const bin = atob(b64), out = [];
+  for (let i = 0; i + 7 <= bin.length; i += 7) {
+    const c = k => bin.charCodeAt(i + k);
+    out.push({ id: c(0) | (c(1) << 8), x: c(2), y: c(3), z: (c(4) << 24) >> 24, hue: c(5) | (c(6) << 8) });
+  }
+  return out;
+}
+const Server = {
+  on: false, me: null, maps: [], map: null, ws: null, peers: new Map(), rev: 0, posTimer: null, closing: false, activity: [],
+  async api(method, path, body) {
+    const opt = { method, headers: { "X-ShardForge": "1" }, credentials: "same-origin" };
+    if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers["Content-Type"] = "application/json"; }
+    const r = await fetch(path, opt);
+    const data = (r.headers.get("content-type") || "").includes("json") ? await r.json() : null;
+    if (!r.ok) { const e = new Error(data?.error || `${r.status}`); e.status = r.status; throw e; }
+    return data;
+  },
+  async detect() {
+    if (location.protocol === "file:") return null;
+    try {
+      const r = await fetch("/api/status", { credentials: "same-origin" });
+      if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) return null;
+      const st = await r.json();
+      return st?.name === "ShardForge Server" ? st : null;
+    } catch { return null; }
+  },
+  async start() {
+    const st = await this.detect();
+    if (!st) return;
+    this.on = true;
+    if (st.needsSetup) { location.href = "/setup.html"; return; }
+    try { this.me = await this.api("GET", "/api/me"); }
+    catch (e) { if (e.status === 401) { location.href = "/login.html?next=" + encodeURIComponent(location.pathname + location.search); return; } throw e; }
+    $("pickDirBtn").hidden = $("pickFilesBtn").hidden = true;
+    const ub = $("userBox"); ub.hidden = false;
+    ub.innerHTML = `<a href="/">Dashboard</a><span>${escapeHtml(this.me.username)}</span><span class="pill">${this.me.role}</span>`;
+    if (this.me.level < 2) document.querySelectorAll(".build-only").forEach(el => el.hidden = true);
+    $("welcome").querySelector(".card").innerHTML = `<h1>Walk your shard together</h1>
+      <p>Choose a map at the top and press <b>Load map</b>. Everyone on the same map sees each other, and every static placed or removed appears for everyone at once.</p>
+      <p class="kbd">Signed in as ${escapeHtml(this.me.username)} (${this.me.role}).${this.me.level < 2 ? " Viewers can look around; ask an admin for Builder access to edit." : ""}</p>`;
+    const data = await this.api("GET", "/api/data");
+    for (const [n, size] of Object.entries(data.files)) picked.set("client/" + n, remoteFile(`/api/data/${n}`, n, size));
+    this.maps = await this.api("GET", "/api/maps");
+    for (const m of this.maps) for (const [n, size] of Object.entries(m.files)) picked.set(`maps/${m.id}/${n}`, remoteFile(`/api/maps/${encodeURIComponent(m.id)}/files/${n}`, n, size));
+    const sel = $("mapSel");
+    sel.innerHTML = this.maps.length ? this.maps.map(m => `<option value="srv|${escapeHtml(m.id)}">${escapeHtml(m.name)} · ${m.width}×${m.height}${m.online ? ` · ${m.online} here` : ""}</option>`).join("") : "<option>No maps on this server</option>";
+    sel.disabled = !this.maps.length; $("btnLoad").disabled = !this.maps.length;
+    const want = new URLSearchParams(location.search).get("map");
+    if (want && this.maps.some(m => m.id === want)) { sel.value = "srv|" + want; $("btnLoad").click(); }
+  },
+  async afterLoad(m) {
+    this.map = m;
+    const ov = await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/blocks`);
+    this.rev = ov.rev;
+    for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
+    history.replaceState(null, "", "?map=" + encodeURIComponent(m.id));
+    $("liveSection").hidden = false;
+    this.connect();
+  },
+  leave() { this.closing = true; this.ws?.close(); this.ws = null; this.peers.clear(); this.renderPeers(); this.closing = false; },
+  connect() {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live/${encodeURIComponent(this.map.id)}`);
+    this.ws = ws;
+    ws.onopen = () => this.sendPos(true);
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "welcome") { this.peers.clear(); for (const p of msg.peers) this.peers.set(p.cid, p); this.cid = msg.you.cid; }
+      else if (msg.type === "join") { this.peers.set(msg.peer.cid, msg.peer); this.note(`${msg.peer.name} arrived.`); }
+      else if (msg.type === "leave") { const p = this.peers.get(msg.cid); this.peers.delete(msg.cid); if (p) this.note(`${p.name} left.`); }
+      else if (msg.type === "pos") { const p = this.peers.get(msg.cid); if (p) Object.assign(p, msg); }
+      else if (msg.type === "blocks") {
+        this.rev = Math.max(this.rev, msg.rev);
+        if (msg.userId !== this.me.id) {
+          for (const [k, b64] of Object.entries(msg.blocks)) M.blocks.set(+k, decodeBlock(b64));
+          const n = Object.keys(msg.blocks).length;
+          this.note(`${msg.by} changed ${n} block${n === 1 ? "" : "s"}.`);
+        }
+        syncEdits();
+      } else if (msg.type === "rebuilt") toast(`${msg.by} rebuilt this map from its project. Reload the page to see the new terrain.`, 0);
+      this.renderPeers(); requestDraw();
+    };
+    ws.onclose = () => {
+      if (this.ws !== ws || this.closing) return;
+      this.peers.clear(); this.renderPeers(); requestDraw();
+      toast("Lost the connection to the server. Reconnecting…", 3000);
+      setTimeout(async () => {
+        if (this.ws !== ws) return;
+        try { // catch up on edits made while away
+          const ov = await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/blocks`);
+          this.rev = ov.rev; for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
+          syncEdits(); requestDraw();
+        } catch { /* try again on the next close */ }
+        this.connect();
+      }, 3000);
+    };
+  },
+  sendPos(now = false) {
+    if (!this.ws || this.ws.readyState !== 1) return;
+    const send = () => { this.posTimer = null; this.ws?.readyState === 1 && this.ws.send(JSON.stringify({ type: "pos", x: P.x, y: P.y, z: P.z, dir: Math.max(0, P.dir) })); };
+    if (now) send(); else if (!this.posTimer) this.posTimer = setTimeout(send, 120);
+  },
+  async pushBlocks(keys) {
+    if (!this.on || !this.map || this.me.level < 2) return;
+    const blocks = {};
+    for (const k of new Set(keys)) blocks[k] = encodeBlock(M.blocks.get(k) || []);
+    try { const r = await this.api("PUT", `/api/maps/${encodeURIComponent(this.map.id)}/blocks`, { blocks }); this.rev = Math.max(this.rev, r.rev); syncEdits(); }
+    catch (e) { toast("Couldn't save that to the server: " + e.message, 6000); }
+  },
+  note(text) {
+    this.activity = [text, ...this.activity].slice(0, 4);
+    $("activity").innerHTML = this.activity.map(escapeHtml).join("<br>");
+  },
+  renderPeers() {
+    const el = $("peers");
+    if (!this.on) return;
+    const list = [...this.peers.values()];
+    el.innerHTML = `<span class="peer" title="You"><i style="background:#d6aa4c"></i>${escapeHtml(this.me.username)} (you)</span>` +
+      list.map(p => `<button class="peer" data-cid="${p.cid}" title="Go to ${escapeHtml(p.name)}"><i style="background:${p.color}"></i>${escapeHtml(p.name)}</button>`).join("");
+    el.querySelectorAll("button[data-cid]").forEach(b => b.onclick = () => { const p = this.peers.get(b.dataset.cid); if (p) jump(p.x + 1, p.y + 1); });
+  },
+};
+Server.start().catch(e => toast("Server error: " + e.message, 6000));
+
 if (window.claude?.use) claude.use("downloads").then(d => { downloads = d; });
 draw();
 </script>
