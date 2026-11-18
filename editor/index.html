@@ -136,6 +136,9 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
 .town-form input[type=text] { width: 100%; }
 .town-form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
 .town-form .grid2 select { width: 100%; }
+.town-form details.deco { margin-top: 8px; border: 1px solid var(--line, #2a3238); border-radius: 6px; padding: 6px 8px; }
+.town-form details.deco summary { cursor: pointer; font-size: 13px; }
+.town-form .deco-grid { display: grid; gap: 4px; margin: 6px 0; }
 </style>
 </head>
 <body>
@@ -176,7 +179,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <input id="townName" type="text" placeholder="Random" maxlength="40" autocomplete="off">
         <div class="grid2">
           <div><label for="townSize">Size</label>
-            <select id="townSize"><option value="hamlet">Hamlet</option><option value="village" selected>Village</option><option value="town">Town</option><option value="city">City</option></select></div>
+            <select id="townSize"><option value="" selected>Auto (radius)</option><option value="hamlet">Hamlet</option><option value="village">Village</option><option value="town">Town</option><option value="city">City</option></select></div>
           <div><label for="townStyle">Style</label>
             <select id="townStyle"><option value="">Fits the size</option><option value="rustic">Rustic</option><option value="fishing">Fishing</option><option value="frontier">Frontier</option><option value="town">Town</option><option value="city">City</option><option value="desert">Desert</option><option value="mountain">Mountain</option></select></div>
         </div>
@@ -189,10 +192,33 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
           <div><label for="townWalls">Walls</label>
             <select id="townWalls"><option value="">Cities only</option><option value="yes">Walled</option><option value="no">No walls</option></select></div>
         </div>
-        <label for="townPlots">Building plots</label>
-        <select id="townPlots"><option value="sparse">Sparse</option><option value="normal" selected>Normal</option><option value="dense">Dense</option></select>
+        <div class="grid2">
+          <div><label for="townPlots">Building plots</label>
+            <select id="townPlots"><option value="sparse">Sparse</option><option value="normal" selected>Normal</option><option value="dense">Dense</option></select></div>
+          <div><label for="townSetting">Setting</label>
+            <select id="townSetting">
+              <option value="">As the land is</option><option value="farmland">Farmland ring</option><option value="clearing">Forest clearing</option>
+              <option value="hilltop">Hilltop</option><option value="harbour">Waterfront (dock plot)</option><option value="winter">Winter</option><option value="oasis">Desert oasis</option>
+            </select></div>
+        </div>
+        <details class="deco">
+          <summary>Decorations <span id="decoSummary" class="note"></span></summary>
+          <div class="deco-grid">
+            <label class="check"><input type="checkbox" data-deco="lamps" checked> Street lamps</label>
+            <label class="check"><input type="checkbox" data-deco="market" checked> Market stalls</label>
+            <label class="check"><input type="checkbox" data-deco="square" checked> Square: benches, trees, statue</label>
+            <label class="check"><input type="checkbox" data-deco="signs" checked> Signposts</label>
+            <label class="check"><input type="checkbox" data-deco="street" checked> Street life: barrels, troughs, posts</label>
+            <label class="check"><input type="checkbox" data-deco="flowers" checked> Flowers &amp; flowerpots</label>
+            <label class="check"><input type="checkbox" data-deco="gardens" checked> Gardens</label>
+            <label class="check"><input type="checkbox" data-deco="fields" checked> Fields &amp; hay</label>
+            <label class="check"><input type="checkbox" data-deco="graveyard" checked> Graveyard</label>
+          </div>
+          <label for="townDecoAmount">Amount</label>
+          <select id="townDecoAmount"><option value="0.5">Light</option><option value="1" selected>Normal</option><option value="1.7">Rich</option></select>
+        </details>
       </div>
-      <p class="note">Pick the <b>Town</b> tool (T) and click the map; the circle shows its size. <b>Reroll</b> redoes the last one with a new layout.</p>
+      <p class="note">Pick the <b>Town</b> tool (T), then click for the radius above, or press and <b>drag out</b> to size it (<kbd>[</kbd> <kbd>]</kbd> resize). <b>Reroll</b> lays the last one out again.</p>
       <div class="row" style="margin-top:8px">
         <button id="btnReroll" disabled title="Undo the town you just founded and lay it out again with the same settings">Reroll</button>
         <button id="btnPopulate" title="Found cities, towns, villages and hamlets on good sites, join them with roads and add camps, ruins and shrines">Populate world</button>
@@ -603,7 +629,7 @@ W.places = [];
 
 const THEME_ROOF = { wood: "#9a6a3c", darkwood: "#6e4a2c", plaster: "#8a3b2a", thatch: "#c9a25a", log: "#7a5a34", fieldstone: "#4f5862",
   brick: "#8a3b2a", redbrick: "#8a3b2a", stone: "#8d8a84", sandstone: "#d8c08a", marble: "#4f5862", whitemarble: "#4f5862", clay: "#c46a2c", hide: "#b49a6c" };
-const LOT_COLORS = { home: "#d9b46a", shop: "#e08a4a", inn: "#d36a5a", smithy: "#9aa3ad", chapel: "#c9c3e6", farm: "#9cc25a", hall: "#e6d36a", keep: "#b8b8c8" };
+const LOT_COLORS = { dock: "#5fa8c9", home: "#d9b46a", shop: "#e08a4a", inn: "#d36a5a", smithy: "#9aa3ad", chapel: "#c9c3e6", farm: "#9cc25a", hall: "#e6d36a", keep: "#b8b8c8" };
 const TOWN_STYLES = {
   rustic:   { road: "dirt", main: "dirt", square: "dirt" },
   fishing:  { road: "dirt", main: "dirt", square: "dirt" },
@@ -628,6 +654,8 @@ const PROP = {
   bones: [0x0ECA, 0x0ECB, 0x0ECC, 0x0ECD, 0x0ECE, 0x0ECF, 0x0ED0, 0x0ED1, 0x0ED2], brazier: 0x0E31, candelabra: 0x0B26,
   pavers: [1305, 1306, 1307, 1308], planks: [1233, 1228, 1235, 1230], tree: [[0x0CCD, 0x0CCE], [0x0CD0, 0x0CD1], [0x0CD3, 0x0CD4], [0x0CD6, 0x0CD7]],
   crops: { wheat: [0x0C55, 0x0C56, 0x0C58], cabbage: [0x0C7B, 0x0C7C], carrot: [0x0C76], pumpkin: [0x0C6A, 0x0C6B, 0x0C6C], flax: [0x1A9B] },
+  flowerpots: [0x11CA, 0x11CB, 0x11CC], trough: [0x0B41, 0x0B42], troughY: [0x0B43, 0x0B44], hitch: [0x14E7, 0x14E8], statues: [0x12D8, 0x12D9],
+  palms: [0x0C99, 0x0C9A, 0x0C9B, 0x0C9C, 0x0C9D], flowers: [0x0D2F, 0x0D2D, 0x0D2B, 0x0D29, 0x0C85, 0x0C84],
   // Fieldstone wall pieces (walls.txt "Fieldstone Standard Walls") for city walls.
   wallEW: 28, wallNS: 27, wallCorner: 26, wallPost: 29,
 };
@@ -671,6 +699,12 @@ function occupancy() {
 function markRect(occ, x0, y0, x1, y1, v) {
   for (let y = Math.max(0, y0); y <= Math.min(W.height - 1, y1); y++)
     for (let x = Math.max(0, x0); x <= Math.min(W.width - 1, x1); x++) occ[x + y * W.width] = Math.max(occ[x + y * W.width], v);
+}
+/** Ground within the rectangle varies by at most `maxDz`, so levelling it leaves no cliff. */
+function flatEnough(x0, y0, x1, y1, maxDz) {
+  let lo = 999, hi = -999;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { if (!inMap(x, y)) return false; const z = zAt(x, y); lo = Math.min(lo, z); hi = Math.max(hi, z); }
+  return hi - lo <= maxDz;
 }
 function rectFree(occ, x0, y0, x1, y1) {
   if (x0 < 1 || y0 < 1 || x1 >= W.width - 1 || y1 >= W.height - 1) return false;
@@ -770,18 +804,69 @@ OPS.town = o => {
   const edge = (x, y) => r * (0.78 + 0.44 * fbm(Math.cos(Math.atan2(y - cy, x - cx)) * 1.3 + 7, Math.sin(Math.atan2(y - cy, x - cx)) * 1.3 + 3, nseed, 3));
   const inTown = (x, y, f = 1) => Math.hypot(x - cx, y - cy) <= edge(x, y) * f;
   const occ = occupancy();
-  const bx0 = Math.max(0, cx - r * 2), by0 = Math.max(0, cy - r * 2), bx1 = Math.min(W.width - 1, cx + r * 2), by1 = Math.min(W.height - 1, cy + r * 2);
-  const before = new Uint8Array((bx1 - bx0 + 1) * (by1 - by0 + 1));
-  for (let y = by0; y <= by1; y++) before.set(W.terrain.subarray(bx0 + y * W.width, bx1 + 1 + y * W.width), (y - by0) * (bx1 - bx0 + 1));
   // Materials: chosen per town, or from the style. Anything blends: the build softens every edge.
   const mat = (k, fallback) => (k && TKEY[k] != null && !["water", "lava"].includes(k)) ? k : fallback;
   const mainKey = mat(o.mainRoads, ST.main), laneKey = mat(o.lanes, ST.road), squareKey = mat(o.square, ST.square);
   const squareT = TKEY[squareKey];
   const dens = { sparse: 0.6, normal: 1, dense: 1.3 }[o.plots] ?? 1;
+  const D = { lamps: true, market: true, square: true, signs: true, street: true, flowers: true, gardens: true, fields: true, graveyard: true, ...(o.deco || {}) };
+  const A = Math.max(0, Math.min(3, +(o.deco?.amount ?? 1)));
   const walled = o.walls ?? S.walls;
   const keep = TERRAINS.map(t => t.key).filter(k => !["water", "lava"].includes(k));
   const roads = [];
 
+  // Setting, before the layout so roads and plots follow it.
+  const setting = o.setting || "";
+  if (setting === "winter") { D.gardens = false; D.fields = false; } // no crops in the snow
+  const ringNoise = (x, y) => (fbm(x / 14, y / 14, nseed + 21, 3) - 0.5) * 0.35;
+  const winterWoods = [];
+  if (setting === "hilltop") {
+    const H = Math.min(30, 12 + r / 6), R2 = r * 1.8;
+    for (let y = Math.floor(cy - R2); y <= cy + R2; y++) for (let x = Math.floor(cx - R2); x <= cx + R2; x++) {
+      if (!inMap(x, y) || isHard(W.terrain[x + y * W.width])) continue;
+      const d = Math.hypot(x - cx, y - cy) / R2;
+      if (d < 1) W.height_[x + y * W.width] = clampZ(W.height_[x + y * W.width] + H * (1 - d * d) * (1 - d * d));
+    }
+  } else if (setting === "clearing" || setting === "winter" || setting === "oasis") {
+    const R2 = r * 1.8;
+    for (let y = Math.floor(cy - R2); y <= cy + R2; y++) for (let x = Math.floor(cx - R2); x <= cx + R2; x++) {
+      if (!inMap(x, y)) continue;
+      const i = x + y * W.width, t = W.terrain[i];
+      if (isHard(t) || t === TKEY.rock || t === TKEY.cobblestone) continue;
+      const d = Math.hypot(x - cx, y - cy) / edge(x, y) + ringNoise(x, y);
+      if (setting === "clearing") {
+        if (d < 0.95 && (t === TKEY.forest || t === TKEY.jungle)) W.terrain[i] = TKEY.grass;
+        else if (d >= 1.05 && d < 1.7 && (t === TKEY.grass || t === TKEY.dirt)) { W.terrain[i] = TKEY.forest; W.density[i] = Math.max(W.density[i], 150); }
+      } else if (setting === "winter" && d < 1.45) {
+        if (t === TKEY.forest || t === TKEY.jungle) winterWoods.push(i); // trees go back after the layout
+        if (t === TKEY.grass || t === TKEY.forest || t === TKEY.jungle || t === TKEY.sand || t === TKEY.dirt) W.terrain[i] = TKEY.snow;
+      } else if (setting === "oasis" && d < 1.5 && (t === TKEY.grass || t === TKEY.forest || t === TKEY.jungle || t === TKEY.dirt || t === TKEY.snow)) W.terrain[i] = TKEY.sand;
+    }
+    if (setting === "oasis") {
+      // A pond off the square, ringed with palms.
+      const a = rnd() * Math.PI * 2, d = (S.square || 4) + 8 + r * 0.1, px = cx + Math.cos(a) * d, py = cy + Math.sin(a) * d;
+      const rx = 3 + r * 0.08, ry = 2.5 + r * 0.06;
+      for (let y = Math.floor(py - ry - 4); y <= py + ry + 4; y++) for (let x = Math.floor(px - rx - 4); x <= px + rx + 4; x++) {
+        if (!inMap(x, y)) continue;
+        const v = Math.hypot((x - px) / rx, (y - py) / ry) + (fbm(x / 4, y / 4, nseed + 3, 2) - 0.5) * 0.4, i = x + y * W.width;
+        if (v < 1) { W.terrain[i] = TKEY.water; W.height_[i] = -5; }
+        else if (v < 1.6) { W.terrain[i] = TKEY.grass; W.density[i] = 40; }
+      }
+      // Banks slope down to the water instead of a cliff.
+      const B = 1 + Math.max(4, Math.min(14, (groundHeight(Math.round(px), Math.round(py), 6) + 5) / 3)) / Math.min(rx, ry);
+      for (let y = Math.floor(py - ry * B - 2); y <= py + ry * B + 2; y++) for (let x = Math.floor(px - rx * B - 2); x <= px + rx * B + 2; x++) {
+        if (!inMap(x, y) || isWater(x, y)) continue;
+        const v = Math.hypot((x - px) / rx, (y - py) / ry), i = x + y * W.width;
+        if (v < B) { const t = Math.max(0, (v - 1) / (B - 1)); W.height_[i] = clampZ(-1 + (W.height_[i] + 1) * t * t); }
+        if (v >= 1 && v < 1.6 && rnd() < 0.18) addStatic(pickOf(PROP.palms, rnd), x, y);
+      }
+    }
+  }
+
+  // Snapshot after the setting: roads are what changes from here on.
+  const bx0 = Math.max(0, cx - r * 2), by0 = Math.max(0, cy - r * 2), bx1 = Math.min(W.width - 1, cx + r * 2), by1 = Math.min(W.height - 1, cy + r * 2);
+  const before = new Uint8Array((bx1 - bx0 + 1) * (by1 - by0 + 1));
+  for (let y = by0; y <= by1; y++) before.set(W.terrain.subarray(bx0 + y * W.width, bx1 + 1 + y * W.width), (y - by0) * (bx1 - bx0 + 1));
   // Thin the woods in town (trees stay between plots, roads and plots are cleared later).
   for (let y = cy - r - 4; y <= cy + r + 4; y++) for (let x = cx - r - 4; x <= cx + r + 4; x++)
     if (inMap(x, y) && inTown(x, y, 1.05)) W.density[x + y * W.width] = Math.min(W.density[x + y * W.width], 60 + Math.floor(Math.hypot(x - cx, y - cy) / r * 50));
@@ -911,7 +996,7 @@ OPS.town = o => {
         let zmin = 999, zmax = -999, rough = 0;
         for (let y = Y; y < Y + lh; y++) for (let x = X; x < X + lw; x++) {
           const z = zAt(x, y), t = W.terrain[x + y * W.width]; zmin = Math.min(zmin, z); zmax = Math.max(zmax, z);
-          if (t === TKEY.rock || t === TKEY.snow) rough++;
+          if (t === TKEY.rock) rough++;
         }
         if (rough > lw * lh * 0.2) { k += 1; continue; }
         if (zmax - zmin > 16) { k += 1; continue; }
@@ -940,7 +1025,7 @@ OPS.town = o => {
     let zmin = 999, zmax = -999, rough = 0;
     for (let y = Y; y < Y + lh; y++) for (let x = X; x < X + lw; x++) {
       const z = zAt(x, y), tt = W.terrain[x + y * W.width]; zmin = Math.min(zmin, z); zmax = Math.max(zmax, z);
-      if (tt === TKEY.rock || tt === TKEY.snow) rough++;
+      if (tt === TKEY.rock) rough++;
     }
     if (zmax - zmin > 16 || rough > lw * lh * 0.2) continue;
     const dx = nearest.f.x - px, dy = nearest.f.y - py;
@@ -965,61 +1050,116 @@ OPS.town = o => {
     W.objects.lots.push(l);
   });
 
-  // 5. Life: lamps along main roads, stalls and trees on the square, signposts where roads leave,
-  //    gardens and fields behind rural plots, haystacks, a graveyard at the edge.
+  // 5. Life, each part switchable (o.deco) and scaled by the amount A: lamps, signposts, the square,
+  //    street life, flowers, gardens and fields, a graveyard.
+  const n = (base) => Math.max(0, Math.round(base * A));
+  const freeCell = (x, y) => inMap(x, y) && !occ[x + y * W.width] && !isHard(W.terrain[x + y * W.width]);
   for (const rd of roads.filter(rd => rd.main)) {
-    if (sizeKey === "hamlet") break;
     const dense = densify(rd.pts);
-    for (let k = between(4, 9, rnd), side = 1; k < dense.length; k += between(9, 17, rnd), side = -side) {
-      const p = dense[k];
-      if (!inTown(p.x, p.y, 0.95) || (sizeKey === "village" && rnd() < 0.7)) continue;
-      const x = Math.round(p.x - p.dy * side * (rd.width / 2 + 1)), y = Math.round(p.y + p.dx * side * (rd.width / 2 + 1));
-      if (inMap(x, y) && occ[x + y * W.width] !== 1) addStatic(PROP.lamp, x, y);
-    }
+    if (D.lamps && sizeKey !== "hamlet" && A > 0)
+      for (let k = between(4, 9, rnd), side = 1; k < dense.length; k += Math.round(between(9, 17, rnd) / A), side = -side) {
+        const p = dense[k];
+        if (!inTown(p.x, p.y, 0.95) || (sizeKey === "village" && rnd() < 0.7)) continue;
+        const x = Math.round(p.x - p.dy * side * (rd.width / 2 + 1)), y = Math.round(p.y + p.dx * side * (rd.width / 2 + 1));
+        if (inMap(x, y) && occ[x + y * W.width] !== 1) addStatic(PROP.lamp, x, y);
+      }
     // A signpost where the road leaves town.
     const out = dense.find(p => !inTown(p.x, p.y, 0.97));
-    if (out) addStatic(Math.abs(out.dx) >= Math.abs(out.dy) ? PROP.signX : PROP.signY, Math.round(out.x - out.dy * (rd.width / 2 + 1)), Math.round(out.y + out.dx * (rd.width / 2 + 1)));
+    if (D.signs && out) addStatic(Math.abs(out.dx) >= Math.abs(out.dy) ? PROP.signX : PROP.signY, Math.round(out.x - out.dy * (rd.width / 2 + 1)), Math.round(out.y + out.dx * (rd.width / 2 + 1)));
   }
-  if (S.square) {
+  if (S.square && A > 0) {
     const cells = [];
     for (let y = cy - S.square * 2; y <= cy + S.square * 2; y++) for (let x = cx - S.square * 2; x <= cx + S.square * 2; x++)
       if (inMap(x, y) && W.terrain[x + y * W.width] === squareT && occ[x + y * W.width] === 2) cells.push([x, y]);
     const used = new Set();
-    const free = (x, y) => !used.has(x + "," + y) && W.terrain[x + y * W.width] === squareT;
-    // A few market stalls in a loose cluster, a tree or two, some benches and lamps: sparse, not a carpet.
-    const stalls = Math.min(sizeKey === "city" ? 7 : sizeKey === "town" ? 4 : 2, Math.max(1, Math.round(cells.length / 70)));
-    const hub = pickOf(cells, rnd);
-    const nearHub = cells.filter(([x, y]) => Math.hypot(x - hub[0], y - hub[1]) < S.square * 0.8);
-    const place = (n, pool, fn) => { for (let k = 0, t = 0; k < n && t < n * 20 && pool.length; t++) { const [x, y] = pickOf(pool, rnd); if (fn(x, y)) k++; } };
-    place(stalls, nearHub.length ? nearHub : cells, (x, y) => {
-      if (!free(x, y) || !free(x + 1, y) || !free(x, y + 1) || !free(x - 1, y) || !free(x, y - 1)) return false;
-      addStatic(PROP.table, x, y, z0); used.add(x + "," + y);
-      if (rnd() < 0.8) { addStatic(pickOf(PROP.crates, rnd), x + 1, y, z0); used.add(x + 1 + "," + y); }
-      if (rnd() < 0.6) { addStatic(rnd() < 0.5 ? PROP.barrel : PROP.sack, x, y + 1, z0); used.add(x + "," + (y + 1)); }
-      for (const [dx, dy] of [[-1, 0], [0, -1], [2, 0], [0, 2]]) used.add((x + dx) + "," + (y + dy));
-      return true;
-    });
-    place(sizeKey === "city" ? 3 : 1 + (rnd() < 0.5 ? 1 : 0), cells, (x, y) => { if (!free(x, y)) return false; addTree(x, y, rnd); used.add(x + "," + y); return true; });
-    place(between(2, sizeKey === "city" ? 6 : 3, rnd), cells, (x, y) => { if (!free(x, y)) return false; addStatic(rnd() < 0.5 ? PROP.benchX : PROP.benchY, x, y, z0); used.add(x + "," + y); return true; });
-    place(sizeKey === "city" ? 4 : sizeKey === "town" ? 3 : 1, cells, (x, y) => { if (!free(x, y)) return false; addStatic(PROP.lamp, x, y, z0); used.add(x + "," + y); return true; });
+    const free = (x, y) => !used.has(x + "," + y) && inMap(x, y) && W.terrain[x + y * W.width] === squareT;
+    const place = (k, pool, fn) => { for (let c = 0, t = 0; c < k && t < k * 20 && pool.length; t++) { const [x, y] = pickOf(pool, rnd); if (fn(x, y)) c++; } };
+    if (D.market) {
+      // A few market stalls in a loose cluster: sparse, not a carpet.
+      const stalls = n(Math.min(sizeKey === "city" ? 7 : sizeKey === "town" ? 4 : 2, Math.max(1, Math.round(cells.length / 70))));
+      const hub = pickOf(cells, rnd);
+      const nearHub = cells.filter(([x, y]) => Math.hypot(x - hub[0], y - hub[1]) < S.square * 0.8);
+      place(stalls, nearHub.length ? nearHub : cells, (x, y) => {
+        if (!free(x, y) || !free(x + 1, y) || !free(x, y + 1) || !free(x - 1, y) || !free(x, y - 1)) return false;
+        addStatic(PROP.table, x, y, z0); used.add(x + "," + y);
+        if (rnd() < 0.8) { addStatic(pickOf(PROP.crates, rnd), x + 1, y, z0); used.add(x + 1 + "," + y); }
+        if (rnd() < 0.6) { addStatic(rnd() < 0.5 ? PROP.barrel : PROP.sack, x, y + 1, z0); used.add(x + "," + (y + 1)); }
+        for (const [dx, dy] of [[-1, 0], [0, -1], [2, 0], [0, 2]]) used.add((x + dx) + "," + (y + dy));
+        return true;
+      });
+    }
+    if (D.square) {
+      place(n(sizeKey === "city" ? 3 : 1 + (rnd() < 0.5 ? 1 : 0)), cells, (x, y) => { if (!free(x, y)) return false; if (setting === "oasis") addStatic(pickOf(PROP.palms, rnd), x, y, z0); else addTree(x, y, rnd); used.add(x + "," + y); return true; });
+      place(n(between(2, sizeKey === "city" ? 6 : 3, rnd)), cells, (x, y) => { if (!free(x, y)) return false; addStatic(rnd() < 0.5 ? PROP.benchX : PROP.benchY, x, y, z0); used.add(x + "," + y); return true; });
+      // A statue in the middle of a town's or city's square.
+      if (sizeKey === "town" || sizeKey === "city") place(1, cells.filter(([x, y]) => Math.hypot(x - cx, y - cy) < S.square * 0.5), (x, y) => {
+        if (!free(x, y) || !free(x + 1, y) || !free(x, y + 1)) return false; addStatic(pickOf(PROP.statues, rnd), x, y, z0); used.add(x + "," + y); return true; });
+    }
+    if (D.lamps) place(n(sizeKey === "city" ? 4 : sizeKey === "town" ? 3 : 1), cells, (x, y) => { if (!free(x, y)) return false; addStatic(PROP.lamp, x, y, z0); used.add(x + "," + y); return true; });
+    if (D.flowers) place(n(sizeKey === "city" ? 6 : 3), cells.filter(([x, y]) => !free(x - 1, y) || !free(x, y - 1) || !free(x + 1, y) || !free(x, y + 1)), (x, y) => {
+      if (!free(x, y)) return false; addStatic(pickOf(PROP.flowerpots, rnd), x, y, z0); used.add(x + "," + y); return true; });
   }
-  if (rural) for (const l of W.objects.lots.slice(-lots.length)) {
-    if (rnd() > (l.kind === "farm" ? 0.9 : 0.35)) continue;
+  if (D.street && A > 0) {
+    // Things people leave by the road: barrels and crates, hay, a water trough, a hitching post.
+    for (const rd of roads) {
+      const dense = densify(rd.pts);
+      for (let k = between(3, 12, rnd); k < dense.length; k += Math.max(3, Math.round(between(10, 22, rnd) / A))) {
+        const p = dense[k];
+        if (!inTown(p.x, p.y, 1)) continue;
+        const side = rnd() < 0.5 ? -1 : 1, off = rd.width / 2 + 1;
+        const x = Math.round(p.x - p.dy * side * off), y = Math.round(p.y + p.dx * side * off);
+        if (!freeCell(x, y)) continue;
+        const ew = Math.abs(p.dx) >= Math.abs(p.dy), roll = rnd();
+        if (roll < 0.35) { addStatic(rnd() < 0.5 ? PROP.barrel : PROP.keg, x, y); if (rnd() < 0.5 && freeCell(x + (ew ? 1 : 0), y + (ew ? 0 : 1))) addStatic(pickOf(PROP.crates, rnd), x + (ew ? 1 : 0), y + (ew ? 0 : 1)); }
+        else if (roll < 0.55) addStatic(pickOf(PROP.crates, rnd), x, y);
+        else if (roll < 0.7 && rural) addStatic(pickOf(PROP.hay, rnd), x, y);
+        else if (roll < 0.85) {
+          const [a, b] = ew ? PROP.trough : PROP.troughY, x2 = x + (ew ? 1 : 0), y2 = y + (ew ? 0 : 1);
+          if (freeCell(x2, y2)) { addStatic(a, x, y); addStatic(b, x2, y2); occ[x2 + y2 * W.width] = 1; }
+        } else addStatic(PROP.hitch[ew ? 0 : 1], x, y);
+        occ[x + y * W.width] = 1;
+      }
+    }
+  }
+  if (D.flowers && A > 0) {
+    // Wildflowers in the green between plots.
+    for (let k = 0, want = n(r * r / 50); k < want * 4 && want > 0; k++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * r, x = Math.round(cx + Math.cos(a) * d), y = Math.round(cy + Math.sin(a) * d);
+      if (freeCell(x, y) && inTown(x, y, 1) && W.terrain[x + y * W.width] === TKEY.grass) { addStatic(pickOf(PROP.flowers, rnd), x, y); if (--want <= 0) break; }
+    }
+  }
+  for (const l of W.objects.lots.slice(-lots.length)) {
+    const farm = l.kind === "farm";
+    if (farm ? !D.fields : !(D.gardens && (rural || rnd() < 0.3))) continue;
+    if (rnd() > (farm ? 0.9 : 0.35) * Math.min(1.5, A)) continue;
     // Behind the plot (away from its road).
-    const gw = l.kind === "farm" ? between(8, 14, rnd) : between(3, 6, rnd), gh = l.kind === "farm" ? between(6, 10, rnd) : between(3, 4, rnd);
+    const gw = farm ? between(8, 14, rnd) : between(3, 6, rnd), gh = farm ? between(6, 10, rnd) : between(3, 4, rnd);
     let gx, gy;
     if (l.face === "S") { gx = l.x + between(0, Math.max(0, l.w - gw), rnd); gy = l.y - gh - 2; }
     else if (l.face === "N") { gx = l.x + between(0, Math.max(0, l.w - gw), rnd); gy = l.y + l.h + 2; }
     else if (l.face === "E") { gx = l.x - gw - 2; gy = l.y + between(0, Math.max(0, l.h - gh), rnd); }
     else { gx = l.x + l.w + 2; gy = l.y + between(0, Math.max(0, l.h - gh), rnd); }
     if (!rectFree(occ, gx - 1, gy - 1, gx + gw, gy + gh)) continue;
-    if (l.kind === "farm") field(gx, gy, gx + gw - 1, gy + gh - 1, rnd, occ, true);
+    if (farm) field(gx, gy, gx + gw - 1, gy + gh - 1, rnd, occ, true);
     else garden(gx, gy, gx + gw - 1, gy + gh - 1, rnd, occ);
   }
-  if (sizeKey !== "hamlet") for (let t = 0; t < 12; t++) {
+  if (setting === "farmland" && D.fields !== false) {
+    // A ring of fields around the town.
+    for (let k = 0, want = n(4 + r / 10), t = 0; k < want && t < want * 25; t++) {
+      const a = rnd() * Math.PI * 2, d = r * (1.0 + rnd() * 0.55), fw = between(10, 18, rnd), fh = between(8, 14, rnd);
+      const fx = Math.round(cx + Math.cos(a) * d - fw / 2), fy = Math.round(cy + Math.sin(a) * d - fh / 2);
+      if (!rectFree(occ, fx - 2, fy - 2, fx + fw + 1, fy + fh + 1) || !flatEnough(fx, fy, fx + fw - 1, fy + fh - 1, 10)) continue;
+      levelRect(fx, fy, fx + fw - 1, fy + fh - 1, 2);
+      field(fx, fy, fx + fw - 1, fy + fh - 1, rnd, occ, rnd() < 0.6); k++;
+    }
+  }
+  if (setting === "harbour") harbour(cx, cy, r, rnd, occ, roads, laneKey);
+  // Winter: the woods that became snow keep their trees, off the roads, plots and square.
+  for (const i of winterWoods) if (!occ[i] && W.density[i] > 0 && rnd() < 0.07) addTree(i % W.width, (i / W.width) | 0, rnd);
+  if (D.graveyard && sizeKey !== "hamlet") for (let t = 0; t < 12; t++) {
     const a = rnd() * Math.PI * 2, d = r * (0.95 + rnd() * 0.25), gw = between(7, 11, rnd), gh = between(5, 8, rnd);
     const gx = Math.round(cx + Math.cos(a) * d), gy = Math.round(cy + Math.sin(a) * d);
-    if (rectFree(occ, gx - 2, gy - 2, gx + gw + 1, gy + gh + 1)) { graveyardAt(gx, gy, gw, gh, rnd, occ); break; }
+    if (rectFree(occ, gx - 2, gy - 2, gx + gw + 1, gy + gh + 1) && flatEnough(gx - 1, gy - 1, gx + gw, gy + gh, 8)) { graveyardAt(gx, gy, gw, gh, rnd, occ); break; }
   }
   // Exits: where the main roads leave town, for country roads to join.
   const exits = roads.filter(rd => rd.main).map(rd => rd.pts[rd.pts.length - 1]);
@@ -1027,6 +1167,43 @@ OPS.town = o => {
   W.places.push({ name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r, exits, walled: !!walled });
 };
 
+/** Waterfront: a lane down to the shore and a dock plot at the water's edge (build the pier yourself). */
+function harbour(cx, cy, r, rnd, occ, roads, laneKey) {
+  const R = Math.round(r * 1.7), shore = [];
+  for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+    if (!inMap(x, y) || isWater(x, y) || Math.hypot(x - cx, y - cy) > R) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inMap(x + dx, y + dy) && isWater(x + dx, y + dy)) { shore.push({ x, y, dx, dy }); break; }
+  }
+  if (!shore.length) { addMsg?.("claude", "No water near this town for a waterfront.", "error"); return; }
+  shore.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+  const docks = [];
+  for (const s0 of shore) {
+    if (docks.length >= Math.max(1, Math.round(r / 30))) break;
+    if (docks.some(p => Math.hypot(p.x - s0.x, p.y - s0.y) < 16)) continue;
+    // Open water straight out, so a pier can be built there.
+    let len = 0;
+    while (len < 10 && inMap(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1)) && isWater(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1))) len++;
+    if (len < 6) continue;
+    // The plot: on the shore, its front facing the water.
+    const along = s0.dx !== 0 ? 0 : 1, w = along ? 8 : 6, h = along ? 6 : 8;
+    const X = s0.dx > 0 ? s0.x - w + 1 : s0.dx < 0 ? s0.x : s0.x - (w >> 1);
+    const Y = s0.dy > 0 ? s0.y - h + 1 : s0.dy < 0 ? s0.y : s0.y - (h >> 1);
+    let wet = 0;
+    for (let y = Y; y < Y + h; y++) for (let x = X; x < X + w; x++) if (!inMap(x, y) || isWater(x, y)) wet++;
+    if (wet > w * h * 0.25 || !rectFree(occ, X, Y, X + w - 1, Y + h - 1)) continue;
+    const face = s0.dx > 0 ? "E" : s0.dx < 0 ? "W" : s0.dy > 0 ? "S" : "N";
+    const lot = { x: X, y: Y, w, h, face, kind: "dock" };
+    lot.z = levelRect(X, Y, X + w - 1, Y + h - 1, 1);
+    for (let y = Y; y < Y + h; y++) for (let x = X; x < X + w; x++) if (inMap(x, y) && !isWater(x, y)) W.density[x + y * W.width] = 0;
+    markRect(occ, X - 1, Y - 1, X + w, Y + h, 1);
+    W.objects.lots.push(lot);
+    // A lane from the town's nearest road to the dock.
+    let best = null;
+    for (const rd of roads) for (const q of rd.pts) { const d = Math.hypot(q[0] - s0.x, q[1] - s0.y); if (!best || d < best.d) best = { q, d }; }
+    if (best && best.d > 3) OPS.path({ points: [best.q, [X + (w >> 1), Y + (h >> 1)]], width: 2, terrain: laneKey, jitter: 1, within: TERRAINS.map(t => t.key).filter(k => k !== "water") });
+    docks.push(s0);
+  }
+}
 function garden(x0, y0, x1, y1, rnd, occ) {
   const crop = pickOf(Object.values(PROP.crops), rnd);
   const z = levelRect(x0, y0, x1, y1, 1);
@@ -1186,7 +1363,7 @@ OPS.roads = o => {
   });
   const cost = (gx, gy) => {
     const x = Math.min(W.width - 1, gx * G + (G >> 1)), y = Math.min(W.height - 1, gy * G + (G >> 1)), t = W.terrain[x + y * W.width];
-    if (t === TKEY.water) return 30; if (t === TKEY.rock || t === TKEY.snow || t === TKEY.lava) return 25;
+    if (t === TKEY.water) return 400; if (t === TKEY.rock || t === TKEY.snow || t === TKEY.lava) return 25; // around lakes, not over them
     return (t === TKEY.forest || t === TKEY.jungle ? 1.6 : 1) * (0.8 + fbm(gx / 9, gy / 9, W.seed + 77, 2) * 0.6); // a little noise: roads curve
   };
   const zc = (gx, gy) => W.height_[Math.min(W.width - 1, gx * G + (G >> 1)) + Math.min(W.height - 1, gy * G + (G >> 1)) * W.width];
@@ -1204,8 +1381,7 @@ OPS.roads = o => {
     const pts = [pa, ...mid, pb];
     const big = ["town", "city"].includes(A.kind) && ["town", "city"].includes(B.kind);
     OPS.path({ points: pts, width: big ? 3 : 2, terrain: "dirt", jitter: 2.5, within: keep });
-    for (const [x, y] of pts.flatMap((p, i) => i ? interp(pts[i - 1], p) : [p])) // bridges over water
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy) && isWater(x + dx, y + dy)) addStatic0(PROP.planks[(x + dx + y + dy) & 3], x + dx, y + dy, 0);
+    // No bridges: where a road must cross water it stops at the banks, for you to bridge by hand.
   }
 };
 function addStatic0(id, x, y, z) { if (inMap(x, y)) W.objects.statics.push([id, x, y, z]); }
@@ -1451,13 +1627,14 @@ function draw() {
       vctx.stroke();
     }
     if (hover && !panning && tool === "town") {
-      const hx = (hover.wx - cam.x) * cam.z, hy = (hover.wy - cam.y) * cam.z, R = townRadius() * cam.z;
-      const wet = W.terrain[Math.floor(hover.wx) + Math.floor(hover.wy) * W.width] === TKEY.water;
+      const c = townDrag ?? hover;
+      const hx = (c.wx - cam.x) * cam.z, hy = (c.wy - cam.y) * cam.z, R = townRadius() * cam.z;
+      const wet = W.terrain[Math.floor(c.wx) + Math.floor(c.wy) * W.width] === TKEY.water;
       vctx.strokeStyle = wet ? "#e07a5f" : "#d6aa4c"; vctx.lineWidth = 1.5; vctx.setLineDash([6, 5]);
       vctx.beginPath(); vctx.arc(hx, hy, Math.max(4, R), 0, Math.PI * 2); vctx.stroke();
-      if ($("townWalls").value === "yes" || ($("townWalls").value === "" && $("townSize").value === "city")) { vctx.beginPath(); vctx.arc(hx, hy, Math.max(5, R * 1.06), 0, Math.PI * 2); vctx.stroke(); }
+      if ($("townWalls").value === "yes" || ($("townWalls").value === "" && townSizeKey() === "city")) { vctx.beginPath(); vctx.arc(hx, hy, Math.max(5, R * 1.06), 0, Math.PI * 2); vctx.stroke(); }
       vctx.setLineDash([]);
-      const label = `${$("townName").value.trim() || $("townSize").selectedOptions[0].text} · r${townRadius()}${wet ? " · needs land" : ""}`;
+      const sk = townSizeKey(), label = `${$("townName").value.trim() || sk[0].toUpperCase() + sk.slice(1)} · r${townRadius()}${townDrag ? "" : " · drag to size"}${wet ? " · needs land" : ""}`;
       vctx.font = "600 12px system-ui, sans-serif"; vctx.textAlign = "center";
       const tw = vctx.measureText(label).width + 12;
       vctx.fillStyle = "rgba(14,19,22,.85)"; vctx.fillRect(hx - tw / 2, hy - 10, tw, 20);
@@ -1632,7 +1809,7 @@ view.addEventListener("pointerdown", e => {
   if (tool === "fill") { floodFill(x, y); return; }
   if (tool === "town") {
     if (W.terrain[x + y * W.width] === TKEY.water) { addMsg("claude", "Towns need land: click on solid ground.", "error"); return; }
-    foundTown(townOptions(x, y));
+    townDrag = { x, y, wx: p.wx, wy: p.wy, dragged: false };
     return;
   }
   beginEdit(); painting = true; flattenZ = W.height_[x + y * W.width];
@@ -1642,9 +1819,16 @@ view.addEventListener("pointermove", e => {
   const p = toWorld(e); hover = p;
   if (panning) { cam.x = panStart.cx - (p.sx - panStart.sx) / cam.z; cam.y = panStart.cy - (p.sy - panStart.sy) / cam.z; }
   else if (painting) stamp(p.wx, p.wy);
+  else if (townDrag) {
+    const d = Math.hypot(p.wx - townDrag.wx, p.wy - townDrag.wy);
+    if (d >= 4) { townDrag.dragged = true; setTownRadius(d); }
+  }
   status(p); draw();
 });
-const endStroke = () => { if (painting) { commitEdit(); if (strokeDirty) updateStats(); } painting = false; panning = false; strokeDirty = null; view.style.cursor = "crosshair"; };
+let townDrag = null;
+const endStroke = () => {
+  if (townDrag) { const t = townDrag; townDrag = null; foundTown(townOptions(t.x, t.y)); }
+  if (painting) { commitEdit(); if (strokeDirty) updateStats(); } painting = false; panning = false; strokeDirty = null; view.style.cursor = "crosshair"; };
 view.addEventListener("pointerup", endStroke);
 view.addEventListener("pointercancel", endStroke);
 view.addEventListener("pointerleave", () => { hover = null; draw(); });
@@ -1667,8 +1851,8 @@ window.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
   if (e.key === " ") { spaceDown = true; e.preventDefault(); return; }
-  if (e.key === "[") { setBrush(brush.size - Math.max(1, brush.size * 0.15)); return; }
-  if (e.key === "]") { setBrush(brush.size + Math.max(1, brush.size * 0.15)); return; }
+  if (e.key === "[") { if (tool === "town") setTownRadius(townRadius() * 0.9 - 1); else setBrush(brush.size - Math.max(1, brush.size * 0.15)); return; }
+  if (e.key === "]") { if (tool === "town") setTownRadius(townRadius() * 1.1 + 1); else setBrush(brush.size + Math.max(1, brush.size * 0.15)); return; }
   const t = TOOLS.find(t => t.key === e.key.toUpperCase());
   if (t && !e.ctrlKey && !e.metaKey) setTool(t.id);
 });
@@ -1687,11 +1871,32 @@ $("btnUndo").onclick = undo; $("btnRedo").onclick = redo;
 const MAT_LABELS = { "": "From style", dirt: "Dirt", cobblestone: "Cobblestone", sand: "Sand", grass: "Grass", farmland: "Farmland", cave: "Cave floor" };
 for (const sel of document.querySelectorAll("select.mat")) sel.innerHTML = Object.entries(MAT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
 const townRadius = () => +$("townRadius").value;
-$("townSize").onchange = () => { $("townRadius").value = TOWN_SIZES[$("townSize").value].r; $("townRadiusOut").textContent = townRadius(); draw(); };
-$("townRadius").oninput = () => { $("townRadiusOut").textContent = townRadius(); draw(); };
+/** The size class: chosen, or (Auto) from the radius. */
+const sizeForRadius = r => r < 27 ? "hamlet" : r < 46 ? "village" : r < 76 ? "town" : "city";
+const townSizeKey = () => $("townSize").value || sizeForRadius(townRadius());
+function setTownRadius(v) {
+  const r = Math.round(Math.max(10, Math.min(200, v)));
+  $("townRadius").value = r; $("townRadiusOut").textContent = $("townSize").value ? r : `${r} · ${sizeForRadius(r)}`; draw();
+}
+$("townSize").onchange = () => { if ($("townSize").value) setTownRadius(TOWN_SIZES[$("townSize").value].r); else setTownRadius(townRadius()); };
+$("townRadius").oninput = () => setTownRadius(townRadius());
+$("townRadius").max = 200;
+function decoSettings() {
+  const on = {};
+  for (const cb of document.querySelectorAll("[data-deco]")) on[cb.dataset.deco] = cb.checked;
+  return on;
+}
+function syncDecoSummary() {
+  const d = decoSettings(), off = Object.values(d).filter(v => !v).length;
+  $("decoSummary").textContent = `${off ? `${Object.keys(d).length - off} of ${Object.keys(d).length} on` : "all on"} · ${$("townDecoAmount").selectedOptions[0].text.toLowerCase()}`;
+}
+document.querySelectorAll("[data-deco]").forEach(cb => cb.onchange = syncDecoSummary);
+$("townDecoAmount").onchange = syncDecoSummary;
+syncDecoSummary(); setTownRadius(36);
 function townOptions(x, y) {
   const walls = $("townWalls").value;
-  return { op: "town", cx: x, cy: y, size: $("townSize").value, style: $("townStyle").value || undefined, radius: townRadius(),
+  return { op: "town", cx: x, cy: y, size: townSizeKey(), setting: $("townSetting").value || undefined,
+    deco: { ...decoSettings(), amount: +$("townDecoAmount").value }, style: $("townStyle").value || undefined, radius: townRadius(),
     name: $("townName").value.trim() || undefined, mainRoads: $("townMain").value || undefined, lanes: $("townLanes").value || undefined,
     square: $("townSquare").value || undefined, walls: walls === "yes" ? true : walls === "no" ? false : undefined, plots: $("townPlots").value,
     seed: Math.floor(Math.random() * 1e9) };
@@ -1878,8 +2083,8 @@ Ops (JSON objects, applied in order):
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
-- {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
-- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (bridges over water) and adds camps, ruins and shrines.
+- {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
+- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (around water; no bridges) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
 Leave space between settlements (two radii or more). Found settlements after shaping the land. Prefer dirt for roads you paint: every terrain border must blend, and dirt blends with nearly everything.

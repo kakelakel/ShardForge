@@ -100,7 +100,7 @@ public static class EdgeSoftener
         //    blends fully with all of its neighbours (dirt between cobblestone and grass); if no terrain does, the
         //    cell joins its firmest neighbour.
         Span<bool> near = stackalloc bool[Math.Max(k, 1)];
-        for (int round = 0; round < 8; round++)
+        for (int round = 0; round < 16; round++)
         {
             int bridgedBefore = report.Bridged;
             var src = (byte[])terrain.Clone();
@@ -117,8 +117,9 @@ public static class EdgeSoftener
                     int nx = x + dx, ny = y + dy;
                     if ((dx | dy) == 0 || nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
                     int o = src[nx + ny * width];
-                    if (o >= k || o == t || o == water) continue;
-                    near[o] = true;
+                    if (o >= k || o == water) continue;
+                    near[o] = true; // its own terrain too: the bridge must blend with every neighbour
+                    if (o == t) continue;
                     if (cov[t, o] < 12 && (prio[t] < prio[o] || (prio[t] == prio[o] && t > o))) needs = true;
                 }
                 if (!needs) continue;

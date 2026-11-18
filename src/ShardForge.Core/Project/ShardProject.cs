@@ -276,15 +276,20 @@ public sealed class ShardProject
 
         const int Ramp = 3;
         int n = Width * Height;
+        // Building plots stay flat whatever the ground (a winter town on snow): no crags on them or right around them.
+        var flat = new bool[n];
+        foreach (var l in Objects?.Lots ?? [])
+            for (int y = Math.Max(0, l.Y - 1); y <= Math.Min(Height - 1, l.Y + l.H); y++)
+            for (int x = Math.Max(0, l.X - 1); x <= Math.Min(Width - 1, l.X + l.W); x++) flat[x + y * Width] = true;
+        bool Crag(int i) => !flat[i] && terrain[i] < crag.Length && crag[terrain[i]] != 0;
         var dist = new byte[n];
         var queue = new Queue<int>();
         for (int i = 0; i < n; i++)
         {
-            int t = terrain[i];
-            if (t >= crag.Length || crag[t] == 0) continue;
+            if (!Crag(i)) continue;
             int x = i % Width, y = i / Width;
             bool edge = x == 0 || y == 0 || x == Width - 1 || y == Height - 1
-                || crag[terrain[i - 1]] == 0 || crag[terrain[i + 1]] == 0 || crag[terrain[i - Width]] == 0 || crag[terrain[i + Width]] == 0;
+                || !Crag(i - 1) || !Crag(i + 1) || !Crag(i - Width) || !Crag(i + Width);
             if (edge) { dist[i] = 1; queue.Enqueue(i); } else dist[i] = Ramp + 1;
         }
         while (queue.Count > 0)
@@ -298,8 +303,8 @@ public sealed class ShardProject
         var result = (byte[])height.Clone();
         for (int i = 0; i < n; i++)
         {
+            if (!Crag(i)) continue;
             int t = terrain[i];
-            if (t >= crag.Length || crag[t] == 0) continue;
             int x = i % Width, y = i / Width;
             double ramp = Math.Min(1.0, (dist[i] - 1) / (double)Ramp);
             double rough = 0.35 * ValueNoise(x / 7.0, y / 7.0, Seed + 300) + 0.30 * ValueNoise(x / 2.0, y / 2.0, Seed + 301)

@@ -34,10 +34,15 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
-- **Settlements**: the Town tool (T) founds a settlement where you click; a circle under the cursor shows its size.
-  The Settlements panel sets its name, size (hamlet, village, town, city), radius, style (rustic, fishing,
+- **Settlements**: the Town tool (T) founds a settlement where you click, or press and drag out to size it (`[` `]`
+  resize); a circle under the cursor shows it. Size can be Auto (hamlet, village, town or city from the radius).
+  The Settlements panel sets its name, size, radius, style (rustic, fishing,
   frontier, town, city, desert, mountain), the material of its main roads, lanes and square (dirt, cobblestone,
-  sand, grass, farmland), walls (cities only, always, never) and how densely plots fill it. **Reroll** lays the
+  sand, grass, farmland), walls (cities only, always, never), how densely plots fill it, a **setting** that shapes the
+  land around it (farmland ring, forest clearing, hilltop, waterfront with a dock plot, winter, desert oasis with a
+  pond) and which **decorations** to place, and how many: street lamps, market stalls, square furnishings (benches,
+  trees, a statue), signposts, street life (barrels, crates, water troughs, hitching posts), flowers and
+  flowerpots, gardens, fields and hay, a graveyard. **Reroll** lays the
   last town out again with the same settings. Nothing is on a grid: an irregular square,
   main roads that wander out following the land (some fork partway), lanes that branch at odd angles and sometimes
   loop back into another road, and an irregular edge. Along the roads it lays out **building plots** (levelled,
@@ -47,7 +52,7 @@ haven't kept up with modern clients. This project tries to fill that gap.
   roads leave; there are gardens and a graveyard. Cities get stone walls with long straight runs, jogs and gates.
 - **Populate world** fills a whole map at once: it scores sites (flat land, near water), founds cities, towns,
   villages and hamlets with styles that fit their surroundings, joins them with country roads from exit to exit
-  (routed around mountains and lakes, with bridges where they must cross water), and adds named camps, ruins and
+  (routed around mountains and lakes; where one must cross water it stops at the banks for you to bridge), and adds named camps, ruins and
   shrines in the wilderness. A Trammel-size map (7168 x 4096) gets ~140 settlements and ~1,250 plots in about six
   seconds. Claude can do all of this too ("a walled city in the central valley and two fishing villages on the coast").
 - **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
