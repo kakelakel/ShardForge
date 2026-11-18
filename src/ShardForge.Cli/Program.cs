@@ -111,7 +111,9 @@ static int Build(string projectPath, string outDir, string[] rest)
 
     var sw = Stopwatch.StartNew();
     var project = ShardForge.Core.Project.ShardProject.Load(projectPath);
-    var facet = project.Build(facetIndex, transitions ? ShardForge.Core.Terrain.TransitionTable.BuiltIn : null);
+    var multis = client is not null ? ShardForge.Core.Data.MultiData.TryLoad(client) : null;
+    if (project.HasBuildings && multis is null) return Fail("This project has buildings: pass --client <your UO folder> so they can be read from multi.mul.");
+    var facet = project.Build(facetIndex, transitions ? ShardForge.Core.Terrain.TransitionTable.BuiltIn : null, multis);
     var files = FacetWriter.WriteAll(facet, outDir, facetIndex);
     Console.WriteLine($"Built '{project.Name}' ({facet.Width} x {facet.Height}, {facet.StaticCount:N0} statics) as facet {facetIndex} in {sw.ElapsedMilliseconds} ms:");
     foreach (var f in files) Console.WriteLine($"  {f} ({new FileInfo(f).Length:N0} bytes)");

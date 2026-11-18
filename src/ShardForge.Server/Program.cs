@@ -325,7 +325,7 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
         var me = Current(ctx);
         await Task.Run(() =>
         {
-            var built = project.Build(facet, TransitionTable.BuiltIn);
+            var built = project.Build(facet, TransitionTable.BuiltIn, ShardForge.Core.Data.MultiData.TryLoad(options.ClientPath));
             Directory.CreateDirectory(dir);
             FacetWriter.WriteAll(built, dir, facet);
             File.WriteAllText(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(new BuiltMapMeta(
@@ -336,6 +336,7 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
         return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded });
     }
     catch (ProjectException e) { return Err(400, e.Message); }
+    catch (InvalidDataException e) { return Err(400, e.Message); }
     finally { gate.Release(); }
 }).RequireAuthorization("Builder");
 

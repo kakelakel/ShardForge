@@ -30,6 +30,27 @@ public sealed class TerrainDef
     [JsonPropertyName("populate")] public PopulateRule[] Populate { get; set; } = [];
 }
 
+/// <summary>Placed things: buildings (multis) and individual statics, with explicit altitude.</summary>
+public sealed class ProjectObjects
+{
+    /// <summary>[multiId, x, y, z]: a building from multi.mul, its centre at x,y.</summary>
+    [JsonPropertyName("multis")] public int[][] Multis { get; set; } = [];
+    /// <summary>[tileId, x, y, z] or [tileId, x, y, z, hue].</summary>
+    [JsonPropertyName("statics")] public int[][] Statics { get; set; } = [];
+    /// <summary>Procedurally generated buildings (walls, roofs, floors and furniture made at build time).</summary>
+    [JsonPropertyName("buildings")] public ShardForge.Core.Architecture.BuildingSpec[] Buildings { get; set; } = [];
+}
+
+/// <summary>A named place (town, village, camp...). Used for labels now, ServUO regions later.</summary>
+public sealed class ProjectPlace
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("x")] public int X { get; set; }
+    [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("radius")] public int Radius { get; set; }
+}
+
 public sealed class ProjectLayers
 {
     /// <summary>"base64" (default, raw bytes) or "gzip-base64" (gzip-compressed, then base64).</summary>
@@ -67,6 +88,10 @@ public sealed class ShardProject
     [JsonPropertyName("seed")] public int Seed { get; set; }
     [JsonPropertyName("terrains")] public TerrainDef[] Terrains { get; set; } = [];
     [JsonPropertyName("layers")] public ProjectLayers Layers { get; set; } = new();
+    [JsonPropertyName("objects")] public ProjectObjects? Objects { get; set; }
+    [JsonPropertyName("places")] public ProjectPlace[]? Places { get; set; }
+
+    public bool HasBuildings => Objects?.Multis.Length > 0;
 
     public static ShardProject Load(string path)
     {
@@ -106,8 +131,10 @@ public sealed class ShardProject
     /// With a transition table, cells on a border between two terrains get the matching edge or corner
     /// tile. A cell's corners are the terrains of itself and its east, south and south-east neighbours.
     /// </summary>
-    public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null)
+    public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null, ShardForge.Core.Data.MultiData? multis = null)
     {
+        if (HasBuildings && multis is null)
+            throw new InvalidDataException("This project has buildings. Building it needs the client's multi.mul (pass the client folder).");
         byte[] terrain = Layers.Decode(Layers.Terrain);
         byte[] height = Layers.Decode(Layers.Height);
         byte[] density = Layers.Decode(Layers.Density);
@@ -149,9 +176,53 @@ public sealed class ShardProject
             }
         }
 
+        StampObjects(facet, blockStatics, multis);
         for (int b = 0; b < blockStatics.Length; b++)
             if (blockStatics[b] is { } list) facet.Statics[b] = list.ToArray();
         return facet;
+    }
+
+    /// <summary>Adds placed buildings and statics. Natural populate statics under a building's footprint are removed first.</summary>
+    private void StampObjects(Facet facet, List<StaticTile>[] blockStatics, ShardForge.Core.Data.MultiData? multis)
+    {
+        if (Objects is null) return;
+        void Add(int id, int x, int y, int z, int hue = 0)
+        {
+            if (x < 0 || y < 0 || x >= Width || y >= Height || id is < 0 or > 0xFFFF) return;
+            var list = blockStatics[facet.BlockIndex(x >> 3, y >> 3)] ??= [];
+            list.Add(new StaticTile((ushort)id, (byte)(x & 7), (byte)(y & 7), (sbyte)Math.Clamp(z, -128, 127), (ushort)Math.Clamp(hue, 0, 0xFFFF)));
+        }
+        foreach (var m in Objects.Multis)
+        {
+            if (m.Length < 4) throw new InvalidDataException("Each building needs [multiId, x, y, z].");
+            var multi = multis!.Get(m[0]) ?? throw new InvalidDataException($"The client has no building (multi) 0x{m[0]:X}.");
+            // Clear trees and grass inside the footprint so they don't grow through floors.
+            for (int y = m[2] + multi.MinY; y <= m[2] + multi.MaxY; y++)
+            for (int x = m[1] + multi.MinX; x <= m[1] + multi.MaxX; x++)
+            {
+                if (x < 0 || y < 0 || x >= Width || y >= Height) continue;
+                var list = blockStatics[facet.BlockIndex(x >> 3, y >> 3)];
+                list?.RemoveAll(s => s.X == (x & 7) && s.Y == (y & 7));
+            }
+            foreach (var c in multi.Components)
+                if (c.Visible) Add(c.TileId, m[1] + c.X, m[2] + c.Y, m[3] + c.Z);
+        }
+        foreach (var b in Objects.Buildings)
+        {
+            var (fx0, fy0, fx1, fy1) = ShardForge.Core.Architecture.Architect.Footprint(b);
+            for (int y = fy0; y <= fy1; y++)
+            for (int x = fx0; x <= fx1; x++)
+            {
+                if (x < 0 || y < 0 || x >= Width || y >= Height) continue;
+                blockStatics[facet.BlockIndex(x >> 3, y >> 3)]?.RemoveAll(s => s.X == (x & 7) && s.Y == (y & 7));
+            }
+            foreach (var p in ShardForge.Core.Architecture.Architect.Generate(b)) Add(p.Id, p.X, p.Y, p.Z);
+        }
+        foreach (var s in Objects.Statics)
+        {
+            if (s.Length < 4) throw new InvalidDataException("Each static needs [tileId, x, y, z].");
+            Add(s[0], s[1], s[2], s[3], s.Length > 4 ? s[4] : 0);
+        }
     }
 
     /// <summary>Roughens craggy terrains (rock, snow): smooth noise plus per-tile jitter, only ever upward,
