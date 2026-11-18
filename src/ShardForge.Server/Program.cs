@@ -328,11 +328,8 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
             var built = project.Build(facet, TransitionTable.BuiltIn, ShardForge.Core.Data.MultiData.TryLoad(options.ClientPath));
             Directory.CreateDirectory(dir);
             FacetWriter.WriteAll(built, dir, facet);
-            string placesPath = Path.Combine(dir, "places.json");
-            var named = (project.Places ?? []).Where(p => p.Kind is "city" or "town" or "village" or "hamlet" or "camp" or "ruins" or "shrine")
-                .OrderBy(p => p.Kind switch { "city" => 0, "town" => 1, "village" => 2, "hamlet" => 3, _ => 4 }).ThenBy(p => p.Name).ToList();
-            if (named.Count > 0) File.WriteAllText(placesPath, JsonSerializer.Serialize(named.Select(p => new { p.Name, p.Kind, p.X, p.Y })));
-            else File.Delete(placesPath);
+            project.WriteLayout(dir);
+            File.Delete(Path.Combine(dir, "places.json")); // older builds
             File.WriteAllText(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(new BuiltMapMeta(
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });

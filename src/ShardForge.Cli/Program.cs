@@ -122,6 +122,12 @@ static int Build(string projectPath, string outDir, string[] rest)
     }
     var facet = project.Build(facetIndex, transitions ? ShardForge.Core.Terrain.TransitionTable.BuiltIn : null, multis);
     var files = FacetWriter.WriteAll(facet, outDir, facetIndex);
+    project.WriteLayout(outDir);
+    if (File.Exists(Path.Combine(outDir, ShardForge.Core.Project.ShardProject.LayoutFile)))
+        Console.WriteLine($"Layout (places and building plots for Walk): {Path.Combine(outDir, ShardForge.Core.Project.ShardProject.LayoutFile)}");
+    if (project.LastSoften is { } soft)
+        Console.WriteLine($"Soft edges: {soft.Exact:N0} exact blends, {soft.Near:N0} nearest blends, {soft.Bridged:N0} bridging tiles, {soft.Smoothed:N0} speckles smoothed; " +
+            (soft.HardTotal == 0 ? "no hard edges (water excluded)." : $"{soft.HardTotal:N0} hard: " + string.Join(", ", soft.Hard.OrderByDescending(p => p.Value).Take(6).Select(p => $"{p.Key} {p.Value:N0}"))));
     Console.WriteLine($"Built '{project.Name}' ({facet.Width} x {facet.Height}, {facet.StaticCount:N0} statics) as facet {facetIndex} in {sw.ElapsedMilliseconds} ms:");
     foreach (var f in files) Console.WriteLine($"  {f} ({new FileInfo(f).Length:N0} bytes)");
 

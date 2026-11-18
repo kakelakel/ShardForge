@@ -106,3 +106,64 @@ public class ArchitectTests
         Assert.Contains(all, s => s.TileId == 0x0CCD);
     }
 }
+
+public class SoftEdgeTests
+{
+    [Fact]
+    public void BuildLeavesNoHardLandEdges()
+    {
+        const int w = 64, h = 64;
+        string[] keys = ["grass", "forest", "cobblestone", "sand", "dirt", "rock", "jungle", "farmland"];
+        var terrain = new byte[w * h];
+        var rnd = new Random(3);
+        // Blobs of every terrain over grass, with ragged edges and speckles: the worst case for blending.
+        for (int n = 0; n < 40; n++)
+        {
+            int cx = rnd.Next(w), cy = rnd.Next(h), r = rnd.Next(2, 9), t = rnd.Next(keys.Length);
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r + rnd.Next(-3, 4)) terrain[x + y * w] = (byte)t;
+        }
+        var project = new ShardProject
+        {
+            Format = ShardProject.FormatName, Version = 1, Name = "soft", Width = w, Height = h, Seed = 1,
+            Terrains = keys.Select(k => new TerrainDef { Key = k, LandTiles = ShardForge.Core.Terrain.TerrainClasses.Pure[k].Select(t => (int)t).ToArray() }).ToArray(),
+            Layers = new ProjectLayers
+            {
+                Terrain = Convert.ToBase64String(terrain),
+                Height = Convert.ToBase64String(new byte[w * h]),
+                Density = Convert.ToBase64String(new byte[w * h]),
+            },
+        };
+        project.Build(7, ShardForge.Core.Terrain.TransitionTable.BuiltIn);
+        var report = project.LastSoften!;
+        Assert.True(report.Exact > 0);
+        Assert.True(report.Bridged > 0);         // cobblestone next to grass got a dirt strip
+        Assert.True(report.HardTotal == 0, string.Join(", ", report.Hard.Select(p => $"{p.Key} {p.Value}")));
+    }
+}
+
+public class LayoutTests
+{
+    [Fact]
+    public void WritesPlacesAndPlotsForWalk()
+    {
+        var project = new ShardProject
+        {
+            Places = [new ProjectPlace { Name = "Camp", Kind = "camp", X = 5, Y = 6 }, new ProjectPlace { Name = "Ash", Kind = "town", X = 1, Y = 2 },
+                      new ProjectPlace { Name = "Graveyard", Kind = "graveyard", X = 3, Y = 3 }],
+            Objects = new ProjectObjects { Lots = [new ProjectLot { X = 10, Y = 11, W = 8, H = 6, Face = "E", Kind = "inn" }] },
+        };
+        string dir = Directory.CreateTempSubdirectory().FullName;
+        project.WriteLayout(dir);
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, ShardProject.LayoutFile)));
+        var places = doc.RootElement.GetProperty("places").EnumerateArray().Select(p => p.GetProperty("name").GetString()).ToArray();
+        Assert.Equal(["Ash", "Camp"], places);                     // towns first; graveyards aren't listed
+        var lot = doc.RootElement.GetProperty("lots")[0];
+        Assert.Equal(8, lot.GetProperty("w").GetInt32());
+        Assert.Equal("E", lot.GetProperty("face").GetString());
+
+        new ShardProject().WriteLayout(dir);                        // nothing to write: the stale file goes
+        Assert.False(File.Exists(Path.Combine(dir, ShardProject.LayoutFile)));
+    }
+}

@@ -35,22 +35,18 @@ haven't kept up with modern clients. This project tries to fill that gap.
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
 - **Settlements**: the Town tool (T) founds a hamlet, village, town or walled city with a click, in one of seven
-  styles (rustic, fishing, town, city, desert, mountain, frontier). It levels the ground and lays out a plaza,
-  streets, buildings facing the streets (taverns, shops, smithies, chapels, homes, farms), lamps, benches, market
-  stalls, signposts, fenced gardens, crop fields and a graveyard; cities get stone walls, gates and towers.
+  styles (rustic, fishing, town, city, desert, mountain, frontier). Nothing is on a grid: an irregular square,
+  main roads that wander out following the land (some fork partway), lanes that branch at odd angles and sometimes
+  loop back into another road, and an irregular edge. Along the roads it lays out **building plots** (levelled,
+  cleared ground facing its road, larger toward the outskirts) for you to build on by hand in Walk: an inn,
+  shops, a smithy, a chapel and a hall near the square, homes, and farms with fenced fields on the outskirts.
+  Trees stay between the plots; squares get a few market stalls, benches, lamps and a tree; signposts stand where
+  roads leave; there are gardens and a graveyard. Cities get stone walls with long straight runs, jogs and gates.
 - **Populate world** fills a whole map at once: it scores sites (flat land, near water), founds cities, towns,
-  villages and hamlets with styles that fit their surroundings (sandstone in deserts, stone in the mountains,
-  fishing villages on coasts), joins them with roads routed around mountains and lakes (bridges where they must
-  cross water), and adds named camps, ruins and shrines in the wilderness. A Trammel-size map (7168 x 4096) gets
-  ~140 settlements and ~1,750 buildings in under ten seconds. Claude can do all of this too ("found a walled
-  city in the central valley and two fishing villages on the coast").
-- **Generated architecture, not stock houses**: buildings are stored as specs (size, storeys, theme, use, door)
-  and the build makes each one from the client's house-customization pieces, following the rules of UO's own
-  houses: walls with windows and a doorway, up to four storeys, pitched roofs with gables or flat roofs with
-  battlements, floors, and furniture fitting the building's use (kegs, tables and chairs in taverns, counters and
-  shelves in shops, forge and anvil in smithies, benches and candelabras in chapels, hay and sacks on farms).
-  Doorways are left open: doors are ServUO items, which the live ServUO mode on the roadmap will place. Fourteen themes: wood, dark wood, plaster, thatch, log,
-  fieldstone, brick, red brick, stone, sandstone, marble, white marble, clay and hide.
+  villages and hamlets with styles that fit their surroundings, joins them with country roads from exit to exit
+  (routed around mountains and lakes, with bridges where they must cross water), and adds named camps, ruins and
+  shrines in the wilderness. A Trammel-size map (7168 x 4096) gets ~140 settlements and ~1,250 plots in about six
+  seconds. Claude can do all of this too ("a walled city in the central valley and two fishing villages on the coast").
 - **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
 - Sizes from 512 x 512 up to 7168 x 4096, including every standard facet size.
 
@@ -72,6 +68,8 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 - **Placement modes**: single, line, rectangle fill, scatter brush (with density) and erase brush. Select several
   items and each placement picks one at random. Height offset (PgUp/PgDn), Alt-click picks up an item from the
   world, ghosts preview exactly what will be placed, and every click or stroke is one undo step.
+- **Building plots**: maps built from a project show its plots on the ground (tinted, the road side drawn solid,
+  labelled with their purpose and size) and list its towns, camps, ruins and shrines under Known places.
 - Export the edited `staidx#.mul` + `statics#.mul` as a zip.
 
 Everything is read locally in the browser; only the art file, tiledata and one map are read.
@@ -100,7 +98,10 @@ before they play: checksummed downloads, backups of the originals, data files on
 2. ✅ **Writer**: map#.mul, map#LegacyMUL.uop, staidx/statics; verified by reading back.
 3. ✅ **Editor prototype** with Claude assistance and project export; `build` turns a project into map files.
 4. ✅ **Transition tiles**: edge and corner tiles between terrains, learned from the client's own maps
-   (`mine-transitions`), filtered by art so only true blends are used.
+   (`mine-transitions`), filtered by art so only true blends are used. **Soft edges only**: every land border
+   blends. Terrains that hardly blend (cobblestone and grass, forest and sand) get a strip of one that blends with
+   both, speckles are smoothed, and corner shapes the client has no tile for use the nearest blend. The build
+   reports the result ("no hard edges").
 5. ✅ **Craggy mountains**: rock and snow get UO-like relief at build time; rivers carve valleys.
 6. ✅ **Full-size maps**: the editor handles 7168 x 4096 (chunked undo, compressed projects).
 7. **In-game test**: load a built facet in ClassicUO + ServUO.
@@ -109,9 +110,10 @@ before they play: checksummed downloads, backups of the originals, data files on
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Builder with categories, favourites, animation and placement modes.
     Next: multis (whole houses), hues, animated character, live sync with a server.
-11. ✅ **Settlements** (first version): towns, villages and cities with generated architecture, roads, wilderness
-    sites, Populate world; the walk client lists the towns. Next: doors, signs and vendors exported for ServUO
-    (regions, spawners, guard zones), docks and harbours, dungeon entrances, interior stairs.
+11. ✅ **Settlements** (first version): organic towns, villages and walled cities laid out as roads, squares and
+    building plots; country roads; wilderness sites; Populate world; plots and places in Walk. Next: regions,
+    guard zones and spawners exported for ServUO, docks and harbours, dungeon entrances, a plot picker in Walk that
+    sizes a house or multi to the plot.
 12. ✅ **ShardForge Server** (first version): self-hosted, accounts and user levels, shared projects with history,
     server-side build, live co-building in Walk. Next: live terrain co-editing in the editor, Ask Claude via a
     server key.
@@ -148,7 +150,8 @@ with cobblestone plazas at the exact positions and altitudes of Tokuno's three m
 players arriving through a public moongate land on solid ground.
 
 `samples/populated-tokuno.shardforge.json` is an island continent filled by **Populate world**: a walled city,
-a town, villages, hamlets, roads, camps, ruins and shrines (build with `--facet 4 --client <your UO folder>`).
+a town, villages, hamlets, roads, building plots, camps, ruins and shrines (build with `--facet 4`; the build
+writes `layout.json` next to the map so Walk shows the plots).
 
 ## Layout
 

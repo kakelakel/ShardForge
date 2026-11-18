@@ -77,6 +77,38 @@ public sealed class TransitionTable
         return usable[^1].Tile;
     }
 
+    /// <summary>
+    /// Like <see cref="Pick"/>, but when the exact corner shape has no tile, uses the nearest one: the same shape
+    /// with one corner flipped (a tip or notch of a single corner point is lost, the edge still blends).
+    /// </summary>
+    public int? PickNearest(string a, string b, Corners bCorners, double roll, out bool exact)
+    {
+        exact = true;
+        if (Pick(a, b, bCorners, roll) is int t) return t;
+        exact = false;
+        // Prefer flipping a corner of the minority side, so a lone tip is dropped rather than a notch added.
+        int p = (int)bCorners, ones = System.Numerics.BitOperations.PopCount((uint)p);
+        for (int pass = 0; pass < 2; pass++)
+            for (int bit = 0; bit < 4; bit++)
+            {
+                bool isB = (p & (1 << bit)) != 0;
+                if ((pass == 0) != (isB == (ones <= 2))) continue;
+                int q = p ^ (1 << bit);
+                if (q is 0 or 15) continue;
+                if (Pick(a, b, (Corners)q, roll) is int near) return near;
+            }
+        return null;
+    }
+
+    /// <summary>How many of the 12 corner shapes between two terrains can be drawn, exactly or with the nearest blend.</summary>
+    public int Coverage(string a, string b)
+    {
+        int n = 0;
+        foreach (int p in new[] { 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14 })
+            if (PickNearest(a, b, (Corners)p, 0.5, out _) is not null) n++;
+        return n;
+    }
+
     public void Save(string path) =>
         File.WriteAllText(path, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
 

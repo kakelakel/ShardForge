@@ -39,6 +39,20 @@ public sealed class ProjectObjects
     [JsonPropertyName("statics")] public int[][] Statics { get; set; } = [];
     /// <summary>Procedurally generated buildings (walls, roofs, floors and furniture made at build time).</summary>
     [JsonPropertyName("buildings")] public ShardForge.Core.Architecture.BuildingSpec[] Buildings { get; set; } = [];
+    /// <summary>Building plots laid out by the settlement planner: levelled, cleared ground to build on by hand.</summary>
+    [JsonPropertyName("lots")] public ProjectLot[] Lots { get; set; } = [];
+}
+
+/// <summary>A building plot: x, y is the north-west tile; <see cref="Face"/> is the side that faces its road.</summary>
+public sealed class ProjectLot
+{
+    [JsonPropertyName("x")] public int X { get; set; }
+    [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("w")] public int W { get; set; }
+    [JsonPropertyName("h")] public int H { get; set; }
+    [JsonPropertyName("z")] public int? Z { get; set; }
+    [JsonPropertyName("face")] public string Face { get; set; } = "S";
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "home";
 }
 
 /// <summary>A named place (town, village, camp...). Used for labels now, ServUO regions later.</summary>
@@ -131,6 +145,31 @@ public sealed class ShardProject
     /// With a transition table, cells on a border between two terrains get the matching edge or corner
     /// tile. A cell's corners are the terrains of itself and its east, south and south-east neighbours.
     /// </summary>
+    public const string LayoutFile = "layout.json";
+
+    /// <summary>
+    /// Writes layout.json next to built map files: the project's named places (towns, camps, ruins...) and building
+    /// plots, for Walk's "Known places" list and plot overlay. Removes a stale one when there is nothing to write.
+    /// </summary>
+    public void WriteLayout(string dir)
+    {
+        string path = Path.Combine(dir, LayoutFile);
+        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine"];
+        var places = (Places ?? []).Where(p => order.Contains(p.Kind))
+            .OrderBy(p => Array.IndexOf(order, p.Kind)).ThenBy(p => p.Name, StringComparer.Ordinal)
+            .Select(p => new LayoutPlace(p.Name, p.Kind, p.X, p.Y)).ToArray();
+        var lots = Objects?.Lots ?? [];
+        if (places.Length == 0 && lots.Length == 0) { File.Delete(path); return; }
+        File.WriteAllText(path, JsonSerializer.Serialize(new Layout(places, lots), LayoutJson.Options));
+    }
+    private sealed record LayoutPlace([property: JsonPropertyName("name")] string Name, [property: JsonPropertyName("kind")] string Kind,
+        [property: JsonPropertyName("x")] int X, [property: JsonPropertyName("y")] int Y);
+    private sealed record Layout([property: JsonPropertyName("places")] LayoutPlace[] Places, [property: JsonPropertyName("lots")] ProjectLot[] Lots);
+    private static class LayoutJson { public static readonly JsonSerializerOptions Options = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }; }
+
+    /// <summary>What the soft-edge pass changed in the last <see cref="Build"/> (null without transitions).</summary>
+    [JsonIgnore] public ShardForge.Core.Terrain.SoftenReport? LastSoften { get; private set; }
+
     public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null, ShardForge.Core.Data.MultiData? multis = null)
     {
         if (HasBuildings && multis is null)
@@ -142,6 +181,9 @@ public sealed class ShardProject
         if (terrain.Length != n || height.Length != n || density.Length != n)
             throw new InvalidDataException("Layer sizes do not match the map size.");
 
+        // Every land border must blend: bridge or reshape corners the client has no blend tile for.
+        LastSoften = transitions is null ? null
+            : ShardForge.Core.Terrain.EdgeSoftener.Soften(terrain, Width, Height, Terrains.Select(t => t.Key).ToArray(), transitions);
         height = ApplyCrags(terrain, height);
 
         var info = new FacetInfo(facetIndex, Name, Width, Height);
@@ -298,6 +340,13 @@ public sealed class ShardProject
         for (int i = 0; i < 4; i++)
             if (c[i] != own) corners |= (ShardForge.Core.Terrain.Corners)(1 << i);
 
-        return table.Pick(Terrains[own].Key, Terrains[other].Key, corners, HRand(x, y, Seed, 50));
+        string ka = Terrains[own].Key, kb = Terrains[other].Key;
+        var tile = table.PickNearest(ka, kb, corners, HRand(x, y, Seed, 50), out bool exact);
+        if (LastSoften is { } r && ka != "water" && kb != "water")
+        {
+            if (tile is null) { string key = ShardForge.Core.Terrain.TransitionTable.PairKey(ka, kb); r.Hard[key] = r.Hard.GetValueOrDefault(key) + 1; }
+            else if (exact) r.Exact++; else r.Near++;
+        }
+        return tile;
     }
 }

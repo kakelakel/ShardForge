@@ -61,7 +61,7 @@ public sealed class MapRegistry(ServerOptions options, string dataPath)
             if (FindFile(dir, n) is { } path) files[n.ToLowerInvariant()] = new FileInfo(path).Length;
         if (!files.ContainsKey($"map{facet}legacymul.uop") && !files.ContainsKey($"map{facet}.mul")) return null;
         // Towns and other named places from the project the map was built from (for the walk client's "Known places").
-        if (source == "built" && FindFile(dir, "places.json") is { } places) files["places.json"] = new FileInfo(places).Length;
+        if (source == "built" && FindFile(dir, "layout.json") is { } layout) files["layout.json"] = new FileInfo(layout).Length;
 
         if (width is null || height is null)
         {
