@@ -133,6 +133,9 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
   aside.left, aside.right { border: 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.town-form input[type=text] { width: 100%; }
+.town-form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+.town-form .grid2 select { width: 100%; }
 </style>
 </head>
 <body>
@@ -168,16 +171,32 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
     </section>
     <section>
       <h2>Settlements</h2>
-      <div class="field">
-        <label for="townSize">Size</label>
-        <select id="townSize"><option value="hamlet">Hamlet</option><option value="village" selected>Village</option><option value="town">Town</option><option value="city">Walled city</option></select>
-        <label for="townStyle">Style</label>
-        <select id="townStyle"><option value="">Fits the size</option><option value="rustic">Rustic (thatch, wood)</option><option value="fishing">Fishing (wood)</option><option value="town">Town (plaster, stone)</option><option value="city">City (brick, marble)</option><option value="desert">Desert (sandstone, clay)</option><option value="mountain">Mountain (stone)</option><option value="frontier">Frontier (log, hide)</option></select>
+      <div class="field town-form">
+        <label for="townName">Name</label>
+        <input id="townName" type="text" placeholder="Random" maxlength="40" autocomplete="off">
+        <div class="grid2">
+          <div><label for="townSize">Size</label>
+            <select id="townSize"><option value="hamlet">Hamlet</option><option value="village" selected>Village</option><option value="town">Town</option><option value="city">City</option></select></div>
+          <div><label for="townStyle">Style</label>
+            <select id="townStyle"><option value="">Fits the size</option><option value="rustic">Rustic</option><option value="fishing">Fishing</option><option value="frontier">Frontier</option><option value="town">Town</option><option value="city">City</option><option value="desert">Desert</option><option value="mountain">Mountain</option></select></div>
+        </div>
+        <label for="townRadius">Radius <output id="townRadiusOut">36</output></label>
+        <input type="range" id="townRadius" min="12" max="160" value="36">
+        <div class="grid2">
+          <div><label for="townMain">Main roads</label><select id="townMain" class="mat"></select></div>
+          <div><label for="townLanes">Lanes</label><select id="townLanes" class="mat"></select></div>
+          <div><label for="townSquare">Square</label><select id="townSquare" class="mat"></select></div>
+          <div><label for="townWalls">Walls</label>
+            <select id="townWalls"><option value="">Cities only</option><option value="yes">Walled</option><option value="no">No walls</option></select></div>
+        </div>
+        <label for="townPlots">Building plots</label>
+        <select id="townPlots"><option value="sparse">Sparse</option><option value="normal" selected>Normal</option><option value="dense">Dense</option></select>
       </div>
-      <p class="note">Pick the <b>Town</b> tool and click the map to found one.</p>
+      <p class="note">Pick the <b>Town</b> tool (T) and click the map; the circle shows its size. <b>Reroll</b> redoes the last one with a new layout.</p>
       <div class="row" style="margin-top:8px">
+        <button id="btnReroll" disabled title="Undo the town you just founded and lay it out again with the same settings">Reroll</button>
         <button id="btnPopulate" title="Found cities, towns, villages and hamlets on good sites, join them with roads and add camps, ruins and shrines">Populate world</button>
-        <button id="btnClearObj" title="Remove all buildings, props and place names (Undo brings them back)">Clear</button>
+        <button id="btnClearObj" title="Remove all plots, props and place names (Undo brings them back)">Clear</button>
       </div>
     </section>
     <section class="field">
@@ -754,7 +773,12 @@ OPS.town = o => {
   const bx0 = Math.max(0, cx - r * 2), by0 = Math.max(0, cy - r * 2), bx1 = Math.min(W.width - 1, cx + r * 2), by1 = Math.min(W.height - 1, cy + r * 2);
   const before = new Uint8Array((bx1 - bx0 + 1) * (by1 - by0 + 1));
   for (let y = by0; y <= by1; y++) before.set(W.terrain.subarray(bx0 + y * W.width, bx1 + 1 + y * W.width), (y - by0) * (bx1 - bx0 + 1));
-  const roadT = TKEY[ST.road], mainT = TKEY[ST.main], squareT = TKEY[ST.square];
+  // Materials: chosen per town, or from the style. Anything blends: the build softens every edge.
+  const mat = (k, fallback) => (k && TKEY[k] != null && !["water", "lava"].includes(k)) ? k : fallback;
+  const mainKey = mat(o.mainRoads, ST.main), laneKey = mat(o.lanes, ST.road), squareKey = mat(o.square, ST.square);
+  const squareT = TKEY[squareKey];
+  const dens = { sparse: 0.6, normal: 1, dense: 1.3 }[o.plots] ?? 1;
+  const walled = o.walls ?? S.walls;
   const keep = TERRAINS.map(t => t.key).filter(k => !["water", "lava"].includes(k));
   const roads = [];
 
@@ -825,7 +849,7 @@ OPS.town = o => {
     if (pts.length > 3) roads.push({ pts, main: true, width: sizeKey === "city" ? 4 : 3 });
   }
   // 3. Lanes branch off the roads every so often, at odd angles, wander, and sometimes meet another road (a loop).
-  const maxLanes = between(S.lanes[0], S.lanes[1], rnd);
+  const maxLanes = Math.round(between(S.lanes[0], S.lanes[1], rnd) * Math.sqrt(dens) * Math.max(1, r / S.r));
   let lanes = 0;
   const branchFrom = (parent, spacing, chance) => {
     const dense = densify(parent.pts);
@@ -852,7 +876,7 @@ OPS.town = o => {
   };
   for (const rd of roads.filter(rd => rd.main)) branchFrom(rd, sizeKey === "city" ? 16 : 20, 0.75);
   if (S.depth > 1) for (const rd of roads.filter(rd => rd.depthLevel === 1)) branchFrom(rd, 18, 0.45);
-  for (const rd of roads) OPS.path({ points: rd.pts, width: rd.width, terrain: rd.main ? ST.main : ST.road, jitter: rd.main ? 1.5 : 1, within: keep });
+  for (const rd of roads) OPS.path({ points: rd.pts, width: rd.width, terrain: rd.main ? mainKey : laneKey, jitter: rd.main ? 1.5 : 1, within: keep });
   // Roads: mark them, clear them, and smooth the ground along them.
   const roadCells = [];
   for (let y = by0; y <= by1; y++)
@@ -870,7 +894,7 @@ OPS.town = o => {
       for (let k = 2; k < dense.length - 2;) {
         const p = dense[k], dist = Math.hypot(p.x - cx, p.y - cy) / r;
         if (!inTown(p.x, p.y, 0.98)) { k += 2; continue; }
-        if (rnd() > S.fill - dist * dist * 0.35) { k += between(2, 4, rnd); continue; }
+        if (rnd() > Math.min(0.97, S.fill * dens) - dist * dist * 0.35) { k += between(2, 4, rnd); continue; }
         const big = 1 + Math.min(0.6, dist * 0.6);
         const w = Math.round(between(S.lotW[0], S.lotW[1], rnd) * (dist < 0.3 ? 1.15 : big * 0.9));
         const h = Math.round(between(S.lotH[0], S.lotH[1], rnd) * (dist < 0.3 ? 1 : big * 0.9));
@@ -900,12 +924,12 @@ OPS.town = o => {
   }
   // Infill: more plots in the gaps between roads, each facing the nearest road (a back lane or yard reaches it).
   const front = roads.flatMap(rd => densify(rd.pts).filter((_, i) => i % 2 === 0).map(p => ({ ...p, rd })));
-  const tries = Math.round(r * r / 12);
+  const tries = Math.round(r * r / 12 * dens);
   for (let t = 0; t < tries && front.length; t++) {
     const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * r;
     const px = cx + Math.cos(a) * d, py = cy + Math.sin(a) * d;
     const dist = d / r;
-    if (!inTown(px, py, 0.95) || rnd() > S.fill * 0.9 - dist * dist * 0.4) continue;
+    if (!inTown(px, py, 0.95) || rnd() > Math.min(0.95, S.fill * 0.9 * dens) - dist * dist * 0.4) continue;
     let nearest = null;
     for (const f of front) { const dd = Math.hypot(f.x - px, f.y - py); if (!nearest || dd < nearest.dd) nearest = { f, dd }; }
     if (!nearest || nearest.dd > 16) continue;
@@ -999,8 +1023,8 @@ OPS.town = o => {
   }
   // Exits: where the main roads leave town, for country roads to join.
   const exits = roads.filter(rd => rd.main).map(rd => rd.pts[rd.pts.length - 1]);
-  if (S.walls && o.walls !== false) cityWalls(cx, cy, edge, rnd, occ);
-  W.places.push({ name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r, exits });
+  if (walled) cityWalls(cx, cy, r, edge, rnd, occ);
+  W.places.push({ name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r, exits, walled: !!walled });
 };
 
 function garden(x0, y0, x1, y1, rnd, occ) {
@@ -1050,13 +1074,13 @@ function graveyardAt(x0, y0, w, h, rnd, occ) {
  * (east-west pieces on a tile's south edge, north-south pieces on its east edge, corner pieces where they meet),
  * two storeys high, with gates where roads pass.
  */
-function cityWalls(cx, cy, edge, rnd, occ) {
+function cityWalls(cx, cy, r, edge, rnd, occ) {
   // Traced on a coarse grid (cells of Q tiles) so walls run straight for a while and then jog, rather than stepping every tile.
   const Q = 7, ox = cx % Q, oy = cy % Q;
   const insideFine = (x, y) => Math.hypot(x - cx, y - cy) <= edge(x, y) * 1.06;
   const inside = (x, y) => insideFine(Math.floor((x - ox) / Q) * Q + ox + (Q >> 1), Math.floor((y - oy) / Q) * Q + oy + (Q >> 1));
-  const R = Math.ceil(TOWN_SIZES.city.r * 1.3) + 4 + Q;
-  const road = (x, y) => inMap(x, y) && (W.terrain[x + y * W.width] === TKEY.dirt || W.terrain[x + y * W.width] === TKEY.cobblestone) && occ[x + y * W.width] === 2;
+  const R = Math.ceil(r * 1.3) + 4 + Q;
+  const road = (x, y) => inMap(x, y) && occ[x + y * W.width] === 2;
   const gate = (x, y) => { for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (road(x + dx, y + dy)) return true; return false; };
   const ew = new Set(), ns = new Set();
   for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
@@ -1426,7 +1450,19 @@ function draw() {
       for (let y = sy; y <= cam.y + r.height / cam.z; y += 8) { const Y = Math.round((y - cam.y) * cam.z) + .5; vctx.moveTo(0, Y); vctx.lineTo(r.width, Y); }
       vctx.stroke();
     }
-    if (hover && !panning) {
+    if (hover && !panning && tool === "town") {
+      const hx = (hover.wx - cam.x) * cam.z, hy = (hover.wy - cam.y) * cam.z, R = townRadius() * cam.z;
+      const wet = W.terrain[Math.floor(hover.wx) + Math.floor(hover.wy) * W.width] === TKEY.water;
+      vctx.strokeStyle = wet ? "#e07a5f" : "#d6aa4c"; vctx.lineWidth = 1.5; vctx.setLineDash([6, 5]);
+      vctx.beginPath(); vctx.arc(hx, hy, Math.max(4, R), 0, Math.PI * 2); vctx.stroke();
+      if ($("townWalls").value === "yes" || ($("townWalls").value === "" && $("townSize").value === "city")) { vctx.beginPath(); vctx.arc(hx, hy, Math.max(5, R * 1.06), 0, Math.PI * 2); vctx.stroke(); }
+      vctx.setLineDash([]);
+      const label = `${$("townName").value.trim() || $("townSize").selectedOptions[0].text} · r${townRadius()}${wet ? " · needs land" : ""}`;
+      vctx.font = "600 12px system-ui, sans-serif"; vctx.textAlign = "center";
+      const tw = vctx.measureText(label).width + 12;
+      vctx.fillStyle = "rgba(14,19,22,.85)"; vctx.fillRect(hx - tw / 2, hy - 10, tw, 20);
+      vctx.fillStyle = wet ? "#e07a5f" : "#d6aa4c"; vctx.fillText(label, hx, hy + 4); vctx.textAlign = "start";
+    } else if (hover && !panning) {
       vctx.strokeStyle = "rgba(255,255,255,.8)"; vctx.lineWidth = 1; vctx.beginPath();
       const rad = tool === "fill" || tool === "pick" ? 0.7 : brush.size;
       vctx.arc((hover.wx - cam.x) * cam.z, (hover.wy - cam.y) * cam.z, Math.max(3, rad * cam.z), 0, Math.PI * 2);
@@ -1596,13 +1632,7 @@ view.addEventListener("pointerdown", e => {
   if (tool === "fill") { floodFill(x, y); return; }
   if (tool === "town") {
     if (W.terrain[x + y * W.width] === TKEY.water) { addMsg("claude", "Towns need land: click on solid ground.", "error"); return; }
-    busy("Founding a settlement…");
-    setTimeout(() => {
-      applyOps([{ op: "town", cx: x, cy: y, size: $("townSize").value, style: $("townStyle").value || undefined, seed: Math.floor(Math.random() * 1e9) }]);
-      fullRedraw(); busy();
-      const p = W.places.filter(q => ["hamlet", "village", "town", "city"].includes(q.kind)).at(-1);
-      if (p) addMsg("claude", `Founded <b>${escapeHtml(p.name)}</b>, a ${p.style} ${p.kind} with ${W.objects.lots.filter(l => Math.hypot(l.x - p.x, l.y - p.y) <= p.radius * 1.4).length} building plots along its roads. Build on them in Walk.`);
-    }, 20);
+    foundTown(townOptions(x, y));
     return;
   }
   beginEdit(); painting = true; flattenZ = W.height_[x + y * W.width];
@@ -1653,6 +1683,37 @@ $("zoomIn").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.w
 $("zoomOut").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.5); };
 $("zoomFit").onclick = fitView;
 $("btnUndo").onclick = undo; $("btnRedo").onclick = redo;
+// Town panel: material choices, radius following the size, and the settings as one op.
+const MAT_LABELS = { "": "From style", dirt: "Dirt", cobblestone: "Cobblestone", sand: "Sand", grass: "Grass", farmland: "Farmland", cave: "Cave floor" };
+for (const sel of document.querySelectorAll("select.mat")) sel.innerHTML = Object.entries(MAT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+const townRadius = () => +$("townRadius").value;
+$("townSize").onchange = () => { $("townRadius").value = TOWN_SIZES[$("townSize").value].r; $("townRadiusOut").textContent = townRadius(); draw(); };
+$("townRadius").oninput = () => { $("townRadiusOut").textContent = townRadius(); draw(); };
+function townOptions(x, y) {
+  const walls = $("townWalls").value;
+  return { op: "town", cx: x, cy: y, size: $("townSize").value, style: $("townStyle").value || undefined, radius: townRadius(),
+    name: $("townName").value.trim() || undefined, mainRoads: $("townMain").value || undefined, lanes: $("townLanes").value || undefined,
+    square: $("townSquare").value || undefined, walls: walls === "yes" ? true : walls === "no" ? false : undefined, plots: $("townPlots").value,
+    seed: Math.floor(Math.random() * 1e9) };
+}
+let lastTown = null;
+function foundTown(op) {
+  busy("Founding a settlement…");
+  setTimeout(() => {
+    applyOps([op]);
+    lastTown = { op, depth: undoStack.length };
+    $("btnReroll").disabled = false;
+    fullRedraw(); busy();
+    const p = W.places.filter(q => ["hamlet", "village", "town", "city"].includes(q.kind)).at(-1);
+    if (p) addMsg("claude", `Founded <b>${escapeHtml(p.name)}</b>, a ${p.style} ${p.kind}${p.walled ? " with walls" : ""}: ${W.objects.lots.filter(l => Math.hypot(l.x - p.x, l.y - p.y) <= p.radius * 1.4).length} building plots along its roads. Not quite right? <b>Reroll</b> lays it out again.`);
+  }, 20);
+}
+$("btnReroll").onclick = () => {
+  if (!lastTown || undoStack.length !== lastTown.depth) { addMsg("claude", "Reroll works right after founding a town (before other edits).", "error"); $("btnReroll").disabled = true; return; }
+  const name = W.places.filter(q => ["hamlet", "village", "town", "city"].includes(q.kind)).at(-1)?.name;
+  undo();
+  foundTown({ ...lastTown.op, name: lastTown.op.name ?? name, seed: Math.floor(Math.random() * 1e9) });
+};
 $("btnPopulate").onclick = () => {
   busy("Populating the world: finding sites, founding towns, building roads…");
   setTimeout(() => {
@@ -1817,7 +1878,7 @@ Ops (JSON objects, applied in order):
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
-- {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"walls"?:bool,"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
+- {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (bridges over water) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.

@@ -34,8 +34,11 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
-- **Settlements**: the Town tool (T) founds a hamlet, village, town or walled city with a click, in one of seven
-  styles (rustic, fishing, town, city, desert, mountain, frontier). Nothing is on a grid: an irregular square,
+- **Settlements**: the Town tool (T) founds a settlement where you click; a circle under the cursor shows its size.
+  The Settlements panel sets its name, size (hamlet, village, town, city), radius, style (rustic, fishing,
+  frontier, town, city, desert, mountain), the material of its main roads, lanes and square (dirt, cobblestone,
+  sand, grass, farmland), walls (cities only, always, never) and how densely plots fill it. **Reroll** lays the
+  last town out again with the same settings. Nothing is on a grid: an irregular square,
   main roads that wander out following the land (some fork partway), lanes that branch at odd angles and sometimes
   loop back into another road, and an irregular edge. Along the roads it lays out **building plots** (levelled,
   cleared ground facing its road, larger toward the outskirts) for you to build on by hand in Walk: an inn,
