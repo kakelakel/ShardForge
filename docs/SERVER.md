@@ -119,4 +119,5 @@ All under `/api`; changes need `X-ShardForge: 1`.
 
 - Live co-editing of terrain in the editor (projects are shared by save/load with conflict detection today).
 - Ask Claude in the server-hosted editor (it needs the Claude app; a server-side key is planned).
-- Publishing straight into a ServUO data folder, and reloading the shard.
+- One-click publish to the shard: copy the merged files into ServUO's data folder and release a client patch
+  together (see [PATCHER.md](PATCHER.md) for patches today).

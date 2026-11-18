@@ -12,6 +12,8 @@ Usage:
   shardforge info   <clientDir> <facet>
   shardforge render <clientDir> <facet> <out.png> [--scale N] [--no-statics] [--no-shade]
   shardforge build  <project.shardforge.json> <outDir> [--facet N] [--client <clientDir>] [--no-transitions]
+  shardforge patch make    <filesDir> <outDir> --base-url <url> [--shard NAME] [--release TAG] [--previous manifest.json]
+  shardforge patch publish <filesDir> --repo owner/name [--shard NAME] [--release TAG] [--notes TEXT] [--patcher exe] [--token T]
   shardforge iso    <mapDir> <facet> <x> <y> <radius> <out.png> [--client <clientDir>] [--size W H] [--no-statics]
   shardforge mine-transitions <clientDir> <out.json> <facet,facet,...>
   shardforge tiles  <clientDir> <facet> <name,name,...>
@@ -28,6 +30,8 @@ try
         ["render", var dir, var f, var output, .. var rest] => Render(dir, int.Parse(f), output, rest),
         ["uop", var path] => DumpUop(path),
         ["build", var project, var outDir, .. var rest] => Build(project, outDir, rest),
+        ["patch", "make", var dir, var output, .. var rest] => PatchMake(dir, output, rest),
+        ["patch", "publish", var dir, .. var rest] => PatchPublish(dir, rest).GetAwaiter().GetResult(),
         ["iso", var mapDir, var f, var cx, var cy, var r, var output, .. var rest] =>
             Iso(mapDir, int.Parse(f), int.Parse(cx), int.Parse(cy), int.Parse(r), output, rest),
         ["mine-transitions", var dir, var output, var facets] => MineTransitions(dir, output, facets),
@@ -35,7 +39,7 @@ try
         _ => Fail(Usage),
     };
 }
-catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or FormatException or NotSupportedException)
+catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or FormatException or NotSupportedException or HttpRequestException)
 {
     return Fail($"error: {ex.Message}");
 }
@@ -130,6 +134,44 @@ static int Build(string projectPath, string outDir, string[] rest)
         Console.WriteLine($"Preview with the client's radar colours: {png}");
     }
     return landOk && staticsOk && mulOk ? 0 : 2;
+}
+
+static Dictionary<string, string> Options(string[] rest, params string[] names)
+{
+    var o = new Dictionary<string, string>();
+    for (int i = 0; i < rest.Length; i++)
+    {
+        string key = rest[i].TrimStart('-');
+        if (!rest[i].StartsWith("--") || !names.Contains(key) || i + 1 >= rest.Length) throw new ArgumentException($"Unknown or incomplete option '{rest[i]}'.");
+        o[key] = rest[++i];
+    }
+    return o;
+}
+
+static int PatchMake(string dir, string output, string[] rest)
+{
+    var o = Options(rest, "base-url", "shard", "release", "previous", "notes");
+    if (!o.TryGetValue("base-url", out var baseUrl)) return Fail("patch make needs --base-url (where the files will be downloaded from).");
+    string release = o.GetValueOrDefault("release") ?? DateTime.UtcNow.ToString("yyyy.MM.dd-HHmm");
+    var previous = o.TryGetValue("previous", out var p) ? ShardForge.Core.Patching.PatchManifest.Parse(File.ReadAllText(p)) : null;
+    var build = ShardForge.Core.Patching.PatchMaker.Make(dir, output, o.GetValueOrDefault("shard") ?? "My Shard", release,
+        asset => baseUrl.TrimEnd('/') + "/" + Uri.EscapeDataString(asset), previous, o.GetValueOrDefault("notes"));
+    Console.WriteLine($"Release {release}: {build.Changed.Count} changed, {build.Unchanged.Count} unchanged.");
+    foreach (var a in build.Uploads) Console.WriteLine($"  upload {a.Name} ({a.Size:N0} bytes)");
+    Console.WriteLine($"  and {Path.Combine(output, "manifest.json")}");
+    return 0;
+}
+
+static async Task<int> PatchPublish(string dir, string[] rest)
+{
+    var o = Options(rest, "repo", "shard", "release", "notes", "patcher", "token");
+    if (!o.TryGetValue("repo", out var repo)) return Fail("patch publish needs --repo owner/name.");
+    string? token = ShardForge.Cli.GitHubPublisher.FindToken(o.GetValueOrDefault("token"));
+    if (token is null) return Fail("No GitHub token. Pass --token, set GITHUB_TOKEN, or sign in with the GitHub CLI (gh auth login).");
+    var publisher = new ShardForge.Cli.GitHubPublisher(repo, token, Console.Out);
+    await publisher.Publish(dir, o.GetValueOrDefault("shard") ?? repo.Split('/')[1], o.GetValueOrDefault("release"), o.GetValueOrDefault("notes"), o.GetValueOrDefault("patcher"));
+    Console.WriteLine($"Patchers read: {ShardForge.Cli.GitHubPublisher.ManifestUrl(repo)}");
+    return 0;
 }
 
 static int Iso(string mapDir, int facetIndex, int cx, int cy, int radius, string output, string[] rest)

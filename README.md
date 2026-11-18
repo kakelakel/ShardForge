@@ -71,6 +71,12 @@ dotnet run --project src/ShardForge.Server     # then open http://localhost:2595
 
 See [docs/SERVER.md](docs/SERVER.md) for settings, sharing it with your team, security and the API.
 
+## Patches
+
+Custom maps must be on the server **and** every player's client. `shardforge patch publish` uploads your shard's
+files to GitHub Releases (only what changed), and the **ShardForge Patcher** brings each player's client up to date
+before they play: checksummed downloads, backups of the originals, data files only. See [docs/PATCHER.md](docs/PATCHER.md).
+
 ## Roadmap
 
 1. ✅ **Reader + renderer**: map, statics, tiledata, radarcol (MUL and UOP), facet to PNG.
@@ -89,7 +95,12 @@ See [docs/SERVER.md](docs/SERVER.md) for settings, sharing it with your team, se
 11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
 12. ✅ **ShardForge Server** (first version): self-hosted, accounts and user levels, shared projects with history,
     server-side build, live co-building in Walk. Next: live terrain co-editing in the editor, Ask Claude via a
-    server key, publish straight to ServUO.
+    server key.
+13. ✅ **Patches** (first version): publish to GitHub Releases, ShardForge Patcher for players.
+    Next: one-click "publish to shard" from the server (copy files to ServUO's data folder **and** release a client
+    patch together), signed manifests, a windowed patcher.
+14. **Live ServUO mode**: place decorations, doors, signs and spawners as ServUO world items instead of statics,
+    so they appear for players instantly without a client patch (statics stay best for terrain and bulk scenery).
 
 ## Requirements
 
@@ -124,7 +135,8 @@ players arriving through a public moongate land on solid ground.
 | `editor` | Browser world editor (single HTML file) |
 | `walk` | Browser walk-around client (single HTML file) |
 | `src/ShardForge.Server` | Self-hosted server for cooperative building |
-| `docs` | Server guide |
+| `src/ShardForge.Patcher` | Player patcher (single-file exe) |
+| `docs` | Server and patcher guides |
 | `src/ShardForge.Core` | File formats (UOP, map, statics, tiledata, radarcol), project build, rendering, PNG output |
 | `src/ShardForge.Cli` | `shardforge` command-line tool |
 | `tests/ShardForge.Tests` | Unit tests (synthetic data, no game files needed) |
