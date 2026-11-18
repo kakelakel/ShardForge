@@ -112,7 +112,14 @@ static int Build(string projectPath, string outDir, string[] rest)
     var sw = Stopwatch.StartNew();
     var project = ShardForge.Core.Project.ShardProject.Load(projectPath);
     var multis = client is not null ? ShardForge.Core.Data.MultiData.TryLoad(client) : null;
-    if (project.HasBuildings && multis is null) return Fail("This project has buildings: pass --client <your UO folder> so they can be read from multi.mul.");
+    if (project.HasBuildings && multis is null) return Fail("This project places stock houses (multis): pass --client <your UO folder> so they can be read from multi.mul.");
+    var std = ShardForge.Core.Map.FacetInfo.Known.FirstOrDefault(f => f.Index == facetIndex);
+    if (std is not null && (std.Width != project.Width || std.Height != project.Height))
+    {
+        var fits = ShardForge.Core.Map.FacetInfo.Known.Where(f => f.Width == project.Width && f.Height == project.Height).Select(f => $"{f.Index} ({f.Name})").ToList();
+        Console.WriteLine($"Warning: the project is {project.Width} x {project.Height} but facet {facetIndex} ({std.Name}) is {std.Width} x {std.Height} in the stock client. " +
+            (fits.Count > 0 ? $"Did you mean --facet {string.Join(" or ", fits)}?" : "The client and server need a matching map size (mapdef/MapDefinitions) to load it."));
+    }
     var facet = project.Build(facetIndex, transitions ? ShardForge.Core.Terrain.TransitionTable.BuiltIn : null, multis);
     var files = FacetWriter.WriteAll(facet, outDir, facetIndex);
     Console.WriteLine($"Built '{project.Name}' ({facet.Width} x {facet.Height}, {facet.StaticCount:N0} statics) as facet {facetIndex} in {sw.ElapsedMilliseconds} ms:");

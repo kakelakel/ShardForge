@@ -205,7 +205,7 @@ api.MapGet("/data/{name}", (string name) =>
     name = name.ToLowerInvariant();
     if (!dataFiles.Contains(name)) return Results.NotFound();
     var path = MapRegistry.FindFile(options.ClientPath, name);
-    return path is null ? Results.NotFound() : Results.File(path, "application/octet-stream", enableRangeProcessing: true);
+    return path is null ? Results.NotFound() : Results.File(path, name.EndsWith(".json") ? "application/json" : "application/octet-stream", enableRangeProcessing: true);
 }).RequireAuthorization("Viewer");
 
 // ============================================================================ maps and shared statics
@@ -221,7 +221,7 @@ api.MapGet("/maps/{id}/files/{name}", (string id, string name, MapRegistry maps)
     name = name.ToLowerInvariant();
     if (m is null || !m.Files.ContainsKey(name)) return Results.NotFound();
     var path = MapRegistry.FindFile(m.Dir, name);
-    return path is null ? Results.NotFound() : Results.File(path, "application/octet-stream", enableRangeProcessing: true);
+    return path is null ? Results.NotFound() : Results.File(path, name.EndsWith(".json") ? "application/json" : "application/octet-stream", enableRangeProcessing: true);
 }).RequireAuthorization("Viewer");
 
 api.MapGet("/maps/{id}/blocks", (string id, MapRegistry maps, BlockStore blocks) =>
@@ -328,6 +328,11 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
             var built = project.Build(facet, TransitionTable.BuiltIn, ShardForge.Core.Data.MultiData.TryLoad(options.ClientPath));
             Directory.CreateDirectory(dir);
             FacetWriter.WriteAll(built, dir, facet);
+            string placesPath = Path.Combine(dir, "places.json");
+            var named = (project.Places ?? []).Where(p => p.Kind is "city" or "town" or "village" or "hamlet" or "camp" or "ruins" or "shrine")
+                .OrderBy(p => p.Kind switch { "city" => 0, "town" => 1, "village" => 2, "hamlet" => 3, _ => 4 }).ThenBy(p => p.Name).ToList();
+            if (named.Count > 0) File.WriteAllText(placesPath, JsonSerializer.Serialize(named.Select(p => new { p.Name, p.Kind, p.X, p.Y })));
+            else File.Delete(placesPath);
             File.WriteAllText(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(new BuiltMapMeta(
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });

@@ -1110,7 +1110,7 @@ function renderGrid() {
     (B.favs.has(id) ? `<span class="fav">★</span>` : "") + (Anim.is(id) ? `<span class="an">anim</span>` : "") + `</button>`).join("");
   $("grid").querySelectorAll("canvas").forEach(cv => thumbObserver.observe(cv));
   $("btnMore").hidden = ids.length <= B.shown;
-  $("btnMore").textContent = `Show more (${(ids.length - B.shown).toLocaleString()} left)`;
+  $("btnMore").textContent = `Show more (${Math.max(0, ids.length - B.shown).toLocaleString()} left)`;
 }
 $("btnMore").onclick = () => { B.shown += 240; renderGrid(); };
 let searchTimer = null;
@@ -1242,8 +1242,20 @@ $("btnLoad").onclick = async () => {
     else await loadMap(+f, dir);
     loaded = true; undoStack.length = 0; syncEdits();
     $("welcome").style.display = "none";
-    $("places").innerHTML = `<option value="">Known places…</option>` + (PLACES[M.facet] || []).map(p => `<option value="${p[1]},${p[2]}">${p[0]}</option>`).join("");
-    const start = (PLACES[M.facet] || [["", M.w >> 1, M.h >> 1]])[0];
+    // Maps built from a project carry its towns; the stock facets have their classic places.
+    let places = PLACES[M.facet] || [];
+    if (srv?.files["places.json"] != null) {
+      try {
+        const list = await Server.api("GET", `/api/maps/${encodeURIComponent(srv.id)}/files/places.json`);
+        places = list.map(p => [p.name ?? p.Name, p.x ?? p.X, p.y ?? p.Y, p.kind ?? p.Kind]);
+      } catch { places = []; }
+    } else if (srv && srv.source === "built") places = [];
+    const groups = {};
+    for (const p of places) (groups[p[3] || ""] ??= []).push(p);
+    const opt = p => `<option value="${p[1]},${p[2]}">${escapeHtml(p[0])}</option>`;
+    $("places").innerHTML = `<option value="">Known places…</option>` + Object.entries(groups).map(([k, ps]) =>
+      k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines" })[k] || k)}">${ps.map(opt).join("")}</optgroup>` : ps.map(opt).join("")).join("");
+    const start = places[0] || ["", M.w >> 1, M.h >> 1];
     const land = nearestWalkable(start[1], start[2]) || nearestWalkable(M.w >> 1, M.h >> 1);
     jump(...(land || [start[1], start[2]]));
     toast(srv ? `${M.name} loaded. Everyone here sees you and your edits live.` : `${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);

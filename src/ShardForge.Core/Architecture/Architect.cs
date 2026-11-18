@@ -249,7 +249,7 @@ public static class Architect
                 break;
         }
         // A lamp post beside the door outside, sometimes.
-        if (rng.NextDouble() < 0.5)
+        if (rng.NextDouble() < 0.5 && s.Theme is not ("hide" or "log") && s.Use is not ("storage" or "farm"))
         {
             var (lx, ly) = door switch { "N" => (doorAt + 1, y0 - 2), "S" => (doorAt + 1, y1 + 2), "E" => (x1 + 2, doorAt + 1), _ => (x0 - 2, doorAt + 1) };
             outp.Add(new(LampPost, lx, ly, z));

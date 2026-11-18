@@ -166,6 +166,20 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
       <h2>Terrain</h2>
       <div class="palette" id="palette"></div>
     </section>
+    <section>
+      <h2>Settlements</h2>
+      <div class="field">
+        <label for="townSize">Size</label>
+        <select id="townSize"><option value="hamlet">Hamlet</option><option value="village" selected>Village</option><option value="town">Town</option><option value="city">Walled city</option></select>
+        <label for="townStyle">Style</label>
+        <select id="townStyle"><option value="">Fits the size</option><option value="rustic">Rustic (thatch, wood)</option><option value="fishing">Fishing (wood)</option><option value="town">Town (plaster, stone)</option><option value="city">City (brick, marble)</option><option value="desert">Desert (sandstone, clay)</option><option value="mountain">Mountain (stone)</option><option value="frontier">Frontier (log, hide)</option></select>
+      </div>
+      <p class="note">Pick the <b>Town</b> tool and click the map to found one.</p>
+      <div class="row" style="margin-top:8px">
+        <button id="btnPopulate" title="Found cities, towns, villages and hamlets on good sites, join them with roads and add camps, ruins and shrines">Populate world</button>
+        <button id="btnClearObj" title="Remove all buildings, props and place names (Undo brings them back)">Clear</button>
+      </div>
+    </section>
     <section class="field">
       <label for="brushSize">Brush size <output id="brushSizeOut">12</output></label>
       <input type="range" id="brushSize" min="1" max="96" value="12">
@@ -178,6 +192,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <label class="check"><input type="checkbox" id="showPlants" checked> Preview trees &amp; rocks</label>
         <label class="check"><input type="checkbox" id="showShade" checked> Hill shading</label>
         <label class="check"><input type="checkbox" id="showBlocks"> 8×8 block grid (zoomed in)</label>
+        <label class="check"><input type="checkbox" id="showObjects" checked> Buildings, props &amp; names</label>
       </div>
     </section>
   </aside>
@@ -362,6 +377,7 @@ function newWorld(width, height, start) {
   if (start === "grass") { W.terrain.fill(TKEY.grass); }
   else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   undoStack.length = 0; redoStack.length = 0;
+  W.objects = { buildings: [], statics: [], multis: [] }; W.places = [];
   if (start === "island") applyOps(starterOps(width, height), false);
   resetImage(); fitView(); updateStats();
 }
@@ -558,6 +574,448 @@ const OPS = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Settlements: towns, villages, roads and wilderness sites. Buildings are specs
+// (size, theme, use, door) that the ShardForge build turns into real UO
+// architecture: walls, windows, roofs, floors and furniture.
+// ---------------------------------------------------------------------------
+W.objects = { buildings: [], statics: [], multis: [] };
+W.places = [];
+
+const THEME_ROOF = { wood: "#9a6a3c", darkwood: "#6e4a2c", plaster: "#8a3b2a", thatch: "#c9a25a", log: "#7a5a34", fieldstone: "#4f5862",
+  brick: "#8a3b2a", redbrick: "#8a3b2a", stone: "#8d8a84", sandstone: "#d8c08a", marble: "#4f5862", whitemarble: "#4f5862", clay: "#c46a2c", hide: "#b49a6c" };
+const TOWN_STYLES = {
+  rustic:   { themes: { thatch: 4, wood: 3, log: 2, plaster: 2 }, road: "dirt", plaza: "dirt" },
+  town:     { themes: { plaster: 4, fieldstone: 3, brick: 2, wood: 2, thatch: 1 }, road: "cobblestone", plaza: "cobblestone" },
+  city:     { themes: { brick: 3, fieldstone: 3, plaster: 3, redbrick: 2, stone: 1, marble: 1, whitemarble: 1 }, road: "cobblestone", plaza: "cobblestone" },
+  fishing:  { themes: { wood: 4, thatch: 3, darkwood: 2 }, road: "dirt", plaza: "dirt" },
+  desert:   { themes: { sandstone: 4, clay: 3 }, road: "dirt", plaza: "cobblestone" },
+  mountain: { themes: { fieldstone: 4, stone: 2, log: 1 }, road: "cobblestone", plaza: "cobblestone" },
+  frontier: { themes: { log: 4, hide: 2, wood: 2 }, road: "dirt", plaza: "dirt" },
+};
+const TOWN_SIZES = {
+  hamlet:  { r: 16, plaza: 0, block: 0, floors: [1, 1], walls: false, w: [4, 6], h: [4, 6] },
+  village: { r: 30, plaza: 7, block: 0, floors: [1, 1], walls: false, w: [4, 8], h: [4, 6] },
+  town:    { r: 52, plaza: 11, block: 17, floors: [1, 2], walls: false, w: [4, 10], h: [4, 8] },
+  city:    { r: 84, plaza: 17, block: 18, floors: [1, 3], walls: true, w: [6, 12], h: [4, 10] },
+};
+// Statics checked against the client's art; X/Y say which axis the piece runs along.
+const PROP = {
+  lamp: 0x0B24, benchX: 0x0B2D, benchY: 0x0B2C, table: 0x0B73, crates: [0x0E3C, 0x0E3D], barrel: 0x0FAE, keg: 0x1AD7, sack: 0x1045,
+  hay: [0x1036, 0x0F34], signX: 0x0B97, signY: 0x0B98, fenceX: 0x0863, fenceY: 0x0864, fencePost: 0x0862,
+  ironX: 0x084B, ironY: 0x0849, ironPost: 0x084A, graves: [0x0EDF, 0x0EE1, 0x0EE0, 0x0EE2], stones: [0x0ED8, 0x1184, 0x116C, 0x0ED4, 0x0ED7],
+  campfire: 0x0DE3, bedrollX: 0x0A55, bedrollY: 0x0A58, ruinX: [0x0277, 0x0278, 0x0281], ruinY: [0x0279, 0x027C, 0x0282], ruinPost: [0x027A, 0x027B],
+  bones: [0x0ECA, 0x0ECB, 0x0ECC, 0x0ECD, 0x0ECE, 0x0ECF, 0x0ED0, 0x0ED1, 0x0ED2], brazier: 0x0E31, pottedTree: 0x11C9, candelabra: 0x0B26,
+  pavers: [1305, 1306, 1307, 1308], planks: [1233, 1228, 1235, 1230],
+  crops: { wheat: [0x0C55, 0x0C56, 0x0C58], cabbage: [0x0C7B, 0x0C7C], carrot: [0x0C76], pumpkin: [0x0C6A, 0x0C6B, 0x0C6C], flax: [0x1A9B] },
+  // Fieldstone wall pieces (walls.txt set "Fieldstone Standard Walls") for town walls.
+  wallEW: [30, 28, 33], wallNS: [32, 27, 31], wallCorner: 26, wallPost: 29,
+};
+const NAME_A = ["Brit", "Moon", "Vesp", "Trin", "Skar", "Jhel", "Cove", "Ash", "Bel", "Cal", "Dun", "Ell", "Fen", "Gal", "Har", "Ith", "Kel", "Lor", "Mar",
+  "Nor", "Ost", "Pel", "Quin", "Ros", "Sil", "Tam", "Ul", "Val", "Wes", "Yar", "Zan", "Bram", "Corr", "Dray", "Eld", "Grim", "Hollow", "Ivy", "Lan", "Mire", "Rav", "Stone", "Thorn", "Wolf"];
+const NAME_B = ["ain", "ford", "haven", "ia", "wick", "moor", "dale", "mere", "ton", "holt", "vale", "burg", "stead", "wyn", "ross", "gate", "fall", "shire",
+  "more", "cliff", "field", "brook", "port", "by", "thorpe", "hold", "reach", "watch", "crest", "hollow"];
+
+function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const inMap = (x, y) => x >= 0 && y >= 0 && x < W.width && y < W.height;
+const zAt = (x, y) => W.terrain[x + y * W.width] === TKEY.water ? -5 : W.height_[x + y * W.width];
+const isWater = (x, y) => W.terrain[x + y * W.width] === TKEY.water;
+function pickWeighted(weights, rnd) {
+  const e = Object.entries(weights), total = e.reduce((s, [, w]) => s + w, 0);
+  let t = rnd() * total;
+  for (const [k, w] of e) { t -= w; if (t < 0) return k; }
+  return e[e.length - 1][0];
+}
+const pickOf = (a, rnd) => a[Math.floor(rnd() * a.length)];
+const evenIn = (lo, hi, rnd) => { const v = lo + Math.floor(rnd() * (hi - lo + 1)); return v - (v % 2); };
+function addStatic(id, x, y, z) { if (inMap(x, y)) W.objects.statics.push([id, x, y, z ?? zAt(x, y)]); }
+/** A place name not used yet: "Orc camp", then "Orc camp of Dunmere" etc. */
+function uniqueName(base, rnd) {
+  const used = new Set(W.places.map(p => p.name));
+  if (!used.has(base)) return base;
+  for (let i = 0; i < 30; i++) { const n = `${base} of ${pickOf(NAME_A, rnd)}${pickOf(NAME_B, rnd)}`; if (!used.has(n)) return n; }
+  return `${base} ${W.places.length + 1}`;
+}
+function townName(rnd) {
+  const used = new Set(W.places.map(p => p.name));
+  for (let i = 0; i < 50; i++) {
+    const n = pickOf(NAME_A, rnd) + pickOf(NAME_B, rnd);
+    if (!used.has(n)) return n;
+  }
+  return "Settlement " + (W.places.length + 1);
+}
+
+/** Cells already taken by buildings (plus a margin) or water. */
+function occupancy() {
+  const occ = new Uint8Array(W.width * W.height);
+  for (let i = 0; i < occ.length; i++) if (W.terrain[i] === TKEY.water) occ[i] = 3;
+  for (const b of W.objects.buildings) markRect(occ, b.x - 2, b.y - 2, b.x + b.w + 1, b.y + b.h + 1, 1);
+  return occ;
+}
+function markRect(occ, x0, y0, x1, y1, v) {
+  for (let y = Math.max(0, y0); y <= Math.min(W.height - 1, y1); y++)
+    for (let x = Math.max(0, x0); x <= Math.min(W.width - 1, x1); x++) occ[x + y * W.width] = Math.max(occ[x + y * W.width], v);
+}
+function rectFree(occ, x0, y0, x1, y1) {
+  if (x0 < 1 || y0 < 1 || x1 >= W.width - 1 || y1 >= W.height - 1) return false;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (occ[x + y * W.width]) return false;
+  return true;
+}
+/** Typical ground height around a spot (median of land cells). */
+function groundHeight(cx, cy, r) {
+  const zs = [];
+  for (let y = cy - r; y <= cy + r; y += 3) for (let x = cx - r; x <= cx + r; x += 3)
+    if (inMap(x, y) && !isWater(x, y) && (x - cx) ** 2 + (y - cy) ** 2 <= r * r) zs.push(W.height_[x + y * W.width]);
+  zs.sort((a, b) => a - b);
+  return zs.length ? Math.max(1, zs[zs.length >> 1]) : 2;
+}
+/** Level the ground: exactly z0 inside r, blending back to the natural height by r * 1.35. */
+function flatten(cx, cy, r, z0) {
+  const R = Math.ceil(r * 1.35);
+  for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+    if (!inMap(x, y) || isWater(x, y)) continue;
+    const i = x + y * W.width, d = Math.hypot(x - cx, y - cy);
+    if (d > R) continue;
+    const w = d <= r ? 1 : 1 - smooth01(r, R, d);
+    W.height_[i] = clampZ(W.height_[i] + (z0 - W.height_[i]) * w);
+    if (d <= r && (W.terrain[i] === TKEY.rock || W.terrain[i] === TKEY.snow || W.terrain[i] === TKEY.lava)) W.terrain[i] = TKEY.dirt;
+  }
+}
+function paintRect(x0, y0, x1, y1, t, z, occ, mark) {
+  for (let y = Math.max(0, y0); y <= Math.min(W.height - 1, y1); y++)
+    for (let x = Math.max(0, x0); x <= Math.min(W.width - 1, x1); x++) {
+      const i = x + y * W.width;
+      if (W.terrain[i] === TKEY.water) continue;
+      W.terrain[i] = t; if (z != null) W.height_[i] = z; W.density[i] = 0;
+      if (occ) occ[i] = Math.max(occ[i], mark);
+    }
+}
+
+OPS.building = o => {
+  const spec = { x: Math.round(o.x), y: Math.round(o.y), w: Math.max(2, Math.round(o.w ?? 6)), h: Math.max(2, Math.round(o.h ?? 6)),
+    z: o.z ?? zAt(Math.round(o.x), Math.round(o.y)), floors: o.floors ?? 1, theme: THEME_ROOF[o.theme] ? o.theme : "plaster",
+    door: ["N", "S", "E", "W"].includes(o.door) ? o.door : "S", use: o.use ?? "home", seed: o.seed ?? W.objects.buildings.length + 1 };
+  for (let y = spec.y - 1; y <= spec.y + spec.h; y++) for (let x = spec.x - 1; x <= spec.x + spec.w; x++)
+    if (inMap(x, y) && !isWater(x, y)) { W.height_[x + y * W.width] = spec.z; W.density[x + y * W.width] = 0; }
+  W.objects.buildings.push(spec);
+};
+
+OPS.town = o => {
+  const sizeKey = TOWN_SIZES[o.size] ? o.size : "village", S = TOWN_SIZES[sizeKey];
+  const styleKey = TOWN_STYLES[o.style] ? o.style : sizeKey === "city" ? "city" : sizeKey === "town" ? "town" : "rustic", ST = TOWN_STYLES[styleKey];
+  const rnd = mulberry((o.seed ?? Math.floor(o.cx * 31 + o.cy)) * 2654435761 ^ W.seed);
+  const cx = Math.round(o.cx), cy = Math.round(o.cy), r = Math.round(o.radius ?? S.r);
+  const z0 = clampZ(o.z ?? groundHeight(cx, cy, r));
+  flatten(cx, cy, r + 4, z0);
+  const occ = occupancy();
+  const road = TKEY[ST.road], plazaT = TKEY[ST.plaza];
+  const inside = (x, y, m = 0) => Math.hypot(x - cx, y - cy) <= r - m;
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++)
+    if (inMap(x, y) && inside(x, y)) W.density[x + y * W.width] = Math.min(W.density[x + y * W.width], inside(x, y, 6) ? 0 : 40);
+
+  // Streets: a plaza, two main roads crossing it, and (towns, cities) a grid of side streets.
+  const rw = sizeKey === "city" ? 4 : 3, streets = [];
+  const street = (x0, y0, x1, y1, dir, main) => {
+    if (x1 < x0 || y1 < y0) return;
+    streets.push({ x0, y0, x1, y1, dir, main });
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (inMap(x, y) && inside(x, y)) paintRect(x, y, x, y, road, z0, occ, 2);
+  };
+  street(cx - r, cy - (rw >> 1), cx + r, cy - (rw >> 1) + rw - 1, "ew", true);
+  street(cx - (rw >> 1), cy - r, cx - (rw >> 1) + rw - 1, cy + r, "ns", true);
+  if (S.block) for (let k = 1; k * S.block < r * 0.8; k++) for (const sgn of [-1, 1]) {
+    const y = cy + sgn * k * S.block, half = Math.floor(Math.sqrt(Math.max(0, r * r - (y - cy) ** 2)) * 0.85);
+    if (half > 10) street(cx - half, y - 1, cx + half, y + 1, "ew", false);
+    const x = cx + sgn * k * (S.block + 8), halfY = Math.floor(Math.sqrt(Math.max(0, r * r - (x - cx) ** 2)) * 0.85);
+    if (halfY > 10) street(x - 1, cy - halfY, x + 1, cy + halfY, "ns", false);
+  }
+  const ph = S.plaza >> 1;
+  if (S.plaza) paintRect(cx - ph, cy - ph, cx + ph, cy + ph, plazaT, z0, occ, 2);
+
+  // Lots along both sides of every street; doors face the street.
+  const buildings = [];
+  const tryLot = (X, Y, w, h, door) => {
+    if (!inside(X - 1, Y - 1, 2) || !inside(X + w, Y + h, 2) || !inside(X + w, Y - 1, 2) || !inside(X - 1, Y + h, 2)) return false;
+    if (!rectFree(occ, X - 2, Y - 2, X + w + 1, Y + h + 1)) return false;
+    const d = Math.hypot(X + w / 2 - cx, Y + h / 2 - cy) / r;
+    const floors = d < 0.45 ? S.floors[1] : S.floors[0] + Math.floor(rnd() * (S.floors[1] - S.floors[0] + 1));
+    const spec = { x: X, y: Y, w, h, z: z0, floors, theme: pickWeighted(ST.themes, rnd), door, use: "home", seed: Math.floor(rnd() * 1e9), d };
+    for (let y = Y - 1; y <= Y + h; y++) for (let x = X - 1; x <= X + w; x++) { W.height_[x + y * W.width] = z0; W.density[x + y * W.width] = 0; }
+    markRect(occ, X - 2, Y - 2, X + w + 1, Y + h + 1, 1);
+    buildings.push(spec);
+    return true;
+  };
+  for (const s of streets.sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0))) {
+    if (s.dir === "ew") for (const side of ["N", "S"]) for (let x = Math.max(s.x0, cx - r) + 2; x < s.x1 - 4;) {
+      const w = evenIn(S.w[0], S.w[1], rnd), h = evenIn(S.h[0], S.h[1], rnd);
+      const ok = side === "N" ? tryLot(x, s.y0 - 2 - h, w, h, "S") : tryLot(x, s.y1 + 3, w, h, "N");
+      x += ok ? w + 3 + Math.floor(rnd() * 3) : 2;
+    }
+    else for (const side of ["W", "E"]) for (let y = Math.max(s.y0, cy - r) + 2; y < s.y1 - 4;) {
+      const w = evenIn(S.h[0], S.h[1], rnd), h = evenIn(S.w[0], S.w[1], rnd);
+      const ok = side === "W" ? tryLot(s.x0 - 2 - w, y, w, h, "E") : tryLot(s.x1 + 3, y, w, h, "W");
+      y += ok ? h + 3 + Math.floor(rnd() * 3) : 2;
+    }
+  }
+
+  // Uses: taverns and shops near the plaza, a smithy and a chapel, farms on the outskirts of rural places.
+  buildings.sort((a, b) => a.d - b.d);
+  const rural = ["rustic", "fishing", "frontier"].includes(styleKey) || sizeKey === "hamlet";
+  const want = sizeKey === "hamlet" ? ["tavern"] : sizeKey === "village" ? ["tavern", "smithy", "shop", "chapel"]
+    : sizeKey === "town" ? ["tavern", "shop", "shop", "smithy", "chapel", "tavern", "shop", "storage"]
+    : ["tavern", "shop", "shop", "shop", "smithy", "chapel", "tavern", "shop", "storage", "smithy", "shop", "tavern", "guard"];
+  buildings.forEach((b, i) => {
+    if (i < want.length) b.use = want[i];
+    else if (rural && b.d > 0.6 && rnd() < 0.4) b.use = "farm";
+    else if (rnd() < 0.08) b.use = "storage";
+    if (b.use === "smithy" || b.use === "storage") b.floors = 1;
+    delete b.d;
+    W.objects.buildings.push(b);
+  });
+
+  // Decoration: plaza furniture, street lamps, signposts, gardens, fields, a graveyard.
+  if (S.plaza) {
+    for (const [dx, dy] of [[-ph, -ph], [ph, -ph], [-ph, ph], [ph, ph]]) addStatic(PROP.lamp, cx + dx, cy + dy, z0);
+    for (let k = -ph + 2; k <= ph - 2; k += 3) { addStatic(PROP.benchX, cx + k, cy - ph, z0); addStatic(PROP.benchY, cx - ph, cy + k, z0); }
+    if (sizeKey !== "village") for (let k = 0; k < Math.max(2, ph >> 1); k++) {
+      const x = cx - ph + 2 + Math.floor(rnd() * (S.plaza - 4)), y = cy - ph + 2 + Math.floor(rnd() * (S.plaza - 4));
+      if (Math.abs(x - cx) < 2 || Math.abs(y - cy) < 2) continue;
+      addStatic(PROP.table, x, y, z0); addStatic(pickOf(PROP.crates, rnd), x + 1, y, z0); addStatic(rnd() < 0.5 ? PROP.barrel : PROP.sack, x, y + 1, z0);
+    }
+    addStatic(PROP.pottedTree, cx - 2, cy - 2, z0); addStatic(PROP.pottedTree, cx + 2, cy + 2, z0);
+  }
+  if (sizeKey !== "hamlet") for (let k = ph + 6; k < r - 3; k += 10) {
+    for (const [x, y] of [[cx + k, cy - (rw >> 1) - 1], [cx - k, cy + (rw >> 1) + 1], [cx - (rw >> 1) - 1, cy - k], [cx + (rw >> 1) + 1, cy + k]])
+      if (inMap(x, y) && occ[x + y * W.width] !== 1) addStatic(PROP.lamp, x, y, z0);
+  }
+  for (const [x, y, id] of [[cx + r - 2, cy - (rw >> 1) - 1, PROP.signX], [cx - r + 2, cy - (rw >> 1) - 1, PROP.signX], [cx - (rw >> 1) - 1, cy - r + 2, PROP.signY], [cx - (rw >> 1) - 1, cy + r - 2, PROP.signY]])
+    if (inMap(x, y) && !isWater(x, y)) addStatic(id, x, y);
+  if (rural || sizeKey === "village") for (const b of buildings) {
+    if (b.door !== "S" || b.use === "tavern" || rnd() < 0.35) continue;
+    const gx0 = b.x, gx1 = b.x + b.w - 1, gy1 = b.y - 4, gy0 = gy1 - 2 - Math.floor(rnd() * 3);
+    if (!rectFree(occ, gx0 - 1, gy0 - 1, gx1 + 1, gy1 + 1)) continue;
+    garden(gx0, gy0, gx1, gy1, z0, rnd, occ);
+  }
+  if (rural || sizeKey === "village") for (let k = 0; k < (sizeKey === "hamlet" ? 1 : 3); k++) {
+    const a = rnd() * Math.PI * 2, dist = r * (0.95 + rnd() * 0.3), fx = Math.round(cx + Math.cos(a) * dist), fy = Math.round(cy + Math.sin(a) * dist);
+    const fw = 8 + Math.floor(rnd() * 6), fh = 6 + Math.floor(rnd() * 4);
+    if (rectFree(occ, fx - 1, fy - 1, fx + fw, fy + fh)) field(fx, fy, fx + fw - 1, fy + fh - 1, rnd, occ);
+  }
+  if (sizeKey !== "hamlet") {
+    for (let t = 0; t < 8; t++) {
+      const a = rnd() * Math.PI * 2, gx = Math.round(cx + Math.cos(a) * (r + 6)), gy = Math.round(cy + Math.sin(a) * (r + 6));
+      if (rectFree(occ, gx - 1, gy - 1, gx + 9, gy + 7)) { graveyardAt(gx, gy, 9, 7, rnd, occ); break; }
+    }
+  }
+  if (S.walls && o.walls !== false) townWalls(cx, cy, r + 3, z0, rw, rnd, occ);
+  W.places.push({ name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r });
+};
+
+function garden(x0, y0, x1, y1, z, rnd, occ) {
+  const crop = pickOf(Object.values(PROP.crops), rnd);
+  paintRect(x0, y0, x1, y1, TKEY.farmland, z, occ, 1);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if ((y - y0) % 2 === 0 && rnd() < 0.8) addStatic(pickOf(crop, rnd), x, y, z);
+  fence(x0 - 1, y0 - 1, x1 + 1, y1 + 1, z, PROP.fenceX, PROP.fenceY, PROP.fencePost, [(x0 + x1) >> 1]);
+}
+function field(x0, y0, x1, y1, rnd, occ) {
+  const crop = pickOf(Object.values(PROP.crops), rnd);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (!inMap(x, y) || isWater(x, y)) continue;
+    const i = x + y * W.width; W.terrain[i] = TKEY.farmland; W.density[i] = 0; occ[i] = Math.max(occ[i], 1);
+    if ((y - y0) % 2 === 0 && rnd() < 0.85) addStatic(pickOf(crop, rnd), x, y);
+  }
+  if (rnd() < 0.6) { addStatic(pickOf(PROP.hay, rnd), x1 + 1, y0); addStatic(pickOf(PROP.hay, rnd), x1 + 1, y0 + 1); }
+}
+/** A fence around x0..x1, y0..y1 with gaps at the given x positions on the south side. */
+function fence(x0, y0, x1, y1, z, ewId, nsId, postId, gaps = []) {
+  addStatic(postId, x0, y0, z);
+  for (let x = x0 + 1; x <= x1; x++) addStatic(ewId, x, y0, z);
+  for (let y = y0 + 1; y <= y1; y++) addStatic(nsId, x0, y, z);
+  for (let x = x0 + 1; x <= x1; x++) if (!gaps.includes(x)) addStatic(ewId, x, y1, z);
+  for (let y = y0 + 1; y < y1; y++) addStatic(nsId, x1, y, z);
+}
+function graveyardAt(x0, y0, w, h, rnd, occ) {
+  const z = groundHeight(x0 + (w >> 1), y0 + (h >> 1), Math.max(w, h));
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) if (inMap(x, y) && !isWater(x, y)) { const i = x + y * W.width; W.height_[i] = z; W.density[i] = 0; W.terrain[i] = TKEY.dirt; occ[i] = Math.max(occ[i], 1); }
+  for (let y = y0 + 1; y < y0 + h - 1; y += 2) for (let x = x0 + 1; x < x0 + w - 1; x += 2) {
+    addStatic(pickOf(PROP.graves, rnd), x, y, z);
+    if (rnd() < 0.7) addStatic(pickOf(PROP.stones, rnd), x, y - 1 >= y0 ? y - 1 : y, z);
+  }
+  fence(x0 - 1, y0 - 1, x0 + w, y0 + h, z, PROP.ironX, PROP.ironY, PROP.ironPost, [x0 + (w >> 1)]);
+  W.places.push({ name: "Graveyard", kind: "graveyard", x: x0 + (w >> 1), y: y0 + (h >> 1), radius: Math.max(w, h) >> 1 });
+}
+/** Stone walls around a city, two storeys high, with gates on the main roads and towers at the corners. */
+function townWalls(cx, cy, R, z, rw, rnd, occ) {
+  const X0 = cx - R + 1, Y0 = cy - R + 1, X1 = cx + R - 1, Y1 = cy + R - 1;
+  const gate = (p, c) => Math.abs(p - c) <= (rw >> 1) + 2;
+  const put = (id, x, y) => { if (!inMap(x, y) || isWater(x, y)) return; for (const dz of [0, 20]) addStatic(id, x, y, z + dz); const i = x + y * W.width; W.height_[i] = z; W.density[i] = 0; occ[i] = Math.max(occ[i], 1); };
+  put(PROP.wallPost, X0 - 1, Y0 - 1);
+  for (let x = X0; x <= X1; x++) { if (!gate(x, cx)) put(PROP.wallEW[1], x, Y0 - 1); if (!gate(x, cx) && x < X1) put(PROP.wallEW[1], x, Y1); }
+  for (let y = Y0; y <= Y1; y++) { if (!gate(y, cy)) put(PROP.wallNS[1], X0 - 1, y); if (!gate(y, cy) && y < Y1) put(PROP.wallNS[1], X1, y); }
+  put(PROP.wallCorner, X1, Y1);
+  for (const [tx, ty] of [[X0, Y0], [X1 - 5, Y0], [X0, Y1 - 5], [X1 - 5, Y1 - 5]])
+    if (rectFree(occ, tx - 1, ty - 1, tx + 4, ty + 4)) W.objects.buildings.push({ x: tx, y: ty, w: 4, h: 4, z, floors: 3, theme: "stone", door: tx === X0 ? "E" : "W", use: "guard", seed: Math.floor(rnd() * 1e9) });
+}
+
+OPS.graveyard = o => { const occ = occupancy(); graveyardAt(Math.round(o.x ?? o.cx), Math.round(o.y ?? o.cy), o.w ?? 9, o.h ?? 7, mulberry(o.seed ?? 5), occ); };
+OPS.camp = o => {
+  const rnd = mulberry((o.seed ?? 1) ^ W.seed), cx = Math.round(o.cx), cy = Math.round(o.cy), z = zAt(cx, cy);
+  for (let y = cy - 5; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++) if (inMap(x, y) && Math.hypot(x - cx, y - cy) <= 5) W.density[x + y * W.width] = 0;
+  addStatic(PROP.campfire, cx, cy, z);
+  addStatic(PROP.bedrollY, cx - 2, cy, z); addStatic(PROP.bedrollX, cx, cy + 2, z);
+  if (rnd() < 0.6) addStatic(PROP.bedrollX, cx, cy - 2, z);
+  addStatic(pickOf(PROP.crates, rnd), cx + 2, cy - 1, z); addStatic(PROP.barrel, cx + 2, cy, z);
+  if (o.huts !== false && rnd() < 0.7) OPS.building({ x: cx - 7, y: cy - 7, w: 4, h: 4, theme: "hide", door: "S", use: "storage", z, seed: Math.floor(rnd() * 1e9) });
+  W.places.push({ name: o.name || uniqueName(pickOf(["Bandit camp", "Hunters' camp", "Woodcutters' camp", "Orc camp", "Brigand hideout", "Trappers' camp", "Nomad camp"], rnd), rnd), kind: "camp", x: cx, y: cy, radius: 6 });
+};
+OPS.ruins = o => {
+  const rnd = mulberry((o.seed ?? 3) ^ W.seed), cx = Math.round(o.cx), cy = Math.round(o.cy);
+  const n = 1 + Math.floor(rnd() * 3);
+  for (let k = 0; k < n; k++) {
+    const w = 5 + Math.floor(rnd() * 7), h = 5 + Math.floor(rnd() * 6), x0 = cx - (w >> 1) + Math.floor((rnd() - 0.5) * 12), y0 = cy - (h >> 1) + Math.floor((rnd() - 0.5) * 12);
+    const z = zAt(Math.max(0, Math.min(W.width - 1, x0)), Math.max(0, Math.min(W.height - 1, y0)));
+    for (let y = y0; y <= y0 + h; y++) for (let x = x0; x <= x0 + w; x++) if (inMap(x, y)) { W.density[x + y * W.width] = 20; }
+    addStatic(pickOf(PROP.ruinPost, rnd), x0 - 1, y0 - 1, z);
+    for (let x = x0; x <= x0 + w; x++) { if (rnd() < 0.65) addStatic(pickOf(PROP.ruinX, rnd), x, y0 - 1, z); if (rnd() < 0.5) addStatic(pickOf(PROP.ruinX, rnd), x, y0 + h, z); }
+    for (let y = y0; y <= y0 + h; y++) { if (rnd() < 0.65) addStatic(pickOf(PROP.ruinY, rnd), x0 - 1, y, z); if (rnd() < 0.5) addStatic(pickOf(PROP.ruinY, rnd), x0 + w, y, z); }
+    for (let i = 0; i < w * h * 0.25; i++) addStatic(pickOf(PROP.pavers, rnd), x0 + Math.floor(rnd() * w), y0 + Math.floor(rnd() * h), z);
+    for (let i = 0; i < 3; i++) if (rnd() < 0.6) addStatic(pickOf(PROP.bones, rnd), x0 + Math.floor(rnd() * w), y0 + Math.floor(rnd() * h), z);
+  }
+  W.places.push({ name: o.name || "Ruins of " + townName(rnd), kind: "ruins", x: cx, y: cy, radius: 12 });
+};
+OPS.shrine = o => {
+  const cx = Math.round(o.cx), cy = Math.round(o.cy), z = zAt(cx, cy);
+  for (let y = cy - 4; y <= cy + 4; y++) for (let x = cx - 4; x <= cx + 4; x++) if (inMap(x, y) && !isWater(x, y)) {
+    W.height_[x + y * W.width] = z; W.density[x + y * W.width] = 0;
+    if (Math.abs(x - cx) <= 3 && Math.abs(y - cy) <= 3) addStatic(PROP.pavers[(x + y) & 3], x, y, z);
+  }
+  for (const [dx, dy] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) addStatic(PROP.brazier, cx + dx, cy + dy, z);
+  addStatic(PROP.candelabra, cx, cy, z);
+  W.places.push({ name: o.name || uniqueName("Shrine of " + pickOf(["Honesty", "Compassion", "Valor", "Justice", "Sacrifice", "Honor", "Spirituality", "Humility", "Chaos", "the Ancients"], mulberry((o.seed ?? cx * 7 + cy) ^ W.seed)), mulberry(cx + cy)), kind: "shrine", x: cx, y: cy, radius: 5 });
+};
+OPS.clear_objects = o => {
+  const rg = o.region ?? { x: 0, y: 0, w: W.width, h: W.height }, inR = (x, y) => x >= rg.x && y >= rg.y && x < rg.x + rg.w && y < rg.y + rg.h;
+  W.objects.buildings = W.objects.buildings.filter(b => !inR(b.x, b.y));
+  W.objects.statics = W.objects.statics.filter(s => !inR(s[1], s[2]));
+  W.objects.multis = W.objects.multis.filter(m => !inR(m[1], m[2]));
+  W.places = W.places.filter(p => !inR(p.x, p.y));
+};
+
+/** Roads between settlements: a minimum spanning tree plus a few shortcuts, routed by A* around water and steep ground; bridges where they must cross water. */
+OPS.roads = o => {
+  const towns = W.places.filter(p => ["hamlet", "village", "town", "city"].includes(p.kind));
+  if (towns.length < 2) return;
+  const G = 6, gw = Math.ceil(W.width / G), gh = Math.ceil(W.height / G);
+  const edges = [], inTree = new Set([0]);
+  while (inTree.size < towns.length) {
+    let best = null;
+    for (const a of inTree) for (let b = 0; b < towns.length; b++) if (!inTree.has(b)) {
+      const d = Math.hypot(towns[a].x - towns[b].x, towns[a].y - towns[b].y);
+      if (!best || d < best.d) best = { a, b, d };
+    }
+    edges.push(best); inTree.add(best.b);
+  }
+  towns.forEach((t, i) => { // a shortcut to the second-nearest neighbour when it's close
+    const near = towns.map((u, j) => ({ j, d: Math.hypot(t.x - u.x, t.y - u.y) })).filter(e => e.j !== i).sort((p, q) => p.d - q.d);
+    if (near[1] && near[1].d < near[0].d * 1.6 && !edges.some(e => (e.a === i && e.b === near[1].j) || (e.b === i && e.a === near[1].j))) edges.push({ a: i, b: near[1].j, d: near[1].d });
+  });
+  const cost = (gx, gy) => {
+    const x = Math.min(W.width - 1, gx * G + (G >> 1)), y = Math.min(W.height - 1, gy * G + (G >> 1)), t = W.terrain[x + y * W.width];
+    if (t === TKEY.water) return 30; if (t === TKEY.rock || t === TKEY.snow || t === TKEY.lava) return 25;
+    return t === TKEY.forest || t === TKEY.jungle ? 1.6 : 1;
+  };
+  const zc = (gx, gy) => W.height_[Math.min(W.width - 1, gx * G + (G >> 1)) + Math.min(W.height - 1, gy * G + (G >> 1)) * W.width];
+  for (const e of edges.filter(e => e.d < (o.maxLength ?? 900))) {
+    const A = towns[e.a], B = towns[e.b];
+    const path = astar(Math.floor(A.x / G), Math.floor(A.y / G), Math.floor(B.x / G), Math.floor(B.y / G), gw, gh, cost, zc);
+    if (!path) continue;
+    const big = ["town", "city"].includes(A.kind) && ["town", "city"].includes(B.kind);
+    // Stop at the town edges so country roads don't run over the streets inside.
+    const pts = path.filter((_, i) => i % 3 === 0 || i === path.length - 1).map(([gx, gy]) => [gx * G + (G >> 1), gy * G + (G >> 1)])
+      .filter(([x, y]) => !towns.some(t => Math.hypot(x - t.x, y - t.y) < t.radius - 2));
+    if (pts.length < 2) continue;
+    const keep = TERRAINS.map(t => t.key).filter(k => !["water", "rock", "snow", "lava"].includes(k));
+    OPS.path({ points: pts, width: big ? 3 : 2, terrain: big ? "cobblestone" : "dirt", jitter: 2, within: keep });
+    for (const [x, y] of pts.flatMap((p, i) => i ? interp(pts[i - 1], p) : [p])) // bridges over water
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inMap(x + dx, y + dy) && isWater(x + dx, y + dy)) addStatic(PROP.planks[(x + dx + y + dy) & 3], x + dx, y + dy, 0);
+  }
+};
+function interp(a, b) { const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])), out = []; for (let i = 1; i <= n; i++) out.push([Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n)]); return out; }
+function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
+  const pad = 40, x0 = Math.max(0, Math.min(sx, tx) - pad), y0 = Math.max(0, Math.min(sy, ty) - pad), x1 = Math.min(gw - 1, Math.max(sx, tx) + pad), y1 = Math.min(gh - 1, Math.max(sy, ty) + pad);
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, N = bw * bh, g = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  const idx = (x, y) => (x - x0) + (y - y0) * bw, heap = [];
+  const push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const s = idx(sx, sy), t = idx(tx, ty); g[s] = 0; push(0, s);
+  while (heap.length) {
+    const [, i] = pop(); if (closed[i]) continue; closed[i] = 1;
+    if (i === t) break;
+    const x = i % bw + x0, y = Math.floor(i / bw) + y0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = x + dx, ny = y + dy; if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+      const j = idx(nx, ny); if (closed[j]) continue;
+      const step = (dx && dy ? 1.414 : 1) * cost(nx, ny) + Math.abs(zc(nx, ny) - zc(x, y)) * 0.15;
+      if (g[i] + step < g[j]) { g[j] = g[i] + step; from[j] = i; push(g[j] + Math.hypot(nx - tx, ny - ty), j); }
+    }
+  }
+  if (from[t] < 0 && s !== t) return null;
+  const path = []; for (let i = t; i >= 0; i = from[i]) { path.push([i % bw + x0, Math.floor(i / bw) + y0]); if (i === s) break; }
+  return path.reverse();
+}
+
+/** Founds settlements across the map on good sites, joins them with roads and scatters camps, ruins and shrines. */
+OPS.populate_world = o => {
+  const rnd = mulberry((o.seed ?? 7) * 2246822519 ^ W.seed), area = W.width * W.height / 1e6;
+  const want = { city: o.cities ?? Math.max(1, Math.round(area * 0.12)), town: o.towns ?? Math.max(1, Math.round(area * 0.5)),
+    village: o.villages ?? Math.max(2, Math.round(area * 1.6)), hamlet: o.hamlets ?? Math.max(2, Math.round(area * 2.5)) };
+  // Coarse summed-area tables over 8x8 cells: land, water, height, height squared, terrain kinds.
+  const G = 8, gw = Math.floor(W.width / G), gh = Math.floor(W.height / G);
+  const K = { land: 0, water: 1, z: 2, z2: 3, sand: 4, rough: 5, jungle: 6 }, sat = Array.from({ length: 7 }, () => new Float64Array((gw + 1) * (gh + 1)));
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+    const x = gx * G + 4, y = gy * G + 4, i = x + y * W.width, t = W.terrain[i], z = W.height_[i];
+    const v = [t !== TKEY.water && t !== TKEY.rock && t !== TKEY.snow && t !== TKEY.lava ? 1 : 0, t === TKEY.water ? 1 : 0, z, z * z, t === TKEY.sand ? 1 : 0, t === TKEY.rock || t === TKEY.snow ? 1 : 0, t === TKEY.jungle ? 1 : 0];
+    for (let k = 0; k < 7; k++) { const a = sat[k], j = (gx + 1) + (gy + 1) * (gw + 1); a[j] = v[k] + a[j - 1] + a[j - (gw + 1)] - a[j - (gw + 1) - 1]; }
+  }
+  const sum = (k, ax, ay, bx, by) => { ax = Math.max(0, ax); ay = Math.max(0, ay); bx = Math.min(gw, bx); by = Math.min(gh, by); if (bx <= ax || by <= ay) return 0; const a = sat[k], s = gw + 1; return a[bx + by * s] - a[ax + by * s] - a[bx + ay * s] + a[ax + ay * s]; };
+  const chosen = W.places.filter(p => ["hamlet", "village", "town", "city"].includes(p.kind)).map(p => ({ x: p.x, y: p.y, r: p.radius }));
+  for (const size of ["city", "town", "village", "hamlet"]) {
+    const r = TOWN_SIZES[size].r, cr = Math.ceil(r / G) + 1, ring = Math.ceil(r * 2.2 / G);
+    const cand = [];
+    for (let gy = cr; gy < gh - cr; gy += 3) for (let gx = cr; gx < gw - cr; gx += 3) {
+      const n = (2 * cr) ** 2, land = sum(K.land, gx - cr, gy - cr, gx + cr, gy + cr) / n;
+      if (land < 0.9) continue;
+      const zs = sum(K.z, gx - cr, gy - cr, gx + cr, gy + cr) / n, var_ = sum(K.z2, gx - cr, gy - cr, gx + cr, gy + cr) / n - zs * zs;
+      const nearWater = sum(K.water, gx - ring, gy - ring, gx + ring, gy + ring) > 0;
+      const rough = sum(K.rough, gx - ring, gy - ring, gx + ring, gy + ring) > 0;
+      cand.push({ x: gx * G + 4, y: gy * G + 4, score: -Math.sqrt(Math.max(0, var_)) + (nearWater ? 6 : 0) + rnd() * 5, nearWater, rough,
+        sand: sum(K.sand, gx - cr, gy - cr, gx + cr, gy + cr) / n, jungle: sum(K.jungle, gx - cr, gy - cr, gx + cr, gy + cr) / n });
+    }
+    cand.sort((a, b) => b.score - a.score);
+    let placed = 0;
+    for (const c of cand) {
+      if (placed >= want[size]) break;
+      if (chosen.some(p => Math.hypot(p.x - c.x, p.y - c.y) < (p.r + r) * 2.4 + 40)) continue;
+      const style = c.sand > 0.3 ? "desert" : c.jungle > 0.3 ? "frontier" : c.rough ? "mountain" : size === "city" ? "city" : size === "town" ? "town"
+        : c.nearWater && rnd() < 0.6 ? "fishing" : rnd() < 0.2 ? "frontier" : "rustic";
+      OPS.town({ cx: c.x, cy: c.y, size, style, seed: Math.floor(rnd() * 1e9) });
+      chosen.push({ x: c.x, y: c.y, r }); placed++;
+    }
+  }
+  if (o.roads !== false) OPS.roads({});
+  if (o.wilderness !== false) {
+    const sites = { camp: Math.round(area * (o.camps ?? 4)), ruins: Math.round(area * (o.ruins ?? 3)), shrine: Math.round(area * (o.shrines ?? 1.2)) };
+    const occ = occupancy();
+    for (const [kind, n] of Object.entries(sites)) for (let k = 0, tries = 0; k < n && tries < n * 60; tries++) {
+      const x = 20 + Math.floor(rnd() * (W.width - 40)), y = 20 + Math.floor(rnd() * (W.height - 40)), t = W.terrain[x + y * W.width];
+      if (t === TKEY.water || t === TKEY.rock || t === TKEY.snow || t === TKEY.lava || occ[x + y * W.width]) continue;
+      if (kind === "camp" && t !== TKEY.forest && t !== TKEY.jungle && rnd() < 0.7) continue;
+      if (W.places.some(p => Math.hypot(p.x - x, p.y - y) < (p.radius || 10) + 50)) continue;
+      if (kind === "shrine" && W.height_[x + y * W.width] < 15 && rnd() < 0.7) continue;
+      OPS[kind]({ cx: x, cy: y, seed: Math.floor(rnd() * 1e9) }); k++;
+    }
+  }
+};
+
 function applyOps(ops, recordUndo = true) {
   const done = [];
   const run = () => {
@@ -615,6 +1073,7 @@ function commitEdit() { if (pending && pending.size) pushEntry(undoStack, pendin
 /** Edits that may touch anything (Claude's plans, fill): snapshot, run, keep only changed chunks. */
 function editWhole(fn) {
   const before = { terrain: W.terrain.slice(), height_: W.height_.slice(), density: W.density.slice() };
+  const objBefore = JSON.stringify({ o: W.objects, p: W.places });
   fn();
   const entry = new Map(), total = chunksAcross() * Math.ceil(W.height / CH);
   for (let ci = 0; ci < total; ci++) {
@@ -625,10 +1084,12 @@ function editWhole(fn) {
         if (W.terrain[i] !== before.terrain[i] || W.height_[i] !== before.height_[i] || W.density[i] !== before.density[i]) { changed = true; break; }
     if (changed) entry.set(ci, readChunk(ci, before));
   }
-  if (entry.size) pushEntry(undoStack, entry, true);
+  const objAfter = JSON.stringify({ o: W.objects, p: W.places });
+  if (objAfter !== objBefore) entry.objects = objBefore;
+  if (entry.size || entry.objects) pushEntry(undoStack, entry, true);
   syncUndo();
 }
-const entryBytes = e => { let b = 0; for (const c of e.values()) b += c.t.length * 3; return b; };
+const entryBytes = e => { let b = e.objects ? e.objects.length : 0; for (const c of e.values()) b += c.t.length * 3; return b; };
 function pushEntry(stack, entry, clearRedo) {
   stack.push(entry);
   if (clearRedo) redoStack.length = 0;
@@ -637,6 +1098,7 @@ function pushEntry(stack, entry, clearRedo) {
 }
 function swapEntry(entry) {
   const back = new Map();
+  if (entry.objects) { back.objects = JSON.stringify({ o: W.objects, p: W.places }); const v = JSON.parse(entry.objects); W.objects = v.o; W.places = v.p; draw(); }
   for (const [ci, c] of entry) { back.set(ci, readChunk(ci)); writeChunk(ci, c); }
   for (const ci of entry.keys()) { const [x0, y0, x1, y1] = chunkRect(ci); repaint(x0, y0, x1 - 1, y1 - 1); }
   updateStats();
@@ -705,6 +1167,7 @@ function draw() {
     vctx.fillStyle = "#0a0e10"; vctx.fillRect(0, 0, r.width, r.height);
     vctx.imageSmoothingEnabled = cam.z < 1;
     vctx.drawImage(img, -cam.x * cam.z, -cam.y * cam.z, W.width * cam.z, W.height * cam.z);
+    if ($("showObjects").checked) drawObjects(r);
     if ($("showBlocks").checked && cam.z >= 6) {
       vctx.strokeStyle = "rgba(214,170,76,.35)"; vctx.lineWidth = 1; vctx.beginPath();
       const sx = Math.floor(cam.x / 8) * 8, sy = Math.floor(cam.y / 8) * 8;
@@ -720,6 +1183,45 @@ function draw() {
     }
     $("szoom").textContent = cam.z >= 1 ? `${cam.z.toFixed(cam.z < 4 ? 1 : 0)}×` : `1/${(1 / cam.z).toFixed(1)}`;
   });
+}
+
+/** Buildings as roof-coloured footprints with a door notch, props as dots when zoomed in, and place names. */
+function drawObjects(r) {
+  const z = cam.z, vx0 = cam.x - 4, vy0 = cam.y - 4, vx1 = cam.x + r.width / z + 4, vy1 = cam.y + r.height / z + 4;
+  const S = (x, y) => [(x - cam.x) * z, (y - cam.y) * z];
+  for (const b of W.objects.buildings) {
+    if (b.x + b.w < vx0 || b.x > vx1 || b.y + b.h < vy0 || b.y > vy1) continue;
+    const [x, y] = S(b.x - 1, b.y - 1), w = (b.w + 1) * z, h = (b.h + 1) * z;
+    vctx.fillStyle = THEME_ROOF[b.theme] || "#8a3b2a"; vctx.fillRect(x, y, w, h);
+    if (z >= 1.5) {
+      vctx.strokeStyle = "rgba(0,0,0,.55)"; vctx.lineWidth = 1; vctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+      vctx.fillStyle = "rgba(255,255,255,.18)"; vctx.fillRect(x, y, w, Math.max(1, h * 0.12 * (b.floors || 1)));
+      const dw = Math.max(2, z * 1.2);
+      vctx.fillStyle = "#1a1208";
+      if (b.door === "S") vctx.fillRect(x + w / 2 - dw / 2, y + h - dw / 2, dw, dw);
+      else if (b.door === "N") vctx.fillRect(x + w / 2 - dw / 2, y - dw / 2, dw, dw);
+      else if (b.door === "E") vctx.fillRect(x + w - dw / 2, y + h / 2 - dw / 2, dw, dw);
+      else vctx.fillRect(x - dw / 2, y + h / 2 - dw / 2, dw, dw);
+    }
+  }
+  if (z >= 2) {
+    vctx.fillStyle = "rgba(30,20,10,.75)";
+    const d = Math.max(1.5, z * 0.5);
+    for (const st of W.objects.statics) if (st[1] >= vx0 && st[1] <= vx1 && st[2] >= vy0 && st[2] <= vy1) { const [x, y] = S(st[1] + 0.5, st[2] + 0.5); vctx.fillRect(x - d / 2, y - d / 2, d, d); }
+  }
+  vctx.textAlign = "center"; vctx.textBaseline = "middle";
+  for (const p of W.places) {
+    if (p.x < vx0 - 50 || p.x > vx1 + 50 || p.y < vy0 - 50 || p.y > vy1 + 50) continue;
+    const major = ["town", "city"].includes(p.kind);
+    if (!major && z < 0.35) continue;
+    if (["graveyard"].includes(p.kind) && z < 1.5) continue;
+    const [x, y] = S(p.x, p.y - (p.radius || 0) - 2);
+    vctx.font = `${major ? 600 : 500} ${major ? 14 : 12}px "IBM Plex Sans", system-ui, sans-serif`;
+    const tw = vctx.measureText(p.name).width + 10;
+    vctx.fillStyle = "rgba(14,19,22,.8)"; vctx.fillRect(x - tw / 2, y - 10, tw, 20);
+    vctx.fillStyle = major ? "#d6aa4c" : "#dbe4e8"; vctx.fillText(p.name, x, y);
+  }
+  vctx.textAlign = "start"; vctx.textBaseline = "alphabetic";
 }
 
 function fitView() {
@@ -743,6 +1245,7 @@ const TOOLS = [
   { id: "smooth", label: "Smooth", key: "S" }, { id: "flatten", label: "Flatten", key: "F" },
   { id: "thin", label: "Clear plants", key: "C" }, { id: "thick", label: "More plants", key: "M" },
   { id: "pick", label: "Pick", key: "I" },
+  { id: "town", label: "Town", key: "T" },
 ];
 let tool = "paint", paintT = TKEY.grass;
 const brush = { size: 12, strength: 0.4 };
@@ -822,6 +1325,17 @@ view.addEventListener("pointerdown", e => {
   if (x < 0 || y < 0 || x >= W.width || y >= W.height) return;
   if (tool === "pick" || e.altKey) { paintT = W.terrain[x + y * W.width]; syncPalette(); setTool("paint"); return; }
   if (tool === "fill") { floodFill(x, y); return; }
+  if (tool === "town") {
+    if (W.terrain[x + y * W.width] === TKEY.water) { addMsg("claude", "Towns need land: click on solid ground.", "error"); return; }
+    busy("Founding a settlement…");
+    setTimeout(() => {
+      applyOps([{ op: "town", cx: x, cy: y, size: $("townSize").value, style: $("townStyle").value || undefined, seed: Math.floor(Math.random() * 1e9) }]);
+      fullRedraw(); busy();
+      const p = W.places.filter(q => ["hamlet", "village", "town", "city"].includes(q.kind)).at(-1);
+      if (p) addMsg("claude", `Founded <b>${escapeHtml(p.name)}</b>, a ${p.style} ${p.kind} with ${W.objects.buildings.filter(b => Math.hypot(b.x - p.x, b.y - p.y) <= p.radius + 6).length} buildings.`);
+    }, 20);
+    return;
+  }
   beginEdit(); painting = true; flattenZ = W.height_[x + y * W.width];
   stamp(p.wx, p.wy);
 });
@@ -865,10 +1379,22 @@ $("brushSize").oninput = e => setBrush(+e.target.value);
 $("brushStrength").oninput = e => { brush.strength = e.target.value / 100; $("brushStrengthOut").textContent = e.target.value + "%"; };
 ["showPlants", "showShade"].forEach(id => $(id).onchange = () => fullRedraw());
 $("showBlocks").onchange = draw;
+$("showObjects").onchange = draw;
 $("zoomIn").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.5); };
 $("zoomOut").onclick = () => { const r = view.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.5); };
 $("zoomFit").onclick = fitView;
 $("btnUndo").onclick = undo; $("btnRedo").onclick = redo;
+$("btnPopulate").onclick = () => {
+  busy("Populating the world: finding sites, founding towns, building roads…");
+  setTimeout(() => {
+    const t0 = performance.now();
+    applyOps([{ op: "populate_world", seed: Math.floor(Math.random() * 1e9) }]);
+    fullRedraw(); busy();
+    const kinds = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine"].map(k => [k, W.places.filter(p => p.kind === k).length]).filter(([, n]) => n);
+    addMsg("claude", `Populated in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${kinds.map(([k, n]) => `${n} ${k}${n === 1 ? "" : k === "city" ? "" : "s"}`.replace("citys", "cities")).join(", ")}; ${W.objects.buildings.length.toLocaleString()} buildings. Build the map to walk them.`);
+  }, 30);
+};
+$("btnClearObj").onclick = () => { applyOps([{ op: "clear_objects" }]); fullRedraw(); };
 new ResizeObserver(draw).observe($("stage"));
 
 function terrainCounts() {
@@ -916,6 +1442,8 @@ async function toProject() {
       height: b64(await gzip(new Uint8Array(W.height_.buffer, W.height_.byteOffset, W.height_.length))),
       density: b64(await gzip(W.density)),
     },
+    objects: W.objects,
+    places: W.places,
   };
 }
 async function fromProject(p) {
@@ -926,7 +1454,7 @@ async function fromProject(p) {
   const t = await layer(p.layers.terrain), hb = await layer(p.layers.height), d = await layer(p.layers.density);
   if (t.length !== p.width * p.height || hb.length !== t.length || d.length !== t.length) throw new Error("Layer sizes do not match the map size.");
   loadWorld({ name: p.name, width: p.width, height: p.height, seed: p.seed, keys: (p.terrains || []).map(t => t.key),
-    terrain: t, heights: new Int8Array(hb.buffer, hb.byteOffset, hb.length), density: d });
+    terrain: t, heights: new Int8Array(hb.buffer, hb.byteOffset, hb.length), density: d, objects: p.objects, places: p.places });
 }
 function loadWorld(m) {
   const order = m.keys.map(k => TKEY[k]);
@@ -934,6 +1462,8 @@ function loadWorld(m) {
   for (let i = 0; i < t.length; i++) t[i] = order[t[i]] ?? 0;
   W.width = m.width; W.height = m.height; W.seed = m.seed | 0;
   W.terrain = t; W.height_ = m.heights; W.density = m.density;
+  W.objects = { buildings: m.objects?.buildings ?? [], statics: m.objects?.statics ?? [], multis: m.objects?.multis ?? [] };
+  W.places = m.places ?? [];
   $("projName").value = m.name || "Untitled";
   undoStack.length = 0; redoStack.length = 0; syncUndo();
   resetImage(); fitView(); updateStats();
@@ -987,7 +1517,7 @@ async function saveLocal() {
     const db = await idb();
     db.transaction("p", "readwrite").objectStore("p").put({
       kind: "world", name: $("projName").value, width: W.width, height: W.height, seed: W.seed,
-      keys: TERRAINS.map(t => t.key), terrain: W.terrain, heights: W.height_, density: W.density,
+      keys: TERRAINS.map(t => t.key), terrain: W.terrain, heights: W.height_, density: W.density, objects: W.objects, places: W.places,
     }, "current");
   } catch { /* storage unavailable */ }
 }
@@ -1017,6 +1547,12 @@ Ops (JSON objects, applied in order):
 - {"op":"smooth","passes"?:2,"region"?:{"x","y","w","h"}} softens altitude.
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
+Settlements (the build turns each building into real UO architecture: walls, windows, roofs, floors, furniture):
+- {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"walls"?:bool,"seed"?} levels the ground and lays out a plaza, streets, buildings facing the streets (taverns, shops, smithies, a chapel, homes, farms), lamps, signposts, gardens, fields and a graveyard. Radii: hamlet 16, village 30, town 52, city 84 (walled). Needs mostly flat land.
+- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites (flat, near water) over the whole map, founds settlements with styles from their surroundings, joins them with roads (bridges over water) and adds camps, ruins and shrines.
+- {"op":"roads"} connects all settlements with roads. {"op":"building","x","y","w","h","floors"?,"theme"?,"use"?,"door"?:"N"|"S"|"E"|"W"} one building (x,y = north-west inside tile). Themes: ${Object.keys(THEME_ROOF).join(", ")}. Uses: home, shop, tavern, smithy, farm, chapel, storage, guard.
+- {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
+Leave space between settlements (two radii or more). Found settlements after shaping the land.
 Good order: landmasses, mountains, patches, rivers, roads, beaches, then clearings. Keep everything inside the map.`;
 
 function overview(cols = 48) {
@@ -1041,6 +1577,7 @@ function mapSummary() {
   return `Map: ${W.width} x ${W.height} tiles.
 Terrain share: ${TERRAINS.map((t, i) => c[i] ? `${t.key} ${(c[i] * 100 / n).toFixed(1)}%` : null).filter(Boolean).join(", ")}.
 Land altitude range: ${zmax < zmin ? "no land" : `${zmin}..${zmax}`}.
+Settlements: ${W.places.filter(p => ["hamlet", "village", "town", "city"].includes(p.kind)).map(p => `${p.name} (${p.style} ${p.kind} at ${p.x},${p.y} r${p.radius})`).join("; ") || "none yet"}. Buildings: ${W.objects.buildings.length}.
 Overview grid (${ov.cols}x${ov.rows}, each character covers about ${ov.cell}x${ov.cell} tiles; legend ${TERRAINS.map((t, i) => GRID_CHARS[i] + "=" + t.key).join(" ")}):
 ${ov.text}`;
 }
@@ -1108,6 +1645,8 @@ Reply with only a JSON object: {"summary": "one or two sentences on what you did
 }
 
 const SUGGESTIONS = [
+  "Populate the whole world with cities, towns, villages and roads",
+  "Found a walled city in the most central flat valley and two fishing villages on the coast, then connect them with roads",
   "Raise a snowy mountain range along the north, with a river from it to the sea",
   "Clear a spot for a town by the river and connect it to the other land with a road",
   "Add a jungle-covered volcanic island in the south-east with lava at the top",

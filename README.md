@@ -34,10 +34,27 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
+- **Settlements**: the Town tool (T) founds a hamlet, village, town or walled city with a click, in one of seven
+  styles (rustic, fishing, town, city, desert, mountain, frontier). It levels the ground and lays out a plaza,
+  streets, buildings facing the streets (taverns, shops, smithies, chapels, homes, farms), lamps, benches, market
+  stalls, signposts, fenced gardens, crop fields and a graveyard; cities get stone walls, gates and towers.
+- **Populate world** fills a whole map at once: it scores sites (flat land, near water), founds cities, towns,
+  villages and hamlets with styles that fit their surroundings (sandstone in deserts, stone in the mountains,
+  fishing villages on coasts), joins them with roads routed around mountains and lakes (bridges where they must
+  cross water), and adds named camps, ruins and shrines in the wilderness. A Trammel-size map (7168 x 4096) gets
+  ~140 settlements and ~1,750 buildings in under ten seconds. Claude can do all of this too ("found a walled
+  city in the central valley and two fishing villages on the coast").
+- **Generated architecture, not stock houses**: buildings are stored as specs (size, storeys, theme, use, door)
+  and the build makes each one from the client's house-customization pieces, following the rules of UO's own
+  houses: walls with windows and a doorway, up to four storeys, pitched roofs with gables or flat roofs with
+  battlements, floors, and furniture fitting the building's use (kegs, tables and chairs in taverns, counters and
+  shelves in shops, forge and anvil in smithies, benches and candelabras in chapels, hay and sacks on farms).
+  Doorways are left open: doors are ServUO items, which the live ServUO mode on the roadmap will place. Fourteen themes: wood, dark wood, plaster, thatch, log,
+  fieldstone, brick, red brick, stone, sandstone, marble, white marble, clay and hide.
 - **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
 - Sizes from 512 x 512 up to 7168 x 4096, including every standard facet size.
 
-Shortcuts: B paint, G fill, R raise, L lower, S smooth, F flatten, C/M fewer/more plants, I pick, `[` `]` brush
+Shortcuts: B paint, G fill, R raise, L lower, S smooth, F flatten, C/M fewer/more plants, I pick, T town, `[` `]` brush
 size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 
 ## Walk
@@ -92,7 +109,9 @@ before they play: checksummed downloads, backups of the originals, data files on
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Builder with categories, favourites, animation and placement modes.
     Next: multis (whole houses), hues, animated character, live sync with a server.
-11. **Places**: towns, dungeon entrances, regions and spawners exported for ServUO.
+11. ✅ **Settlements** (first version): towns, villages and cities with generated architecture, roads, wilderness
+    sites, Populate world; the walk client lists the towns. Next: doors, signs and vendors exported for ServUO
+    (regions, spawners, guard zones), docks and harbours, dungeon entrances, interior stairs.
 12. ✅ **ShardForge Server** (first version): self-hosted, accounts and user levels, shared projects with history,
     server-side build, live co-building in Walk. Next: live terrain co-editing in the editor, Ask Claude via a
     server key.
@@ -127,6 +146,9 @@ Land is read from `map#LegacyMUL.uop` (modern clients) or `map#.mul`; statics fr
 `samples/test-isles.shardforge.json` is the in-game test world: a Tokuno-sized map (build with `--facet 4`)
 with cobblestone plazas at the exact positions and altitudes of Tokuno's three moongate destinations, so
 players arriving through a public moongate land on solid ground.
+
+`samples/populated-tokuno.shardforge.json` is an island continent filled by **Populate world**: a walled city,
+a town, villages, hamlets, roads, camps, ruins and shrines (build with `--facet 4 --client <your UO folder>`).
 
 ## Layout
 
