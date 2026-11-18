@@ -2,8 +2,10 @@
   <Folder Name="/src/">
     <Project Path="src/ShardForge.Cli/ShardForge.Cli.csproj" />
     <Project Path="src/ShardForge.Core/ShardForge.Core.csproj" />
+    <Project Path="src/ShardForge.Server/ShardForge.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/ShardForge.Server.Tests/ShardForge.Server.Tests.csproj" />
     <Project Path="tests/ShardForge.Tests/ShardForge.Tests.csproj" />
   </Folder>
 </Solution>

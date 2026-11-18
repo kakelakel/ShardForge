@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShardForge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="top"><a class="brand" href="/">ShardForge</a></header>
+<main class="page">
+  <div>
+    <h1>Your shard's workshop</h1>
+    <p class="lead">Shape worlds in the editor, build them into maps, then walk and decorate them together. Everyone on a map sees each other and every change live.</p>
+  </div>
+
+  <section aria-labelledby="hMaps">
+    <h2 id="hMaps">Maps</h2>
+    <div class="cards" id="maps"><div class="empty">Loading…</div></div>
+    <p class="note" id="mapsNote"></p>
+  </section>
+
+  <section aria-labelledby="hProjects">
+    <div class="row" style="justify-content:space-between;margin-bottom:12px">
+      <h2 id="hProjects" style="margin:0">Projects</h2>
+      <a class="btn primary" id="btnNew" href="/editor/?new=1">New project</a>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Name</th><th>Size</th><th>Revision</th><th>Last saved</th><th style="width:1%"></th></tr></thead>
+      <tbody id="projects"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+    <div class="msg" id="projMsg" role="status" style="margin-top:10px"></div>
+  </section>
+
+  <section aria-labelledby="hAccount">
+    <h2 id="hAccount">Your account</h2>
+    <form id="pwForm" class="row" style="max-width:720px">
+      <input type="password" id="pwCur" placeholder="Current password" autocomplete="current-password" aria-label="Current password" style="flex:1;min-width:180px" required>
+      <input type="password" id="pwNew" placeholder="New password (8+ characters)" autocomplete="new-password" aria-label="New password" style="flex:1;min-width:180px" required minlength="8">
+      <button type="submit">Change password</button>
+    </form>
+    <div class="msg" id="pwMsg" role="status" style="margin-top:10px;max-width:720px"></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+<script>
+let me = null;
+const FACETS = ["Felucca", "Trammel", "Ilshenar", "Malas", "Tokuno", "TerMur"];
+
+async function loadMaps() {
+  const maps = await SF.api("GET", "/api/maps");
+  const el = document.getElementById("maps");
+  if (!maps.length) { el.innerHTML = `<div class="empty">No maps found. Check ShardForge:ClientPath in appsettings.json, or build a project.</div>`; return; }
+  el.innerHTML = maps.map(m => `
+    <div class="card">
+      <div class="title">${SF.esc(m.name)}</div>
+      <div class="meta">${FACETS[m.facet] ?? "facet " + m.facet} · ${m.width}×${m.height} · ${m.source}</div>
+      <div class="meta">${m.rev ? `${m.rev} shared edit${m.rev === 1 ? "" : "s"}` : "no shared edits"}${m.online ? ` · <span class="online">${m.online} here now</span>` : ""}</div>
+      <div class="row">
+        <a class="btn primary" href="/walk/?map=${encodeURIComponent(m.id)}">Walk</a>
+        ${me.level >= 2 ? `<a class="btn" href="/api/maps/${encodeURIComponent(m.id)}/export">Export statics</a>` : ""}
+        ${me.level >= 3 ? `<button data-publish="${SF.esc(m.id)}">Publish</button>` : ""}
+      </div>
+    </div>`).join("");
+  el.querySelectorAll("[data-publish]").forEach(b => b.onclick = async () => {
+    try { const r = await SF.api("POST", `/api/maps/${encodeURIComponent(b.dataset.publish)}/publish`); alertBox(`Published to ${r.path}`, "ok"); }
+    catch (e) { alertBox(e.message); }
+  });
+}
+
+async function loadProjects() {
+  const list = await SF.api("GET", "/api/projects");
+  const tb = document.getElementById("projects");
+  if (!list.length) { tb.innerHTML = `<tr><td colspan="5" class="empty">No projects yet.${me.level >= 2 ? " Start one with New project." : ""}</td></tr>`; return; }
+  tb.innerHTML = list.map(p => `
+    <tr>
+      <td><a href="/editor/?project=${p.id}">${SF.esc(p.name)}</a></td>
+      <td class="num">${p.width}×${p.height}</td>
+      <td class="num">r${p.rev}</td>
+      <td class="num">${SF.ago(p.updated)}${p.updatedBy ? " · " + SF.esc(p.updatedBy) : ""}</td>
+      <td><div class="row" style="flex-wrap:nowrap">
+        ${me.level >= 2 ? `<button data-build="${p.id}" title="Build this project into map files the team can walk">Build &amp; walk</button>` : ""}
+        ${me.level >= 3 ? `<button class="danger" data-del="${p.id}" data-name="${SF.esc(p.name)}">Delete</button>` : ""}
+      </div></td>
+    </tr>`).join("");
+  tb.querySelectorAll("[data-build]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "Building…";
+    try {
+      const r = await SF.api("POST", `/api/projects/${b.dataset.build}/build`, {});
+      location.href = `/walk/?map=${encodeURIComponent(r.mapId)}`;
+    } catch (e) { alertBox(e.message); b.disabled = false; b.textContent = "Build & walk"; }
+  });
+  tb.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Really delete?"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "Delete"; }, 4000); return; }
+    try { await SF.api("DELETE", `/api/projects/${b.dataset.del}`); loadProjects(); } catch (e) { alertBox(e.message); }
+  });
+}
+function alertBox(text, kind = "error") { SF.msg(document.getElementById("projMsg"), text, kind); }
+
+document.getElementById("pwForm").onsubmit = async e => {
+  e.preventDefault();
+  const m = document.getElementById("pwMsg");
+  try { await SF.api("POST", "/api/me/password", { current: pwCur.value, password: pwNew.value }); SF.msg(m, "Password changed.", "ok"); e.target.reset(); }
+  catch (err) { SF.msg(m, err.message); }
+};
+
+(async () => {
+  me = await SF.requireLogin(); if (!me) return;
+  SF.header(me, "/");
+  if (me.level < 2) document.getElementById("btnNew").hidden = true;
+  await Promise.all([loadMaps(), loadProjects()]);
+  setInterval(loadMaps, 15000);
+})();
+</script>
+</body>
+</html>

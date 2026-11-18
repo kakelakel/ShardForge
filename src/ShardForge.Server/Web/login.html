@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · ShardForge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="auth">
+  <form id="form">
+    <h1>ShardForge</h1>
+    <p class="note" style="margin:0">Sign in to build with your team.</p>
+    <div class="field"><label for="username">Name</label><input type="text" id="username" autocomplete="username" required></div>
+    <div class="field"><label for="password">Password</label><input type="password" id="password" autocomplete="current-password" required></div>
+    <div class="msg" id="msg" role="alert"></div>
+    <button class="primary" type="submit">Sign in</button>
+    <p class="note" style="margin:0">No account? Ask the server's admin to make one for you.</p>
+  </form>
+</div>
+<script src="/app.js"></script>
+<script>
+(async () => {
+  const st = await SF.api("GET", "/api/status");
+  if (st.needsSetup) location.href = "/setup.html";
+  else if (await SF.me()) location.href = SF.safeNext(new URLSearchParams(location.search).get("next"));
+})();
+document.getElementById("form").onsubmit = async e => {
+  e.preventDefault();
+  const msg = document.getElementById("msg");
+  try {
+    await SF.api("POST", "/api/auth/login", { username: username.value, password: password.value });
+    location.href = SF.safeNext(new URLSearchParams(location.search).get("next"));
+  } catch (err) { SF.msg(msg, err.status === 429 ? "Too many attempts. Wait a minute and try again." : err.message); }
+};
+</script>
+</body>
+</html>

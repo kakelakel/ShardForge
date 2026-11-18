@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First-run setup · ShardForge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="auth">
+  <form id="form">
+    <h1>Welcome to ShardForge</h1>
+    <p class="note" style="margin:0">Create the admin account. The admin invites builders and viewers, and can publish maps. This only works from the PC the server runs on.</p>
+    <div class="field"><label for="username">Admin name</label><input type="text" id="username" autocomplete="username" required minlength="2" maxlength="32"></div>
+    <div class="field"><label for="password">Password (at least 8 characters)</label><input type="password" id="password" autocomplete="new-password" required minlength="8"></div>
+    <div class="field"><label for="password2">Password again</label><input type="password" id="password2" autocomplete="new-password" required minlength="8"></div>
+    <div class="msg" id="msg" role="alert"></div>
+    <button class="primary" type="submit">Create admin and sign in</button>
+  </form>
+</div>
+<script src="/app.js"></script>
+<script>
+(async () => { const st = await SF.api("GET", "/api/status"); if (!st.needsSetup) location.href = "/login.html"; })();
+document.getElementById("form").onsubmit = async e => {
+  e.preventDefault();
+  const msg = document.getElementById("msg");
+  if (password.value !== password2.value) { SF.msg(msg, "The passwords don't match."); return; }
+  try { await SF.api("POST", "/api/setup", { username: username.value, password: password.value }); location.href = "/"; }
+  catch (err) { SF.msg(msg, err.message); }
+};
+</script>
+</body>
+</html>
