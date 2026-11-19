@@ -12,7 +12,10 @@ height.png   ─┼─►  ShardForge   ─►  map#.mul / statics#.mul / staidx
 statics.png  ─┘   (tiles + transitions + scattered statics)
 ```
 
-Then polish towns and dungeons by hand in [CentrED#](https://github.com/kaczy93/centredsharp).
+Then build and decorate by hand in **Walk**, ShardForge's own walk-around map editor, alone or with your team at
+the same time. Walk is meant to replace a separate tool like [CentrED#](https://github.com/kaczy93/centredsharp)
+for this. It already places and removes statics; land editing, whole houses (multis), hues and
+select/move/copy are on the roadmap (item 10).
 
 > Status: 0.4 (early). Paint and generate worlds, lay out towns, build real UO map files with soft terrain edges,
 > and walk and decorate them together through the self-hosted server. Not yet tested in a live client.
@@ -125,7 +128,9 @@ before they play: checksummed downloads, backups of the originals, data files on
 9. **Coastlines**: shallow-water statics along shores, like the original maps.
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Builder with categories, favourites, animation and placement modes.
-    Next: multis (whole houses), hues, animated character, live sync with a server.
+    Next, so Walk can replace CentrED: land editing (tile, altitude, raise/lower/flatten brushes), multis (whole
+    houses, sized to plots), select/move/copy/delete with nudge and z adjust, hues, a minimap, and keeping Walk's
+    edits when a project is rebuilt.
 11. ✅ **Settlements** (first version): organic towns, villages and walled cities laid out as roads, squares and
     building plots; country roads; wilderness sites; Populate world; plots and places in Walk. Next: regions,
     guard zones and spawners exported for ServUO, docks and harbours, dungeon entrances, a plot picker in Walk that
