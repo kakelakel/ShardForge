@@ -1,3 +1,11 @@
+## ShardForge 0.5.3
+
+- **Manager on Windows finds updates again**: Windows PowerShell 5.1 read GitHub's release list wrong and said
+  "No releases ... yet". Coming from 0.5.0–0.5.2 on Windows, update once from a console in the ShardForge folder:
+  `powershell -ExecutionPolicy Bypass -File manager\ShardForge-Manage.ps1 -Action Update -Version 0.5.3`.
+  After that the Update button works.
+- **Stop is quick**: open Walk tabs no longer hold the server up for 30 seconds.
+
 ## ShardForge 0.5.2
 
 - **Trees look right in Walk**: leaves are drawn over their trunks and branches, the way the client draws them

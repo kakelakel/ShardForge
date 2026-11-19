@@ -26,6 +26,8 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json")) ? null : AppContext.BaseDirectory,
 });
 var options = builder.Configuration.GetSection("ShardForge").Get<ServerOptions>() ?? new ServerOptions();
+// A stop finishes well inside the Manager's 30 seconds even if something lingers.
+builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(10));
 string dataPath = options.ResolvedDataPath(builder.Environment.ContentRootPath);
 Directory.CreateDirectory(dataPath);
 if (options.Detached) { builder.Logging.ClearProviders(); Console.SetOut(TextWriter.Null); Console.SetError(TextWriter.Null); }
@@ -445,7 +447,9 @@ app.Map("/api/live/{id}", async (string id, HttpContext ctx, MapRegistry maps, L
     if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
     if (maps.Get(id) is null) { ctx.Response.StatusCode = 404; return; }
     using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-    await hub.Run(id, Current(ctx), socket, ctx.RequestAborted);
+    // Stopping the server ends open Walk connections at once (otherwise shutdown waits for every tab to close).
+    using var live = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted, app.Lifetime.ApplicationStopping);
+    await hub.Run(id, Current(ctx), socket, live.Token);
 }).RequireAuthorization("Viewer");
 
 // ============================================================================ projects

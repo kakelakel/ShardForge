@@ -59,8 +59,10 @@ public sealed class LiveHub(ILogger<LiveHub> log)
             room.TryRemove(cid, out _);
             if (room.IsEmpty) _rooms.TryRemove(new KeyValuePair<string, ConcurrentDictionary<string, Peer>>(mapId, room));
             await Broadcast(room, new { type = "leave", cid });
-            if (socket.State == WebSocketState.Open)
-                try { await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None); } catch (WebSocketException) { }
+            // Say goodbye without waiting long for the browser's answer (a stop must not hang on a sleeping tab).
+            if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                try { using var t = new CancellationTokenSource(TimeSpan.FromSeconds(2)); await socket.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "server stopping", t.Token); }
+                catch (Exception e) when (e is WebSocketException or OperationCanceledException) { }
             log.LogInformation("{User} left {Map}", user.Username, mapId);
         }
     }
