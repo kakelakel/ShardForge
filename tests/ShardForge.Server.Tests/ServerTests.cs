@@ -140,6 +140,43 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task ServerItemsAreSharedAndPackagedForServUO()
+    {
+        await EnsureUser("bob", "Builder");
+        await EnsureUser("vic", "Viewer");
+        var (bob, _) = await As("bob");
+        var (viewer, _) = await As("vic");
+        var maps = await bob.GetFromJsonAsync<JsonElement[]>("/api/maps");
+        string id = maps![0].GetProperty("id").GetString()!;
+        var put = new object[]
+        {
+            new { uid = "d1", kind = "door", x = 10, y = 10, z = 0, type = "DarkWoodDoor", facing = "WestCW" },
+            new { uid = "s1", kind = "sign", x = 11, y = 10, z = 0, id = 0x0BD2, name = "The Rusty Anchor" },
+            new { uid = "p1", kind = "spawn", x = 12, y = 12, z = 0, creatures = "Orc, OrcishMage", count = 4, range = 6, min = 5, max = 10 },
+            new { uid = "r1", kind = "region", x = 0, y = 0, z = 0, w = 16, h = 12, name = "Anchorage", guarded = true },
+        };
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PutAsJsonAsync($"/api/maps/{id}/items", new { put })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await bob.PutAsJsonAsync($"/api/maps/{id}/items", new { put })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await bob.PutAsJsonAsync($"/api/maps/{id}/items", new { put = new[] { new { uid = "x", kind = "door", x = 1, y = 1, z = 0, type = "Evil;Door", facing = "WestCW" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await bob.PutAsJsonAsync($"/api/maps/{id}/items", new { put = new[] { new { uid = "x", kind = "sign", x = 999999, y = 1, z = 0, id = 1 } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await bob.PutAsJsonAsync($"/api/maps/{id}/items", new { remove = new[] { "s1" } })).StatusCode);
+
+        var items = await viewer.GetFromJsonAsync<JsonElement[]>($"/api/maps/{id}/items");
+        Assert.Equal(3, items!.Length);
+        Assert.Equal("Orc,OrcishMage", items.Single(i => i.GetProperty("uid").GetString() == "p1").GetProperty("creatures").GetString());
+
+        var zip = new ZipArchive(new MemoryStream(await bob.GetByteArrayAsync($"/api/maps/{id}/servuo")));
+        Assert.Contains(zip.Entries, e => e.FullName == "ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs");
+        Assert.Contains(zip.Entries, e => e.FullName.StartsWith("client/statics"));
+        string sf = new StreamReader(zip.Entries.Single(e => e.FullName.EndsWith(".sfitems")).Open()).ReadToEnd();
+        Assert.Contains("map\tFelucca", sf);
+        Assert.Contains("door\t10\t10\t0\tDarkWoodDoor\tWestCW", sf);
+        Assert.Contains("spawn\t12\t12\t0\t4\t6\t5\t10\tOrc,OrcishMage", sf);
+        Assert.Contains("region\t0\t0\t16\t12\t1\tAnchorage", sf);
+        Assert.DoesNotContain("Rusty Anchor", sf);
+    }
+
+    [Fact]
     public async Task TheHouseLibraryIsSharedByEveryone()
     {
         await EnsureUser("vic", "Viewer");

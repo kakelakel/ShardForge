@@ -120,6 +120,9 @@ All under `/api`; changes need `X-ShardForge: 1`.
 | `GET/POST /projects`, `GET/PUT /projects/{id}`, `GET /projects/{id}/history` | Viewer / Builder | Projects; `PUT` needs `?baseRev=` and returns 409 on conflict |
 | `POST /projects/{id}/build` | Builder | Build into `data/maps/project-{id}/` and offer it as a map |
 | `DELETE /projects/{id}` | Admin | Delete a project (revisions are kept in the database) |
+| `GET /maps/{id}/items` | Viewer | Server items (doors, signs, items, teleporters, spawners, regions) |
+| `PUT /maps/{id}/items` | Builder | `{ put: [...], remove: [uid...] }`; broadcast live |
+| `GET /maps/{id}/servuo` | Builder | ServUO package: map files, items, import script (see SERVUO.md) |
 | `GET /prefabs` | Viewer | The shared house library: `{ id, name, data, createdBy, created, updated }` |
 | `POST /prefabs`, `PUT /prefabs/{id}` | Builder | Save `{ name, data }`; `data` is `{ plan }` (editable) or `{ parts: [[id, x, y, z, hue?]] }`; broadcast live |
 | `DELETE /prefabs/{id}` | Builder (its maker) / Admin | Remove a library entry |

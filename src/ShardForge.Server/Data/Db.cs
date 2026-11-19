@@ -96,6 +96,13 @@ public sealed class Db
               user_id INTEGER REFERENCES users(id),
               created TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_land_history ON map_land_history(map_id, rev);
+            CREATE TABLE IF NOT EXISTS map_items(
+              map_id TEXT NOT NULL,
+              uid TEXT NOT NULL,
+              data TEXT NOT NULL,
+              updated_by INTEGER REFERENCES users(id),
+              updated TEXT NOT NULL,
+              PRIMARY KEY(map_id, uid));
             CREATE TABLE IF NOT EXISTS prefabs(
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL,

@@ -102,6 +102,9 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
 - **House designer**: lay each storey's floor and the walls (with windows) go up by themselves; add doorways,
   inner walls, stairs and gable, hipped, pyramid or battlemented roofs (or Auto roof); pick the materials from the
   client's own house kit. Open any ShardForge design as a copy to change it.
+- **Server items**: doors that open, signs, working items (forge, anvil, moongate…), teleporters, spawners and
+  regions, shared and undoable like statics. **ServUO package** downloads the map files, the items and the
+  import script; see [docs/SERVUO.md](docs/SERVUO.md) for getting it all onto a ServUO shard.
 - **Library**: save a design, or anything you built and selected, under a name. On a Walk server it's shared:
   everyone sees it at once and can place it again and again; saved designs stay editable. Offline it lives in the
   browser. Export and import it as a file to move it between servers.

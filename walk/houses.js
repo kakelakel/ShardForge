@@ -61,8 +61,21 @@ const Kit = {
  *  chimneys: [[x,y,height]]; porch: {x,y,w,h} ground floor with corner posts; items: [[id,x,y,z]];
  *  windows: "auto" (default) or "none"; battlements on flat roofs by default.
  */
+/** ServUO door classes and the art of their closed WestCW door; facing f adds 2f. */
+const DOOR_TYPES = { DarkWoodDoor: 0x06A5, MediumWoodDoor: 0x06B5, LightWoodDoor: 0x06D5, StrongWoodDoor: 0x06E5, RattanDoor: 0x0695,
+  MetalDoor: 0x0675, MetalDoor2: 0x06C5, BarredMetalDoor: 0x0685, IronGate: 0x0824, IronGateShort: 0x084C, LightWoodGate: 0x0839, DarkWoodGate: 0x0866 };
+const DOOR_FACINGS = ["WestCW", "EastCCW", "WestCCW", "EastCW", "SouthCW", "NorthCCW", "SouthCCW", "NorthCW"];
+const doorArt = (type, facing) => (DOOR_TYPES[type] || DOOR_TYPES.DarkWoodDoor) + 2 * Math.max(0, DOOR_FACINGS.indexOf(facing));
+/** A door that suits the walls: light wood with light wood, strong doors in stone, gates in palisades. */
+function doorFor(walls) {
+  const n = (walls || "").toLowerCase();
+  return n.includes("light wood") || n.includes("plaster") ? "LightWoodDoor" : n.includes("palisade") || n.includes("log") ? "DarkWoodGate"
+    : /stone|brick|marble|granite|gothic|limestone/.test(n) ? "StrongWoodDoor" : n.includes("sandstone") || n.includes("clay") ? "MediumWoodDoor" : "DarkWoodDoor";
+}
+
 function composePlan(plan) {
   const out = [], put = (id, x, y, z) => { if (id > 0) out.push({ id, x, y, z }); };
+  out.items = [];
   const S = plan.storeys || [];
   const sets = S.map(cells => new Set(cells.map(([x, y]) => x + "," + y)));
   const has = (s, x, y) => !!sets[s] && sets[s].has(x + "," + y);
@@ -135,6 +148,13 @@ function composePlan(plan) {
     for (const [x, y] of [[p.x - 1, p.y - 1], [p.x + p.w - 1, p.y - 1], [p.x - 1, p.y + p.h - 1], [p.x + p.w - 1, p.y + p.h - 1]]) if (!has(0, x, y) && !has(0, x + 1, y + 1)) put(W.post, x, y, 0);
   }
   for (const [id, x, y, z] of plan.items || []) put(id, x, y, z);
+  // Doors in the doorways: server items (they open), on the wall's tile, facing along the wall.
+  if (plan.doorType !== "none")
+    for (const [x, y, side, s] of plan.doors || []) {
+      const type = plan.doorType || doorFor(wallsOf(s || 0).name), facing = side === "N" || side === "S" ? "WestCW" : "SouthCW";
+      const [tx, ty] = side === "N" ? [x, y - 1] : side === "W" ? [x - 1, y] : [x, y];
+      out.items.push({ kind: "door", type, facing, id: doorArt(type, facing), x: tx, y: ty, z: (s || 0) * 20 });
+    }
   return out;
 }
 

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
@@ -37,6 +38,7 @@ builder.Services.AddSingleton(new Db(dataPath));
 builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<Db>(), options.PasswordIterations));
 builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddSingleton<PrefabStore>();
+builder.Services.AddSingleton<ItemStore>();
 builder.Services.AddSingleton<BlockStore>();
 builder.Services.AddSingleton(new MapRegistry(options, dataPath));
 builder.Services.AddSingleton<LiveHub>();
@@ -303,6 +305,36 @@ api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry m
     catch (Exception e) when (e is FormatException or OverflowException) { return Err(400, "Block keys must be numbers and data base64."); }
     catch (BlockException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Builder");
+
+api.MapGet("/maps/{id}/items", (string id, MapRegistry maps, ItemStore items) =>
+    maps.Get(id) is null ? Results.NotFound() : Results.Ok(items.All(id))).RequireAuthorization("Viewer");
+
+api.MapPut("/maps/{id}/items", async (string id, HttpContext ctx, MapRegistry maps, ItemStore items, LiveHub hub) =>
+{
+    var m = maps.Get(id);
+    if (m is null) return Results.NotFound();
+    try
+    {
+        var body = await JsonNode.ParseAsync(ctx.Request.Body) as JsonObject ?? throw new ItemException("Send { put: [...], remove: [...] }.");
+        var put = (body["put"] as JsonArray ?? []).Select(n => n as JsonObject ?? throw new ItemException("Each item is an object.")).ToList();
+        var remove = (body["remove"] as JsonArray ?? []).Select(n => n?.GetValue<string>() ?? "").ToList();
+        if (put.Count + remove.Count > 50_000) throw new ItemException("Too many changes at once.");
+        var me = Current(ctx);
+        var clean = items.Apply(m, me.Id, put, remove);
+        await hub.PublishItems(id, me.Username, body["cid"]?.GetValue<string>(), clean, remove);
+        return Results.Ok(new { ok = true, count = clean.Count });
+    }
+    catch (ItemException e) { return Err(400, e.Message); }
+    catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return Err(400, "Send { put: [...], remove: [...] } as JSON."); }
+}).RequireAuthorization("Builder");
+
+api.MapGet("/maps/{id}/servuo", (string id, MapRegistry maps, BlockStore blocks, ItemStore items) =>
+{
+    var m = maps.Get(id);
+    return m is null ? Results.NotFound() : Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), items.All(id)), "application/zip", $"{id}-servuo.zip");
+}).RequireAuthorization("Builder");
+
+api.MapGet("/servuo/ShardForgeImport.cs", () => Results.Text(ItemStore.ImportScript(), "text/plain")).RequireAuthorization("Viewer");
 
 api.MapGet("/maps/{id}/export", (string id, MapRegistry maps, BlockStore blocks) =>
 {

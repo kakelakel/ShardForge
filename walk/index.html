@@ -283,7 +283,7 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <label class="check"><input type="checkbox" id="houseLevel" checked> Level the ground under it</label>
       <label class="check"><input type="checkbox" id="houseClear" checked> Clear plants inside it</label>
-      <p class="note" id="houseHint">Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Doors themselves are server items.</p>
+      <p class="note" id="houseHint">Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Its doors come along as server items.</p>
     </section>
     <section aria-label="House designer" class="build-only" id="designer" hidden>
       <h2>House designer</h2>
@@ -309,6 +309,7 @@ footer b { color: var(--text); font-weight: 500; }
       <label for="dzFloor">Floor</label><select id="dzFloor" style="width:100%"></select>
       <label for="dzRoof">Roof</label><select id="dzRoof" style="width:100%"></select>
       <label for="dzStairs">Stairs</label><select id="dzStairs" style="width:100%"></select>
+      <label for="dzDoor">Doors</label><select id="dzDoor" style="width:100%"></select>
       <label class="check"><input type="checkbox" id="dzWindows" checked> Windows</label>
       <label class="check"><input type="checkbox" id="dzWhole"> Show the whole house (upper storeys and roofs)</label>
       <p class="note" id="dzHint"></p>
@@ -320,6 +321,36 @@ footer b { color: var(--text); font-weight: 500; }
         <button id="dzUndo" title="Ctrl+Z">Undo</button>
         <button id="dzClose">Close</button>
       </div>
+    </section>
+    <section aria-label="Server items" class="build-only" id="itemsSection">
+      <h2>Server items <span class="note" id="itemCount"></span></h2>
+      <div class="modes item-tools" style="flex-wrap:wrap">
+        <button data-itool="door" title="Doors that open: click a doorway (R turns it)">Door</button>
+        <button data-itool="sign" title="A sign with text players can read">Sign</button>
+        <button data-itool="item" title="A working item: forge, anvil, moongate…">Item</button>
+        <button data-itool="tele" title="Click where it stands, then where it takes you">Teleporter</button>
+        <button data-itool="spawn" title="Creatures that come back after they die">Spawner</button>
+        <button data-itool="region" title="Drag out a named area, guarded or not">Region</button>
+        <button data-itool="pick" title="Click a server item to change or delete it">Edit</button>
+      </div>
+      <div id="itemForm" hidden>
+        <div class="row if" data-k="door" style="gap:6px"><select id="ifDoor" style="flex:1" aria-label="Door type"></select><select id="ifFacing" style="flex:1" aria-label="Facing"></select></div>
+        <div class="row if" data-k="sign item" style="gap:6px;align-items:center"><label for="ifArt" style="margin:0">Art</label><input id="ifArt" style="width:80px" placeholder="0x0BD2"><button id="ifUsePicked" title="Use the static picked in the catalogue">Use picked</button><label for="ifHue" style="margin:0">Hue</label><input type="number" id="ifHue" min="0" max="3000" value="0" style="width:64px"></div>
+        <input class="if" data-k="sign" id="ifText" placeholder="What the sign says" style="width:100%">
+        <div class="if" data-k="item"><input id="ifType" list="ifTypes" placeholder="ServUO class, e.g. Forge" style="width:100%"><datalist id="ifTypes"></datalist></div>
+        <div class="row if" data-k="tele" style="gap:6px;align-items:center"><label style="margin:0">To</label><input type="number" id="ifDx" style="width:70px" aria-label="Destination x"><input type="number" id="ifDy" style="width:70px" aria-label="Destination y"><input type="number" id="ifDz" style="width:56px" aria-label="Destination z"><select id="ifDmap" aria-label="Destination facet"></select></div>
+        <input class="if" data-k="spawn" id="ifCreatures" placeholder="Creatures: Orc, OrcishMage" style="width:100%">
+        <div class="row if" data-k="spawn" style="gap:6px;align-items:center;flex-wrap:wrap"><label style="margin:0">Count</label><input type="number" id="ifCount" min="1" max="200" value="3" style="width:56px"><label style="margin:0">Range</label><input type="number" id="ifRange" min="0" max="100" value="6" style="width:56px"><label style="margin:0">Respawn</label><input type="number" id="ifMin" min="0" max="1440" value="5" style="width:52px">–<input type="number" id="ifMax" min="0" max="1440" value="10" style="width:52px"> min</div>
+        <input class="if" data-k="region" id="ifName" placeholder="Region name, e.g. Britain" style="width:100%">
+        <label class="check if" data-k="region"><input type="checkbox" id="ifGuarded" checked> Guarded</label>
+        <div class="row" id="ifEditRow" style="gap:6px" hidden><button id="ifApply" class="primary">Apply</button><button id="ifDelete" class="danger">Delete</button></div>
+      </div>
+      <p class="note" id="itemHint">Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.</p>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button id="itemTowns" hidden title="A guarded region for every town on this map's layout">Regions for the towns</button>
+        <button id="itemPackage" title="Map files, items and regions, with the ServUO import script">ServUO package (.zip)</button>
+      </div>
+      <label class="check"><input type="checkbox" id="itemShow" checked> Show server items</label>
     </section>
     <section aria-label="Land" class="build-only">
       <h2>Land</h2>
@@ -426,8 +457,21 @@ const Kit = {
  *  chimneys: [[x,y,height]]; porch: {x,y,w,h} ground floor with corner posts; items: [[id,x,y,z]];
  *  windows: "auto" (default) or "none"; battlements on flat roofs by default.
  */
+/** ServUO door classes and the art of their closed WestCW door; facing f adds 2f. */
+const DOOR_TYPES = { DarkWoodDoor: 0x06A5, MediumWoodDoor: 0x06B5, LightWoodDoor: 0x06D5, StrongWoodDoor: 0x06E5, RattanDoor: 0x0695,
+  MetalDoor: 0x0675, MetalDoor2: 0x06C5, BarredMetalDoor: 0x0685, IronGate: 0x0824, IronGateShort: 0x084C, LightWoodGate: 0x0839, DarkWoodGate: 0x0866 };
+const DOOR_FACINGS = ["WestCW", "EastCCW", "WestCCW", "EastCW", "SouthCW", "NorthCCW", "SouthCCW", "NorthCW"];
+const doorArt = (type, facing) => (DOOR_TYPES[type] || DOOR_TYPES.DarkWoodDoor) + 2 * Math.max(0, DOOR_FACINGS.indexOf(facing));
+/** A door that suits the walls: light wood with light wood, strong doors in stone, gates in palisades. */
+function doorFor(walls) {
+  const n = (walls || "").toLowerCase();
+  return n.includes("light wood") || n.includes("plaster") ? "LightWoodDoor" : n.includes("palisade") || n.includes("log") ? "DarkWoodGate"
+    : /stone|brick|marble|granite|gothic|limestone/.test(n) ? "StrongWoodDoor" : n.includes("sandstone") || n.includes("clay") ? "MediumWoodDoor" : "DarkWoodDoor";
+}
+
 function composePlan(plan) {
   const out = [], put = (id, x, y, z) => { if (id > 0) out.push({ id, x, y, z }); };
+  out.items = [];
   const S = plan.storeys || [];
   const sets = S.map(cells => new Set(cells.map(([x, y]) => x + "," + y)));
   const has = (s, x, y) => !!sets[s] && sets[s].has(x + "," + y);
@@ -500,6 +544,13 @@ function composePlan(plan) {
     for (const [x, y] of [[p.x - 1, p.y - 1], [p.x + p.w - 1, p.y - 1], [p.x - 1, p.y + p.h - 1], [p.x + p.w - 1, p.y + p.h - 1]]) if (!has(0, x, y) && !has(0, x + 1, y + 1)) put(W.post, x, y, 0);
   }
   for (const [id, x, y, z] of plan.items || []) put(id, x, y, z);
+  // Doors in the doorways: server items (they open), on the wall's tile, facing along the wall.
+  if (plan.doorType !== "none")
+    for (const [x, y, side, s] of plan.doors || []) {
+      const type = plan.doorType || doorFor(wallsOf(s || 0).name), facing = side === "N" || side === "S" ? "WestCW" : "SouthCW";
+      const [tx, ty] = side === "N" ? [x, y - 1] : side === "W" ? [x - 1, y] : [x, y];
+      out.items.push({ kind: "door", type, facing, id: doorArt(type, facing), x: tx, y: ty, z: (s || 0) * 20 });
+    }
   return out;
 }
 
@@ -786,6 +837,230 @@ function recipePlan(r, door = "S") {
 
 </script>
 <!-- /HOUSES-JS -->
+<!-- SERVUO-SCRIPT (generated by scripts/embed-houses.py from servuo/ShardForgeImport.cs) -->
+<script type="text/plain" id="servuoScript">
+// ===========================================================================
+// ShardForge import for ServUO: brings the doors, signs, teleporters, spawners, working items and regions placed
+// in ShardForge Walk into your shard.
+//
+// Install: copy this file to Scripts/Custom/ShardForge/ and the .sfitems files to Data/ShardForge/, restart.
+//   [SFImport   (Administrator) creates everything in Data/ShardForge/*.sfitems, replacing an earlier import.
+//   [SFClear    (Administrator) deletes everything an earlier import created.
+// Regions are registered at every start from the same files (they are not saved with the world).
+//
+// File format: tab-separated lines, '#' starts a comment.
+//   map     <MapName>                                     the facet for the lines that follow
+//   door    x y z <DoorType> <DoorFacing>
+//   sign    x y z <itemID> <hue> <text>
+//   item    x y z <TypeName> <itemID or 0> <hue>
+//   tele    x y z <destX> <destY> <destZ> <destMap>
+//   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <creature,creature,...>
+//   region  x y w h <guarded 1|0> <name>
+// Made by ShardForge (https://github.com/kakelakel/ShardForge). Change freely.
+// ===========================================================================
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using Server;
+using Server.Commands;
+using Server.Items;
+using Server.Regions;
+
+namespace Server.ShardForge
+{
+    public static class ShardForgeImport
+    {
+        private static string Folder { get { return Path.Combine(Core.BaseDirectory, Path.Combine("Data", "ShardForge")); } }
+        private static string Ledger { get { return Path.Combine(Folder, "imported.txt"); } }
+        private static readonly List<Region> m_Regions = new List<Region>();
+
+        public static void Initialize()
+        {
+            CommandSystem.Register("SFImport", AccessLevel.Administrator, new CommandEventHandler(OnImport));
+            CommandSystem.Register("SFClear", AccessLevel.Administrator, new CommandEventHandler(OnClear));
+            Timer.DelayCall(TimeSpan.Zero, new TimerCallback(LoadRegions));
+        }
+
+        private static IEnumerable<string[]> Lines(string file)
+        {
+            foreach (string raw in File.ReadAllLines(file))
+            {
+                string line = raw.TrimEnd('\r');
+                if (line.Length == 0 || line[0] == '#') continue;
+                yield return line.Split('\t');
+            }
+        }
+
+        private static string[] Files()
+        {
+            return Directory.Exists(Folder) ? Directory.GetFiles(Folder, "*.sfitems") : new string[0];
+        }
+
+        private static int I(string s) { return int.Parse(s.StartsWith("0x") ? s.Substring(2) : s, s.StartsWith("0x") ? NumberStyles.HexNumber : NumberStyles.Integer, CultureInfo.InvariantCulture); }
+
+        private static void LoadRegions()
+        {
+            foreach (Region r in m_Regions) r.Unregister();
+            m_Regions.Clear();
+            foreach (string file in Files())
+            {
+                Map map = Map.Felucca;
+                foreach (string[] c in Lines(file))
+                {
+                    try
+                    {
+                        if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
+                        if (c[0] != "region" || c.Length < 7) continue;
+                        Rectangle3D[] area = Region.ConvertTo3D(new Rectangle2D[] { new Rectangle2D(I(c[1]), I(c[2]), I(c[3]), I(c[4])) });
+                        Region region = c[5] == "1" ? new GuardedRegion(c[6], map, Region.DefaultPriority, area) : new Region(c[6], map, Region.DefaultPriority, area);
+                        region.GoLocation = new Point3D(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2, map.GetAverageZ(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2));
+                        region.Register();
+                        m_Regions.Add(region);
+                    }
+                    catch (Exception e) { Console.WriteLine("ShardForge: skipped a region in {0}: {1}", Path.GetFileName(file), e.Message); }
+                }
+            }
+            if (m_Regions.Count > 0) Console.WriteLine("ShardForge: {0} regions registered.", m_Regions.Count);
+        }
+
+        private static int Clear()
+        {
+            int n = 0;
+            if (!File.Exists(Ledger)) return 0;
+            foreach (string s in File.ReadAllLines(Ledger))
+            {
+                int serial;
+                if (!int.TryParse(s, out serial)) continue;
+                Item item = World.FindItem((Serial)serial);
+                if (item != null && !item.Deleted) { item.Delete(); n++; }
+            }
+            File.Delete(Ledger);
+            return n;
+        }
+
+        private static void OnClear(CommandEventArgs e)
+        {
+            e.Mobile.SendMessage("ShardForge: deleted {0} imported items.", Clear());
+        }
+
+        private static void OnImport(CommandEventArgs e)
+        {
+            int removed = Clear(), made = 0, failed = 0;
+            List<string> ledger = new List<string>();
+            foreach (string file in Files())
+            {
+                Map map = Map.Felucca;
+                foreach (string[] c in Lines(file))
+                {
+                    try
+                    {
+                        if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
+                        if (c[0] == "region") continue;
+                        Item item = Make(c);
+                        if (item == null) { failed++; continue; }
+                        item.MoveToWorld(new Point3D(I(c[1]), I(c[2]), I(c[3])), map);
+                        ledger.Add(item.Serial.Value.ToString());
+                        made++;
+                    }
+                    catch (Exception ex) { failed++; Console.WriteLine("ShardForge: skipped '{0}': {1}", string.Join(" ", c), ex.Message); }
+                }
+            }
+            Directory.CreateDirectory(Folder);
+            File.WriteAllLines(Ledger, ledger.ToArray());
+            LoadRegions();
+            e.Mobile.SendMessage("ShardForge: removed {0} old items, created {1}{2}, {3} regions.", removed, made, failed > 0 ? " (" + failed + " skipped, see the console)" : "", m_Regions.Count);
+        }
+
+        private static Item Make(string[] c)
+        {
+            switch (c[0])
+            {
+                case "door":
+                {
+                    Type t = ScriptCompiler.FindTypeByName(c[4]);
+                    if (t == null || !typeof(BaseDoor).IsAssignableFrom(t)) return null;
+                    DoorFacing facing = (DoorFacing)Enum.Parse(typeof(DoorFacing), c[5], true);
+                    return (Item)Activator.CreateInstance(t, new object[] { facing });
+                }
+                case "sign":
+                {
+                    Static s = new Static(I(c[4]));
+                    s.Hue = I(c[5]);
+                    if (c.Length > 6 && c[6].Length > 0) s.Name = c[6];
+                    return s;
+                }
+                case "item":
+                {
+                    Type t = ScriptCompiler.FindTypeByName(c[4]);
+                    if (t == null || !typeof(Item).IsAssignableFrom(t)) return null;
+                    int id = I(c[5]);
+                    Item item = null;
+                    if (id > 0 && t.GetConstructor(new Type[] { typeof(int) }) != null) item = (Item)Activator.CreateInstance(t, new object[] { id });
+                    if (item == null) item = (Item)Activator.CreateInstance(t);
+                    item.Movable = false;
+                    if (I(c[6]) != 0) item.Hue = I(c[6]);
+                    return item;
+                }
+                case "tele":
+                {
+                    Teleporter t = new Teleporter();
+                    t.PointDest = new Point3D(I(c[4]), I(c[5]), I(c[6]));
+                    t.MapDest = Map.Parse(c[7]);
+                    return t;
+                }
+                case "spawn":
+                    return MakeSpawner(I(c[4]), I(c[5]), I(c[6]), I(c[7]), c[8].Split(','));
+            }
+            return null;
+        }
+
+        // Spawners differ between ServUO versions (SpawnNames or SpawnObjects, Count or MaxCount): set what exists.
+        private static Item MakeSpawner(int count, int range, int minDelay, int maxDelay, string[] names)
+        {
+            Type t = ScriptCompiler.FindTypeByName("Spawner");
+            if (t == null) return null;
+            Item sp = (Item)Activator.CreateInstance(t);
+            Set(sp, "Count", count); Set(sp, "MaxCount", count);
+            Set(sp, "HomeRange", range); Set(sp, "WalkingRange", range);
+            Set(sp, "MinDelay", TimeSpan.FromMinutes(Math.Max(0, minDelay)));
+            Set(sp, "MaxDelay", TimeSpan.FromMinutes(Math.Max(minDelay, maxDelay)));
+            PropertyInfo names1 = t.GetProperty("SpawnNames"), objects = t.GetProperty("SpawnObjects");
+            Type so = ScriptCompiler.FindTypeByName("SpawnObject");
+            foreach (string raw in names)
+            {
+                string n = raw.Trim();
+                if (n.Length == 0) continue;
+                if (objects != null && so != null)
+                {
+                    IList list = (IList)objects.GetValue(sp, null);
+                    ConstructorInfo ctor = so.GetConstructor(new Type[] { typeof(string), typeof(int) });
+                    if (list != null && ctor != null) list.Add(ctor.Invoke(new object[] { n, Math.Max(1, count / Math.Max(1, names.Length)) }));
+                }
+                else if (names1 != null)
+                {
+                    IList list = (IList)names1.GetValue(sp, null);
+                    if (list != null) list.Add(n);
+                }
+            }
+            Set(sp, "Running", true);
+            MethodInfo respawn = t.GetMethod("Respawn", Type.EmptyTypes);
+            if (respawn != null) Timer.DelayCall(TimeSpan.FromSeconds(1), delegate { if (!sp.Deleted) respawn.Invoke(sp, null); });
+            return sp;
+        }
+
+        private static void Set(object o, string name, object value)
+        {
+            PropertyInfo p = o.GetType().GetProperty(name);
+            if (p != null && p.CanWrite && p.PropertyType.IsAssignableFrom(value.GetType())) p.SetValue(o, value, null);
+        }
+    }
+}
+
+</script>
+<!-- /SERVUO-SCRIPT -->
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -1318,7 +1593,8 @@ function draw() {
       const sx = cx + (dx - dy) * 22 * zoom, sy = cy + (dx + dy) * 22 * zoom;
       if (sx < -80 || sx > rect.width + 80 || sy < -300 || sy > rect.height + 600) continue;
       drawLand(x, y, sx, sy, Z);
-      const list = staticsAt(x, y);
+      const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
+      const list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
       if (list.length) list.slice().sort((a, b) => a.z - b.z || tdHeight(a.id) - tdHeight(b.id)).forEach(s => {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
         drawStatic(s, sx, sy, Z);
@@ -1400,6 +1676,7 @@ function draw() {
     for (const g of sg.sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z)) { const [sx, sy] = at(g.x, g.y); drawStatic({ id: g.id, z: g.z, hue: g.hue }, sx, sy, Z); }
     ctx.globalAlpha = 1;
   }
+  if (ITEMS.show || ITEMS.tool) ITEMS.draw(at, Z, rect);
   if (DESIGN.on) designDraw(at, Z);
   // A house ghost: the whole multi where a click will put it.
   const hg = houseGhost();
@@ -1504,6 +1781,7 @@ function bump() { toast("Blocked", 500); }
 window.addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea")) return;
   if (DESIGN.on && loaded && designKey(e)) return;
+  if (ITEMS.tool && loaded && ITEMS.key(e)) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
   if ((e.key === "Delete" || e.key === "Backspace") && SEL.items.length) { e.preventDefault(); selDelete(); return; }
   if (e.key === "Delete" || e.key === "Backspace") { if (hover && loaded) { e.preventDefault(); beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); } return; }
@@ -1535,9 +1813,10 @@ view.addEventListener("contextmenu", e => e.preventDefault());
 view.addEventListener("mousedown", e => {
   view.focus();
   if (!loaded || !hover) return;
-  if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase" || B.mode === "select" || LAND.tool || HOUSE.sel != null || SEL.paste || DESIGN.on)) { toast("Viewers can look around but not build."); return; }
+  if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase" || B.mode === "select" || LAND.tool || HOUSE.sel != null || SEL.paste || DESIGN.on || ITEMS.tool)) { toast("Viewers can look around but not build."); return; }
   if (LAND.tool && e.button === 0 && !e.altKey) { landDown(); return; }
   if (DESIGN.on && e.button === 0 && !e.altKey) { designDown(e); return; }
+  if (ITEMS.tool && e.button === 0 && !e.altKey) { ITEMS.down(e); return; }
   if (HOUSE.sel != null && e.button === 0 && !e.altKey) { placeHouse(); return; }
   if (SEL.paste && e.button === 0 && !e.altKey) { pasteAt(hover.x, hover.y); return; }
   if (B.mode === "select" && e.button === 0 && !e.altKey) { selDown(e); return; }
@@ -1595,7 +1874,8 @@ const undoStack = [];
 let tx = null;
 const keyOf = (x, y) => (x >> 3) * M.bh + (y >> 3);
 let ltx = null; // land blocks touched in this step: key -> 192 bytes before
-function beginTx() { tx = new Map(); ltx = new Map(); }
+let itx = null; // server items touched in this step: uid -> item before (null: it is new)
+function beginTx() { tx = new Map(); ltx = new Map(); itx = new Map(); }
 function touchBlock(key) {
   const list = blockStatics(Math.floor(key / M.bh), key % M.bh);
   if (tx && !tx.has(key)) tx.set(key, list.slice());
@@ -1603,10 +1883,13 @@ function touchBlock(key) {
 }
 function commitTx() {
   const changed = tx ? [...tx.keys()] : [], landChanged = ltx ? [...ltx.keys()] : [];
-  const step = [...(tx || [])].map(([key, before]) => ({ key, before })).concat([...(ltx || [])].map(([lkey, lbefore]) => ({ lkey, lbefore })));
+  const step = [...(tx || [])].map(([key, before]) => ({ key, before })).concat([...(ltx || [])].map(([lkey, lbefore]) => ({ lkey, lbefore })))
+    .concat([...(itx || [])].map(([iuid, ibefore]) => ({ iuid, ibefore })));
+  const itemsChanged = itx ? [...itx.keys()] : [];
   if (step.length) { undoStack.push(step); if (undoStack.length > 200) undoStack.shift(); }
-  tx = null; ltx = null; syncEdits(); requestDraw();
+  tx = null; ltx = null; itx = null; syncEdits(); requestDraw();
   if (changed.length || landChanged.length) Server.pushBlocks(changed, landChanged);
+  if (itemsChanged.length) ITEMS.push(itemsChanged);
 }
 function addStatic(x, y, id, z) {
   if (!validId(id)) return;
@@ -1631,11 +1914,14 @@ function removeAll(x, y) {
 function undo() {
   const u = undoStack.pop(); if (!u) return;
   for (const e of u) {
-    if (e.lkey != null) { M.land.set(e.lbefore, e.lkey * 196 + 4); M.landDirty.add(e.lkey); Minimap.touch(); }
+    if (e.iuid != null) { if (e.ibefore) ITEMS.set(e.ibefore); else ITEMS.drop(e.iuid); }
+    else if (e.lkey != null) { M.land.set(e.lbefore, e.lkey * 196 + 4); M.landDirty.add(e.lkey); Minimap.touch(); }
     else M.blocks.set(e.key, e.before);
   }
+  const iu = u.filter(e => e.iuid != null).map(e => e.iuid);
+  if (iu.length) { ITEMS.push(iu); ITEMS.form(); }
   syncEdits(); requestDraw();
-  Server.pushBlocks(u.filter(e => e.key != null).map(e => e.key), u.filter(e => e.lkey != null).map(e => e.lkey));
+  Server.pushBlocks(u.filter(e => e.key != null && e.iuid == null).map(e => e.key), u.filter(e => e.lkey != null).map(e => e.lkey));
 }
 function syncEdits() {
   $("btnUndo").disabled = !undoStack.length;
@@ -2147,9 +2433,11 @@ function entryShape(e, door = "S") {
   if (e.kind === "multi") shape = multiAt(e.id);
   else {
     const parts = e.kind === "recipe" ? composePlan(recipePlan(e.recipe, door)) : e.plan ? composePlan(e.plan) : (e.parts || []).map(([id, x, y, z, hue]) => ({ id, x, y, z, hue }));
+    const items = parts.items || e.items || [];
     if (parts.length) {
       const b = withBounds(parts), cx = Math.floor((b.minX + b.maxX) / 2), cy = Math.floor((b.minY + b.maxY) / 2);
       shape = withBounds(parts.filter(p => validId(p.id)).map(p => ({ ...p, x: p.x - cx, y: p.y - cy })));
+      shape.items = items.map(i => ({ ...i, x: i.x - cx, y: i.y - cy }));
     }
   }
   HOUSE.shapes.set(key, shape);
@@ -2208,7 +2496,7 @@ function selectHouse(e) {
   HOUSE.sel = e || null;
   if (e) { if (LAND.tool) setLandTool(null); if (B.sel.length) selectItems([]); if (SEL.paste) setPaste(false); }
   $("houseGrid").querySelectorAll("button[data-k]").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === e?.key));
-  $("houseHint").textContent = !e ? "Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Doors themselves are server items."
+  $("houseHint").textContent = !e ? "Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Its doors come along as server items."
     : `${e.name}: click the map to place it (Esc to stop). Over a plot it fits, it snaps in${e.kind === "recipe" ? " and turns its door to the road" : ""}.`;
   $("houseEdit").hidden = !e || e.kind === "multi" || (e.kind === "saved" && !e.plan);
   $("houseDelete").hidden = !e || e.kind !== "saved";
@@ -2238,7 +2526,7 @@ function housePlacement() {
 function houseGhost() {
   const p = housePlacement(); if (!p) return null;
   const base = landAt(p.cx, p.cy).z;
-  const parts = p.m.parts.map(q => ({ id: q.id, x: p.cx + q.x, y: p.cy + q.y, z: base + q.z, hue: q.hue })).sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
+  const parts = p.m.parts.concat((p.m.items || []).filter(i => i.id)).map(q => ({ id: q.id, x: p.cx + q.x, y: p.cy + q.y, z: base + q.z, hue: q.hue })).sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
   return { name: p.e.name, parts, cx: p.cx, cy: p.cy, z: base, w: p.m.w, h: p.m.h, plot: p.plot };
 }
 function placeHouse() {
@@ -2267,6 +2555,7 @@ function placeShape(name, m, cx, cy, base, plot) {
       if (nature.length) { const key = keyOf(x, y), list = touchBlock(key); for (const s of nature) list.splice(list.indexOf(s), 1); M.dirty.add(key); }
     }
   for (const q of m.parts) { addStatic(cx + q.x, cy + q.y, q.id, base + q.z); if (q.hue) { const l = touchBlock(keyOf(cx + q.x, cy + q.y)); l[l.length - 1].hue = q.hue; } }
+  for (const it of m.items || []) ITEMS.put({ ...it, uid: newUid(), x: cx + it.x, y: cy + it.y, z: base + it.z });
   commitTx();
   toast(`Placed ${name} (${m.parts.length} pieces).${plot ? " Snapped into the plot." : ""}`);
 }
@@ -2368,7 +2657,7 @@ const DESIGN = { on: false, plan: null, ox: 0, oy: 0, z: 0, storey: 0, tool: "fl
 const DESIGN_HINTS = {
   floor: "Drag on the ground to lay this storey's floor. Walls go up around it by themselves, with windows.",
   erase: "Drag over tiles to take them out of this storey, with any doors, walls, stairs and roofs on them.",
-  door: "Click a tile on the outside wall to open a doorway; click again for the next side, then none. Doors themselves are server items.",
+  door: "Click a tile on the outside wall for a door; click again for the next side, then none. Doors are server items that open in game.",
   wall: "Drag along a row or column for an inner wall on the tiles' south or east edge; drag over an existing one to remove it.",
   stairs: "Click a tile to put stairs going up toward the arrow (R turns it); click their foot again to remove them. They need four tiles.",
   roof: "Drag a rectangle over this storey for a roof, or press Auto roof. Click inside a roof to remove it.",
@@ -2398,6 +2687,8 @@ function designMaterials() {
   $("dzWalls").innerHTML = opt(Kit.walls, Kit.wall(pl.walls).name); $("dzFloor").innerHTML = opt(Kit.floors, Kit.floor(pl.floor).name);
   $("dzRoof").innerHTML = opt(Kit.roofs, Kit.roof(pl.roof).name); $("dzStairs").innerHTML = opt(Kit.stairs, Kit.stair(pl.stairSet).name);
   $("dzWindows").checked = pl.windows !== "none";
+  $("dzDoor").innerHTML = `<option value="">To suit the walls</option><option value="none">None (open doorways)</option>` + Object.keys(DOOR_TYPES).map(k => `<option${k === pl.doorType ? " selected" : ""}>${k}</option>`).join("");
+  $("dzDoor").value = pl.doorType || "";
 }
 function designTool(t) {
   DESIGN.tool = t; DESIGN.drag = null;
@@ -2413,7 +2704,8 @@ function designChanged(dirty = true) {
   const view = whole ? pl : { ...pl, storeys: pl.storeys.slice(0, s + 1),
     roofs: pl.roofs.filter(r => r.storey < s || (DESIGN.tool === "roof" && r.storey === s)), stairs: pl.stairs.filter(t => t.storey <= s),
     chimneys: [], balconies: (pl.balconies || []).filter(b => b.storey <= s), items: (pl.items || []).filter(i => (i[3] || 0) < (s + 1) * 20) };
-  DESIGN.parts = composePlan(view).filter(p => validId(p.id)).sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
+  const comp = composePlan(view);
+  DESIGN.parts = comp.concat(comp.items.map(i => ({ id: i.id, x: i.x, y: i.y, z: i.z }))).filter(p => validId(p.id)).sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
   const n = pl.storeys.filter(c => c.length).length, cells = pl.storeys[0]?.length || 0;
   $("dzStorey").textContent = `Storey ${s + 1} of ${pl.storeys.length}`;
   $("dzInfo").textContent = cells ? `${composePlan(pl).length} pieces · ${n} storey${n === 1 ? "" : "s"}` : "Empty so far";
@@ -2549,8 +2841,9 @@ async function designSave(asNew) {
 }
 function designPlace() {
   const n = designNormalized(); if (!n) { toast("Lay some floor first."); return; }
-  const parts = composePlan(n.plan).filter(p => validId(p.id));
-  placeShape($("dzName").value.trim() || "the house", withBounds(parts), DESIGN.ox + n.dx, DESIGN.oy + n.dy, DESIGN.z, null);
+  const comp = composePlan(n.plan), shape = withBounds(comp.filter(p => validId(p.id)));
+  shape.items = comp.items;
+  placeShape($("dzName").value.trim() || "the house", shape, DESIGN.ox + n.dx, DESIGN.oy + n.dy, DESIGN.z, null);
 }
 /** Draws the design in place: the composed pieces, the storey's tiles outlined, the drag preview and the cursor. */
 function designDraw(at, Z) {
@@ -2596,7 +2889,247 @@ $("dzUp").onclick = () => designStorey(1); $("dzDown").onclick = () => designSto
 $("dzWhole").onchange = () => designChanged(false);
 $("dzTheme").onchange = () => { if (!DESIGN.on) return; const t = HOUSE_THEMES[$("dzTheme").value]; designPush(); Object.assign(DESIGN.plan, { walls: t.walls, floor: t.floor, roof: t.roof, stairSet: t.stairs, chimneyWalls: t.chimney }); designMaterials(); designChanged(); };
 for (const [id, key] of [["dzWalls", "walls"], ["dzFloor", "floor"], ["dzRoof", "roof"], ["dzStairs", "stairSet"]]) $(id).onchange = () => { designPush(); DESIGN.plan[key] = $(id).value; designChanged(); };
+$("dzDoor").onchange = () => { designPush(); if ($("dzDoor").value) DESIGN.plan.doorType = $("dzDoor").value; else delete DESIGN.plan.doorType; designChanged(); };
 $("dzWindows").onchange = () => { designPush(); DESIGN.plan.windows = $("dzWindows").checked ? "auto" : "none"; designChanged(); };
+
+// ===========================================================================
+// Server items: doors, signs, working items, teleporters, spawners and regions. Shared on the server like statics
+// (with undo), drawn in the world, and exported with the ServUO import script.
+// ===========================================================================
+const ITEM_PRESETS = [["Forge", 0x0FB1], ["Anvil", 0x0FAF], ["Brazier", 0x0E31], ["BrazierTall", 0x19AA], ["PublicMoongate", 0x0F6C], ["BulletinBoard", 0x1E5E]];
+const PLACE_RADIUS = { city: 95, town: 60, village: 36, hamlet: 22, camp: 14, ruins: 18, shrine: 8 };
+const ITEM_HINTS = {
+  door: "Click a doorway to put a door there; R turns it. It sits on the wall's own tile.",
+  sign: "Click to put up a sign. Players see its text when they click it.",
+  item: "Click to place a working item. Pick from the list or type any ServUO class name.",
+  tele: "Click where the teleporter stands, then where it takes you (or type the destination).",
+  spawn: "Click to place a spawner: its creatures come back after they die, within the range.",
+  region: "Drag out an area and name it. Guarded regions get town guards.",
+  pick: "Click a server item (or inside a region) to change or delete it. Delete removes it too.",
+};
+const newUid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const ITEMS = {
+  map: new Map(), cell: new Map(), show: true, tool: null, sel: null, tele: null, drag: null,
+  load(list) { this.map.clear(); this.cell.clear(); this.sel = null; for (const it of list) this.set(it); $("ifDmap").value = FACET_NAMES[M.facet] || "Felucca"; this.form(); requestDraw(); },
+  index(it, add) {
+    if (it.kind === "region") return;
+    const k = it.x + "," + it.y; let l = this.cell.get(k);
+    if (add) { if (!l) this.cell.set(k, l = []); l.push(it); }
+    else if (l) { const i = l.indexOf(it); if (i >= 0) l.splice(i, 1); if (!l.length) this.cell.delete(k); }
+  },
+  set(it) {
+    const old = this.map.get(it.uid); if (old) this.index(old, false);
+    it = { ...it }; if (it.kind === "door") it.id = doorArt(it.type, it.facing);
+    this.map.set(it.uid, it); this.index(it, true);
+    if (this.sel?.uid === it.uid) this.sel = it;
+  },
+  drop(uid) { const old = this.map.get(uid); if (!old) return; this.index(old, false); this.map.delete(uid); if (this.sel?.uid === uid) this.sel = null; },
+  /** Changes through the open transaction, so they undo and reach the server with the rest of the step. */
+  put(it) { if (itx && !itx.has(it.uid)) itx.set(it.uid, this.map.has(it.uid) ? { ...this.map.get(it.uid) } : null); this.set(it); },
+  remove(uid) { if (!this.map.has(uid)) return; if (itx && !itx.has(uid)) itx.set(uid, { ...this.map.get(uid) }); this.drop(uid); },
+  async push(uids) {
+    this.count();
+    if (!Server.on || !Server.map || Server.me.level < 2) return;
+    const put = [], remove = [];
+    for (const u of new Set(uids)) { const it = this.map.get(u); if (it) put.push(it); else remove.push(u); }
+    try { await Server.api("PUT", `/api/maps/${encodeURIComponent(Server.map.id)}/items`, { put, remove, cid: Server.cid }); }
+    catch (e) { toast("Couldn't save the server items: " + e.message, 6000); }
+  },
+  count() {
+    const n = {}; for (const it of this.map.values()) n[it.kind] = (n[it.kind] || 0) + 1;
+    const names = { door: "door", sign: "sign", item: "item", tele: "teleporter", spawn: "spawner", region: "region" };
+    $("itemCount").textContent = this.map.size ? "· " + Object.entries(n).map(([k, v]) => `${v} ${names[k]}${v === 1 ? "" : "s"}`).join(", ") : "";
+  },
+  setTool(t) {
+    this.tool = this.tool === t ? null : t; this.sel = null; this.tele = null; this.drag = null;
+    if (this.tool) { if (HOUSE.sel) selectHouse(null); if (LAND.tool) setLandTool(null); if (SEL.items.length) selClear(); if (B.sel.length) selectItems([]); if (DESIGN.on) designClose(); }
+    document.querySelectorAll(".item-tools button").forEach(b => b.setAttribute("aria-pressed", b.dataset.itool === this.tool));
+    this.form(); requestDraw();
+  },
+  /** Shows the fields for the tool, or for the selected item (filled in, with Apply and Delete). */
+  form() {
+    this.count();
+    const kind = this.sel?.kind || (this.tool !== "pick" ? this.tool : null);
+    $("itemForm").hidden = !kind;
+    document.querySelectorAll("#itemForm .if").forEach(el => el.hidden = !el.dataset.k.split(" ").includes(kind));
+    $("ifEditRow").hidden = !this.sel;
+    $("itemHint").textContent = this.sel ? `Editing a ${{ tele: "teleporter", spawn: "spawner" }[this.sel.kind] || this.sel.kind} at ${this.sel.x}, ${this.sel.y}, z ${this.sel.z}. Change the fields and press Apply.`
+      : this.tool ? ITEM_HINTS[this.tool] + (this.tool === "tele" && this.tele ? ` Now click the destination (from ${this.tele.x}, ${this.tele.y}).` : "")
+      : "Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.";
+    const it = this.sel; if (!it) return;
+    const v = (id, val) => { $(id).value = val ?? ""; };
+    if (it.kind === "door") { v("ifDoor", it.type); v("ifFacing", it.facing); }
+    if (it.kind === "sign" || it.kind === "item") { v("ifArt", it.id ? "0x" + hex(it.id) : ""); v("ifHue", it.hue || 0); }
+    if (it.kind === "sign") v("ifText", it.name);
+    if (it.kind === "item") v("ifType", it.type);
+    if (it.kind === "tele") { v("ifDx", it.dx); v("ifDy", it.dy); v("ifDz", it.dz); v("ifDmap", it.dmap); }
+    if (it.kind === "spawn") { v("ifCreatures", it.creatures); v("ifCount", it.count); v("ifRange", it.range); v("ifMin", it.min); v("ifMax", it.max); }
+    if (it.kind === "region") { v("ifName", it.name); $("ifGuarded").checked = !!it.guarded; }
+  },
+  /** The form's fields as an item of the given kind (for a new item, or to apply to the selected one). */
+  fields(kind, base) {
+    const num = (id, d) => { const n = parseInt($(id).value, $(id).value.trim().toLowerCase().startsWith("0x") ? 16 : 10); return Number.isFinite(n) ? n : d; };
+    const it = { ...base, kind };
+    if (kind === "door") { it.type = $("ifDoor").value; it.facing = $("ifFacing").value; it.id = doorArt(it.type, it.facing); }
+    if (kind === "sign") { it.id = num("ifArt", 0x0BD2); it.hue = num("ifHue", 0); it.name = $("ifText").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 120); }
+    if (kind === "item") { it.type = ($("ifType").value.trim() || "Forge").replace(/[^A-Za-z0-9_]/g, ""); it.id = num("ifArt", 0); it.hue = num("ifHue", 0); }
+    if (kind === "tele") { it.dx = num("ifDx", it.dx ?? 0); it.dy = num("ifDy", it.dy ?? 0); it.dz = num("ifDz", it.dz ?? 0); it.dmap = $("ifDmap").value; }
+    if (kind === "spawn") { it.creatures = $("ifCreatures").value.split(",").map(x => x.trim().replace(/[^A-Za-z0-9_]/g, "")).filter(Boolean).join(",") || "Orc";
+      it.count = num("ifCount", 3); it.range = num("ifRange", 6); it.min = num("ifMin", 5); it.max = Math.max(num("ifMax", 10), it.min); }
+    if (kind === "region") { it.name = $("ifName").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 60) || "Unnamed"; it.guarded = $("ifGuarded").checked; }
+    return it;
+  },
+  /** Where a new item stands: a door on its wall's base, other things on top of what's there. */
+  zAt(x, y, kind) {
+    const st = staticsAt(x, y), g = landAt(x, y).z;
+    if (kind === "door") { const walls = st.filter(s => s.z >= g - 2); return walls.length ? Math.min(...walls.map(s => s.z)) : g; }
+    return topSurface(x, y);
+  },
+  at(x, y) {
+    const here = (this.cell.get(x + "," + y) || []).slice().sort((a, b) => b.z - a.z);
+    if (here.length) return here[0];
+    return [...this.map.values()].filter(r => r.kind === "region" && x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h).sort((a, b) => a.w * a.h - b.w * b.h)[0] || null;
+  },
+  down(e) {
+    if (!hover) return;
+    const { x, y } = hover, t = this.tool;
+    if (t === "pick") { this.sel = this.at(x, y); if (!this.sel) toast("No server item here."); this.form(); requestDraw(); return; }
+    if (t === "region") { this.drag = { start: { x, y }, end: { x, y } }; return; }
+    if (t === "tele" && !this.tele) { this.tele = { x, y, z: this.zAt(x, y, t) }; this.form(); requestDraw(); return; }
+    beginTx();
+    if (t === "tele") {
+      const it = this.fields("tele", { uid: newUid(), ...this.tele });
+      it.dx = x; it.dy = y; it.dz = topSurface(x, y); it.dmap = $("ifDmap").value || FACET_NAMES[M.facet] || "Felucca";
+      this.put(it); this.tele = null;
+    } else this.put(this.fields(t, { uid: newUid(), x, y, z: this.zAt(x, y, t) }));
+    commitTx(); this.form();
+  },
+  move() { if (this.drag && hover) { this.drag.end = { x: hover.x, y: hover.y }; requestDraw(); } },
+  up() {
+    const d = this.drag; if (!d) return; this.drag = null;
+    const x0 = Math.min(d.start.x, d.end.x), y0 = Math.min(d.start.y, d.end.y), w = Math.abs(d.end.x - d.start.x) + 1, h = Math.abs(d.end.y - d.start.y) + 1;
+    if (w * h < 4) { toast("Drag out the region's area."); requestDraw(); return; }
+    beginTx(); this.put(this.fields("region", { uid: newUid(), x: x0, y: y0, z: 0, w, h })); commitTx();
+    toast(`Region “${$("ifName").value.trim() || "Unnamed"}”, ${w}×${h}.`);
+  },
+  apply() { if (!this.sel) return; beginTx(); this.put(this.fields(this.sel.kind, this.sel)); commitTx(); this.form(); },
+  del() { if (!this.sel) return; beginTx(); this.remove(this.sel.uid); commitTx(); this.sel = null; this.form(); },
+  key(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key === "Escape") { if (this.sel) { this.sel = null; this.form(); } else if (this.tele) { this.tele = null; this.form(); } else this.setTool(null); requestDraw(); return true; }
+    if ((e.key === "Delete" || e.key === "Backspace") && this.sel) { e.preventDefault(); this.del(); return true; }
+    if (e.key.toLowerCase() === "r" && (this.tool === "door" || this.sel?.kind === "door")) {
+      const f = $("ifFacing"); f.selectedIndex = (f.selectedIndex + 1) % f.options.length; if (this.sel) this.apply(); requestDraw(); return true;
+    }
+    return false;
+  },
+  /** Item art is drawn with the statics; here: regions, teleporters and spawners as markers, the selection, the ghost. */
+  draw(at, Z, rect) {
+    const q = 22 * zoom, label = (text, sx, sy, color) => {
+      ctx.font = "600 11px system-ui, sans-serif"; const tw = ctx.measureText(text).width + 8;
+      ctx.fillStyle = "rgba(14,19,22,.8)"; ctx.fillRect(sx - tw / 2, sy - 13, tw, 16); ctx.fillStyle = color; ctx.textAlign = "center"; ctx.fillText(text, sx, sy); ctx.textAlign = "start";
+    };
+    const diamond = (x, y, z, stroke, fill, w = 2) => {
+      const [sx, sy] = at(x, y), t = sy - z * Z;
+      ctx.beginPath(); ctx.moveTo(sx, t); ctx.lineTo(sx + q, t + q); ctx.lineTo(sx, t + 2 * q); ctx.lineTo(sx - q, t + q); ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = w; ctx.stroke(); }
+      return [sx, t];
+    };
+    const near = (x, y) => Math.abs(x - P.x) + Math.abs(y - P.y) < 80;
+    const regionPath = (r, stroke, dash) => {
+      const g = (x, y) => { const [sx, sy] = at(x, y); return [sx, sy - landAt(Math.min(M.w - 1, x), Math.min(M.h - 1, y)).z * Z]; };
+      const pts = [g(r.x, r.y), g(r.x + r.w, r.y), g(r.x + r.w, r.y + r.h), g(r.x, r.y + r.h)];
+      ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.closePath();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+      return pts;
+    };
+    if (this.show) for (const it of this.map.values()) {
+      if (it.kind === "region") {
+        if (P.x < it.x - 120 || P.x > it.x + it.w + 120 || P.y < it.y - 120 || P.y > it.y + it.h + 120) continue;
+        const pts = regionPath(it, it === this.sel ? "#e8c98a" : it.guarded ? "rgba(120,170,230,.9)" : "rgba(200,200,200,.7)", [8, 6]);
+        label(`${it.name}${it.guarded ? " · guarded" : ""}`, (pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2, it.guarded ? "#9cc3ee" : "#ddd");
+      } else if (!near(it.x, it.y)) continue;
+      else if (it.kind === "tele") {
+        const [sx, t] = diamond(it.x, it.y, it.z, "#6ad1e3", "rgba(106,209,227,.25)");
+        if (zoom >= 0.8 || it === this.sel) label(`→ ${it.dx}, ${it.dy}${it.dmap && it.dmap !== FACET_NAMES[M.facet] ? " " + it.dmap : ""}`, sx, t - 4, "#6ad1e3");
+        if (it === this.sel) diamond(it.dx, it.dy, it.dz, "#6ad1e3", null, 1);
+      } else if (it.kind === "spawn") {
+        const [sx, t] = diamond(it.x, it.y, it.z, "#e07a5f", "rgba(224,122,95,.25)");
+        if (zoom >= 0.8 || it === this.sel) label(`${it.count}× ${it.creatures.split(",").join(", ")}`, sx, t - 4, "#f0a58f");
+        if (it === this.sel) { ctx.save(); ctx.globalAlpha = 0.6; regionPath({ x: it.x - it.range, y: it.y - it.range, w: it.range * 2 + 1, h: it.range * 2 + 1 }, "#e07a5f", [3, 4]); ctx.restore(); }
+      } else if (!it.id) diamond(it.x, it.y, it.z, "#d6aa4c", "rgba(214,170,76,.25)");
+      if (it === this.sel && it.kind !== "region") diamond(it.x, it.y, it.z, "#e8c98a", null, 2.5);
+      if (it.kind === "sign" && it.name && (zoom >= 1 || it === this.sel)) { const [sx, sy] = at(it.x, it.y); label(it.name, sx, sy - (it.z + 22) * Z, "#e8c98a"); }
+    }
+    if (!hover || !this.tool || this.tool === "pick") return;
+    if (this.drag) {
+      const d = this.drag, r = { x: Math.min(d.start.x, d.end.x), y: Math.min(d.start.y, d.end.y), w: Math.abs(d.end.x - d.start.x) + 1, h: Math.abs(d.end.y - d.start.y) + 1 };
+      const pts = regionPath(r, "#e8c98a", [4, 4]); label(`${r.w}×${r.h}`, pts[2][0], pts[2][1] + 16, "#e8c98a"); return;
+    }
+    const z = this.zAt(hover.x, hover.y, this.tool), ghost = this.fields(this.tool, {});
+    if (ghost.id && (this.tool === "door" || this.tool === "sign" || this.tool === "item")) {
+      ctx.globalAlpha = 0.7; const [sx, sy] = at(hover.x, hover.y); drawStatic({ id: ghost.id, z, hue: ghost.hue || 0 }, sx, sy, Z); ctx.globalAlpha = 1;
+    } else diamond(hover.x, hover.y, z, this.tool === "spawn" ? "#e07a5f" : "#6ad1e3", null);
+    if (this.tele) { diamond(this.tele.x, this.tele.y, this.tele.z, "#6ad1e3", "rgba(106,209,227,.4)"); }
+  },
+  /** Regions for the towns on the map's layout, sized by kind; replaces earlier ones with the same name. */
+  towns() {
+    const places = (M.layout?.places || []).filter(p => PLACE_RADIUS[p.kind]);
+    if (!places.length) { toast("This map's layout has no towns."); return; }
+    beginTx();
+    let n = 0;
+    for (const p of places) {
+      const r = PLACE_RADIUS[p.kind], old = [...this.map.values()].find(i => i.kind === "region" && i.name === p.name);
+      const x = Math.max(0, p.x - r), y = Math.max(0, p.y - r);
+      this.put({ uid: old?.uid || newUid(), kind: "region", name: p.name, guarded: ["city", "town", "village"].includes(p.kind), x, y, z: 0,
+        w: Math.min(M.w - x, r * 2 + 1), h: Math.min(M.h - y, r * 2 + 1) });
+      n++;
+    }
+    commitTx(); this.show = $("itemShow").checked = true;
+    toast(`${n} regions: cities, towns and villages guarded; hamlets, camps and ruins not.`);
+  },
+  sfitems() {
+    const L = [`# ShardForge items for ${M.name}. Load with [SFImport (see ShardForgeImport.cs).`, `map\t${FACET_NAMES[M.facet] || "Felucca"}`];
+    const items = [...this.map.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.y - b.y || a.x - b.x);
+    for (const o of items) {
+      const at = `${o.x}\t${o.y}\t${o.z}`;
+      L.push({ door: () => `door\t${at}\t${o.type}\t${o.facing}`, sign: () => `sign\t${at}\t${o.id}\t${o.hue || 0}\t${o.name || ""}`,
+        item: () => `item\t${at}\t${o.type}\t${o.id || 0}\t${o.hue || 0}`, tele: () => `tele\t${at}\t${o.dx}\t${o.dy}\t${o.dz}\t${o.dmap}`,
+        spawn: () => `spawn\t${at}\t${o.count}\t${o.range}\t${o.min}\t${o.max}\t${o.creatures}`,
+        region: () => `region\t${o.x}\t${o.y}\t${o.w}\t${o.h}\t${o.guarded ? 1 : 0}\t${o.name}` }[o.kind]());
+    }
+    return L.join("\n") + "\n";
+  },
+  async pack() {
+    if (!loaded) { toast("Load a map first."); return; }
+    if (Server.on) { location.href = `/api/maps/${encodeURIComponent(Server.map.id)}/servuo`; return; }
+    const { idx, data } = buildStatics(), enc = s => new TextEncoder().encode(s);
+    const files = [{ name: `client/staidx${M.facet}.mul`, data: idx }, { name: `client/statics${M.facet}.mul`, data }];
+    if (M.landDirty.size) for (const f of landFiles()) files.push({ name: "client/" + f.name, data: f.data });
+    const slug = M.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    files.push({ name: `ServUO/Data/ShardForge/${slug}.sfitems`, data: enc(this.sfitems()) });
+    files.push({ name: "ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs", data: enc($("servuoScript").textContent.trim() + "\n") });
+    files.push({ name: "README.txt", data: enc(`ShardForge server package: ${M.name}\r\n\r\nclient/   map and statics files, for ServUO's client folder and every player's client.\r\nServUO/   copy into your ServUO folder, start the server and type [SFImport as an Administrator.\r\n          [SFImport again replaces the earlier import; [SFClear removes it. Regions load at every start.\r\n`) });
+    const blob = zip(files); window.__lastPackage = blob;
+    if (!downloads) { toast("Saving files needs the download permission, which this view doesn't have. Open the page on claude.ai.", 5000); return; }
+    try { await downloads.save({ filename: `${slug}-servuo.zip`, data: blob }); toast("Saved the ServUO package."); }
+    catch (e) { if (e?.code !== "declined") toast("Export failed: " + (e?.message || e), 5000); }
+  },
+};
+const FACET_NAMES = ["Felucca", "Trammel", "Ilshenar", "Malas", "Tokuno", "TerMur"];
+$("ifDoor").innerHTML = Object.keys(DOOR_TYPES).map(k => `<option>${k}</option>`).join("");
+$("ifFacing").innerHTML = DOOR_FACINGS.map(k => `<option>${k}</option>`).join("");
+$("ifDmap").innerHTML = FACET_NAMES.map(k => `<option>${k}</option>`).join("");
+$("ifTypes").innerHTML = ITEM_PRESETS.map(([k]) => `<option value="${k}">`).join("");
+$("ifType").oninput = () => { const p = ITEM_PRESETS.find(([k]) => k.toLowerCase() === $("ifType").value.trim().toLowerCase()); if (p) $("ifArt").value = "0x" + hex(p[1]); requestDraw(); };
+for (const id of ["ifDoor", "ifFacing", "ifArt", "ifHue"]) $(id).addEventListener("input", () => requestDraw());
+$("ifUsePicked").onclick = () => { if (!B.sel.length) { toast("Pick a static in the catalogue first."); return; } $("ifArt").value = "0x" + hex(B.sel[0]); requestDraw(); };
+document.querySelectorAll(".item-tools button").forEach(b => b.onclick = () => ITEMS.setTool(b.dataset.itool));
+$("ifApply").onclick = () => ITEMS.apply(); $("ifDelete").onclick = () => ITEMS.del();
+$("itemShow").onchange = () => { ITEMS.show = $("itemShow").checked; requestDraw(); };
+$("itemTowns").onclick = () => ITEMS.towns(); $("itemPackage").onclick = () => ITEMS.pack();
+view.addEventListener("mousemove", () => { if (ITEMS.tool) { ITEMS.move(); requestDraw(); } });
+window.addEventListener("mouseup", () => ITEMS.up());
 
 // ===========================================================================
 // Minimap: the whole map's land in the client's radar colours, with you, your team and the view.
@@ -2878,7 +3411,7 @@ $("btnLoad").onclick = async () => {
     const ad = findAnywhere("animdata.mul");
     if (ad) Anim.parse(await readBytes(ad, 0, ad.size));
     if (srv) { Server.leave(); await loadMap(srv.facet, `maps/${srv.id}`, srv.width, srv.height, srv.name); await Server.afterLoad(srv); }
-    else await loadMap(+f, dir);
+    else { await loadMap(+f, dir); ITEMS.load([]); }
     loaded = true; undoStack.length = 0; syncEdits();
     $("welcome").style.display = "none";
     // Maps built from a project carry a layout (its towns and building plots); the stock facets have their classic places.
@@ -2887,6 +3420,7 @@ $("btnLoad").onclick = async () => {
     if (lf) try { M.layout = JSON.parse(new TextDecoder().decode(await readBytes(lf, 0, lf.size))); } catch { M.layout = null; }
     let places = M.layout ? (M.layout.places || []).map(p => [p.name, p.x, p.y, p.kind]) : srv?.source === "built" ? [] : (PLACES[M.facet] || []);
     $("plotsRow").hidden = !(M.layout?.lots?.length);
+    $("itemTowns").hidden = !(M.layout?.places || []).some(p => PLACE_RADIUS[p.kind]);
     $("plotCount").textContent = M.layout?.lots?.length ? `${M.layout.lots.length.toLocaleString()} plots` : "";
     const groups = {};
     for (const p of places) (groups[p[3] || ""] ??= []).push(p);
@@ -2987,6 +3521,7 @@ const Server = {
     this.rev = ov.rev;
     for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
     applyLandBlocks(ov.land);
+    ITEMS.load(await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/items`));
     history.replaceState(null, "", "?map=" + encodeURIComponent(m.id));
     $("liveSection").hidden = false;
     this.connect();
@@ -3012,6 +3547,14 @@ const Server = {
           this.note(`${msg.by} changed ${n} block${n === 1 ? "" : "s"}${Object.keys(msg.land || {}).length ? " (land too)" : ""}.`);
         }
         syncEdits();
+      } else if (msg.type === "items") {
+        if (msg.cid !== this.cid) {
+          for (const it of msg.put) ITEMS.set(it);
+          for (const u of msg.remove) ITEMS.drop(u);
+          ITEMS.form();
+          const n = msg.put.length + msg.remove.length;
+          this.note(`${msg.by} changed ${n} server item${n === 1 ? "" : "s"}.`);
+        }
       } else if (msg.type === "prefabs") {
         loadMine().then(renderHouses);
         if (msg.by !== this.me?.username) this.note(`${msg.by} ${msg.action} “${msg.name}” ${msg.action === "deleted" ? "from" : "in"} the house library.`);
@@ -3027,6 +3570,7 @@ const Server = {
         try { // catch up on edits made while away
           const ov = await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/blocks`);
           this.rev = ov.rev; for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64)); applyLandBlocks(ov.land);
+          ITEMS.load(await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/items`));
           syncEdits(); requestDraw();
         } catch { /* try again on the next close */ }
         this.connect();

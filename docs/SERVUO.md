@@ -1,0 +1,66 @@
+# From ShardForge to a ServUO shard
+
+ShardForge makes two kinds of things, and they reach ServUO in two different ways:
+
+| What | Made in | Ends up as | Who needs it |
+|---|---|---|---|
+| Land, statics, houses (walls, roofs, floors), decoration | Editor (build) and Walk | Client files: `map#`, `staidx#`, `statics#` (`.mul` or `.uop`) | ServUO **and every player** (same files) |
+| Doors, signs, working items (forge, anvil, moongate…), teleporters, spawners | Walk → Server items | Live objects created by `[SFImport` | ServUO only |
+| Regions (towns, guarded or not) | Walk → Server items (or "Regions for the towns") | Regions registered at every start | ServUO only |
+
+Statics never open, talk or spawn: anything that has to *do* something is a server item. Houses placed from
+ShardForge designs, the library or the designer bring their doors along as server items.
+
+## The flow
+
+1. **Build the world** in the editor: terrain, towns, roads, plots. On the ShardForge server press **Build**: it
+   becomes a map everyone can open in Walk. Pick the facet number you'll replace on the shard (0 Felucca,
+   1 Trammel, 2 Ilshenar, 3 Malas, 4 Tokuno, 5 Ter Mur).
+2. **Decorate in Walk**, together: houses, statics, land touch-ups, then server items (doors come with houses;
+   add signs, spawners, teleporters and regions). Everything is saved on the ShardForge server as you go.
+3. **Download the ServUO package**: Walk → Server items → **ServUO package (.zip)**. It holds
+   - `client/` the finished map and statics files,
+   - `ServUO/Data/ShardForge/<map>.sfitems` every server item and region,
+   - `ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs` the import script,
+   - `README.txt` these steps in short.
+4. **Install on the shard** (first time):
+   1. Stop ServUO and back up its `Saves/` folder and the client files you're about to replace.
+   2. Copy `client/*` into the client folder ServUO reads (the folder in `Config/DataPath.cfg`, or wherever
+      ServUO finds the client on your machine).
+   3. If the map isn't the facet's standard size, set its width and height for that facet in
+      `Scripts/Misc/MapDefinitions.cs` (`RegisterMap(...)`). ShardForge's build warns when the size differs.
+   4. Copy the package's `ServUO/` folder over your ServUO folder (it only adds `Data/ShardForge/` and
+      `Scripts/Custom/ShardForge/`).
+   5. Start ServUO. It compiles the script; the console says how many regions it registered.
+   6. Log in as an Administrator and type **`[SFImport`**. It creates every door, sign, item, teleporter and
+      spawner, and tells you how many.
+5. **Give players the same client files**: the ShardForge patcher sends `client/*` to their clients. A player
+   with old map files sees walls where there are none (and the other way round).
+
+## Changing things later
+
+Keep working in Walk, download a new package, then:
+
+| You changed | On the shard | Players |
+|---|---|---|
+| Only server items or regions | Copy the new `.sfitems` into `Data/ShardForge/`, type `[SFImport` (no restart) | Nothing |
+| Statics, houses or land | Stop ServUO, copy `client/*`, start, `[SFImport` | Patch their client |
+
+`[SFImport` first deletes what the previous import made (it keeps a list in `Data/ShardForge/imported.txt`)
+and then creates everything again, so it's safe to run as often as you like. It never touches items it didn't
+create: houses players own, things GMs placed by hand and loot stay. `[SFClear` removes the import without
+creating anything.
+
+## Good to know
+
+- One `.sfitems` file per map; the script loads every file in `Data/ShardForge/`. Its `map` line says which
+  facet it's for: custom facet numbers default to Felucca, so edit that line if needed.
+- Regions are registered at every start and by `[SFImport`; they aren't saved with the world, so the file is
+  the truth.
+- Doors are ServUO classes (`DarkWoodDoor`, `StrongWoodDoor`, `IronGate`…), items are any ServUO class by name
+  (`Forge`, `Anvil`, `PublicMoongate`…), spawners take ServUO creature class names (`Orc, OrcishMage`). A name
+  ServUO doesn't know is skipped and reported in the console.
+- Replacing a stock facet on an existing shard: its stock decoration (`[Decorate`) and spawns still stand on top
+  of your new map. On a new shard just don't run them for that facet.
+- The import script was written against ServUO's public API and handles both old and new spawner styles, but it
+  hasn't yet been run on a live ServUO by us: tell us what the console says the first time.

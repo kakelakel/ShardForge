@@ -21,6 +21,7 @@
     <EmbeddedResource Include="Web\**\*" LogicalName="web/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\editor\index.html" LogicalName="web/editor/index.html" />
     <EmbeddedResource Include="..\..\walk\index.html" LogicalName="web/walk/index.html" />
+    <EmbeddedResource Include="..\..\servuo\ShardForgeImport.cs" LogicalName="servuo/ShardForgeImport.cs" />
   </ItemGroup>
 
 </Project>
