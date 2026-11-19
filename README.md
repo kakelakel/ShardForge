@@ -44,6 +44,14 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
+- **Generated worlds**: **New map** builds a world the way real geography forms, different for every seed and
+  never round or symmetric. Tectonic plates shape the land (one continent, two continents, an archipelago, land
+  around an inland sea, a long coast, or mostly land) and push up mountain ranges where they collide. Wind from the
+  west brings rain to the coasts and windward slopes and leaves rain shadows behind the ranges; temperature falls
+  to the north and with height (four climates). Water runs downhill into rivers and lakes, and the land slopes
+  down to them in valleys and gorges. Snow, rock, forest, jungle, grassland, steppe, desert and beaches follow from
+  that, and towns, villages and roads are founded in good places (never astride a river). Choose land share,
+  mountains, rivers and a seed; the same seed gives the same world. A Felucca-sized world takes about 15 seconds.
 - **Underground**: start a **New map** as Underground for a dungeon facet (a black void), then drag rectangles
   with the Underground tool (U) to carve a winding cave, a great cavern, mine tunnels, a crypt of rooms and
   corridors, or a lair of tunnels around a great hall. Paint Cave floor, Dungeon floor or Void to reshape them. The

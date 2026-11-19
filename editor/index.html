@@ -136,7 +136,8 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
 .under-list { display: grid; gap: 3px; }
 .under-list button { text-align: left; }
 .town-form input[type=text] { width: 100%; }
-.town-form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+.town-form .grid2, .world-opts .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+.world-opts select, .world-opts input:not([type=checkbox]) { width: 100%; }
 .town-form .grid2 select { width: 100%; }
 .town-form details.deco { margin-top: 8px; border: 1px solid var(--line, #2a3238); border-radius: 6px; padding: 6px 8px; }
 .town-form details.deco summary { cursor: pointer; font-size: 13px; }
@@ -336,12 +337,25 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
     <div class="field" style="margin-top:10px">
       <label for="newStart">Start with</label>
       <select id="newStart">
-        <option value="island">A generated island</option>
+        <option value="world" selected>A generated world</option>
+        <option value="island">A simple island</option>
         <option value="ocean">Open ocean</option>
         <option value="grass">Flat grassland</option>
         <option value="void">Underground: an empty void for dungeons and caves</option>
       </select>
-      <p class="note">For a dungeon facet: a facet of its own that holds every cave, mine and crypt, reached by teleporters from the overworld. Players never see the difference.</p>
+      <p class="note" id="voidNote" hidden>For a dungeon facet: a facet of its own that holds every cave, mine and crypt, reached by teleporters from the overworld. Players never see the difference.</p>
+    </div>
+    <div class="field world-opts" id="worldOpts" style="margin-top:10px">
+      <div class="grid2">
+        <div><label for="wShape">Shape</label><select id="wShape"></select></div>
+        <div><label for="wClimate">Climate</label><select id="wClimate"></select></div>
+        <div><label for="wLand">Land <output id="wLandOut">auto</output></label><input type="range" id="wLand" min="0" max="85" value="0" step="5"></div>
+        <div><label for="wMountains">Mountains</label><select id="wMountains"><option value="0.5">Few, low</option><option value="1" selected>Some</option><option value="1.6">Many, high</option></select></div>
+        <div><label for="wRivers">Rivers</label><select id="wRivers"><option value="0.4">Few</option><option value="1" selected>Some</option><option value="2">Many</option></select></div>
+        <div><label for="wSeed">Seed</label><input id="wSeed" placeholder="random" inputmode="numeric"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="wTowns" checked> Found towns, villages and roads in good places</label>
+      <p class="note">Plates give the land its shape and push up mountain ranges where they meet; wind from the west brings rain to the coasts and leaves dry land behind the mountains; rivers run down to the sea. The same seed and settings give the same world.</p>
     </div>
     <div class="row">
       <button value="cancel">Cancel</button>
@@ -447,13 +461,28 @@ function newWorld(width, height, start) {
   W.density = new Uint8Array(width * height).fill(128);
   if (start === "grass") { W.terrain.fill(TKEY.grass); }
   else if (start === "void") { W.terrain.fill(TKEY.void); }
+  else if (start === "world") { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   undoStack.length = 0; redoStack.length = 0;
   W.objects = { buildings: [], statics: [], multis: [], lots: [] }; W.places = [];
   if (start === "island") applyOps(starterOps(width, height), false);
+  if (start === "world") {
+    const o = worldOptions(); W.seed = o.seed;
+    const r = applyOps([{ op: "world", ...o }], false)[0];
+    if (!r?.ok) addMsg("claude", "Couldn't generate the world: " + escapeHtml(r?.why || "?"), "error");
+    else if ($("wTowns").checked) applyOps([{ op: "populate_world", seed: o.seed }], false);
+    lastWorld = o;
+  }
   resetImage(); fitView(); updateStats(); if (typeof renderUnderList === "function") renderUnderList();
 }
 
+let lastWorld = null;
+function worldOptions() {
+  const seedTxt = $("wSeed").value.trim(), seed = /^\d+$/.test(seedTxt) ? +seedTxt % 2147483647 : (Math.random() * 2147483647) | 0;
+  const o = { shape: $("wShape").value, climate: $("wClimate").value, mountains: +$("wMountains").value, rivers: +$("wRivers").value, seed };
+  if (+$("wLand").value > 0) o.land = +$("wLand").value / 100;
+  return o;
+}
 function starterOps(w, h) {
   const sx = w / 1024, sy = h / 1024, s = Math.min(sx, sy);
   const P = (x, y) => [Math.round(x * sx), Math.round(y * sy)];
@@ -820,6 +849,207 @@ function densify(pts) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// World generator: geography that grows the way real land does, so no two worlds share a shape.
+//  1. Tectonic plates (warped Voronoi): some carry land, some sea, chosen by the world's shape. Where two plates
+//     collide, mountain ranges rise along the seam; where they part, the land sags into rifts and bays.
+//  2. Sea level is set so land covers the asked share; the edge of the map falls away to sea (unless asked not to).
+//  3. Wind blows from the west, picks up moisture over the sea and drops it on rising ground: wet windward coasts,
+//     dry rain shadows behind the ranges. Temperature falls toward the north and with height.
+//  4. Water runs downhill (priority flood): rivers gather from the rain and cut down to the sea; closed basins
+//     fill into lakes.
+//  5. Land cover from climate: snow, rock, forest, jungle, grassland, steppe, desert, beaches.
+// Everything comes from one seed, so the same settings give the same world.
+// ---------------------------------------------------------------------------
+const WORLD_SHAPES = { continent: "One great continent", twin: "Two continents", archipelago: "An archipelago of islands", inland: "Land around an inland sea", coast: "A long coast: land on one side, sea on the other", pangaea: "Mostly land, with seas cutting in" };
+const WORLD_CLIMATES = { temperate: "Temperate, cooler in the north", frozen: "Cold: frozen north, cool south", warm: "Warm: temperate north, hot south", span: "From frozen north to hot south" };
+OPS.world = o => {
+  const N = W.width, H = W.height, seed = (o.seed ?? W.seed) | 0, rnd = mulberry(seed * 2654435761 >>> 0);
+  const shape = WORLD_SHAPES[o.shape] ? o.shape : "continent";
+  const landFrac = Math.max(0.1, Math.min(0.9, o.land ?? { continent: 0.38, twin: 0.36, archipelago: 0.22, inland: 0.62, coast: 0.5, pangaea: 0.72 }[shape]));
+  const mtn = Math.max(0, o.mountains ?? 1), rivers = Math.max(0, o.rivers ?? 1), climate = WORLD_CLIMATES[o.climate] ? o.climate : "temperate";
+  // Work on a coarse grid (about a million cells) and bring it to full size with fine detail.
+  const S = Math.max(1, Math.ceil(Math.sqrt(N * H / 1.0e6))), cw = Math.ceil(N / S) + 1, ch = Math.ceil(H / S) + 1, cn = cw * ch;
+  const dim = Math.max(cw, ch);
+
+  // 1. Plates.
+  const area = (N * H) / 1e6, P = Math.max(8, Math.min(96, Math.round((shape === "archipelago" ? 56 : 14) * Math.sqrt(Math.max(0.3, area)))));
+  const plates = Array.from({ length: P }, () => ({ x: rnd() * cw, y: rnd() * ch, vx: rnd() * 2 - 1, vy: rnd() * 2 - 1, land: false, cells: 0 }));
+  const warp = dim / 7, plateOf = new Uint8Array(cn), gap = new Float32Array(cn), other = new Uint8Array(cn);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const wx = x + (fbm(x / (dim / 5), y / (dim / 5), seed + 11, 4) - 0.5) * warp, wy = y + (fbm(x / (dim / 5), y / (dim / 5), seed + 12, 4) - 0.5) * warp;
+    let a = -1, b = -1, da = Infinity, db = Infinity;
+    for (let k = 0; k < P; k++) { const d = (plates[k].x - wx) ** 2 + (plates[k].y - wy) ** 2; if (d < da) { db = da; b = a; da = d; a = k; } else if (d < db) { db = d; b = k; } }
+    const i = x + y * cw; plateOf[i] = a; other[i] = b; gap[i] = Math.sqrt(db) - Math.sqrt(da); plates[a].cells++;
+  }
+  // Which plates carry land: scored by the shape, filled until the land share is (a little more than) reached.
+  const c1 = [cw * (0.3 + rnd() * 0.4), ch * (0.3 + rnd() * 0.4)], ang = rnd() * Math.PI * 2;
+  const c2 = [cw / 2 - Math.cos(ang) * cw * 0.27, ch / 2 - Math.sin(ang) * ch * 0.27], c3 = [cw / 2 + Math.cos(ang) * cw * 0.27, ch / 2 + Math.sin(ang) * ch * 0.27];
+  const dn = (p, c) => Math.hypot((p.x - c[0]) / cw, (p.y - c[1]) / ch);
+  for (const p of plates) {
+    p.score = shape === "continent" ? dn(p, c1) : shape === "twin" ? Math.min(dn(p, c2), dn(p, c3)) : shape === "archipelago" ? rnd()
+      : shape === "inland" ? -dn(p, c1) : shape === "coast" ? (Math.cos(ang) * (p.x / cw - 0.5) + Math.sin(ang) * (p.y / ch - 0.5)) : dn(p, c1) * 0.6;
+    p.score += (rnd() - 0.5) * (shape === "archipelago" ? 0 : 0.25);
+  }
+  let got = 0;
+  for (const p of plates.slice().sort((a, b) => a.score - b.score)) { if (got >= landFrac * 1.08 * cn) break; p.land = true; got += p.cells; }
+  if (shape === "archipelago") for (const p of plates) if (p.land && rnd() < 0.25) p.land = false; // gaps between island groups
+
+  // 2. Elevation.
+  const e = new Float32Array(cn), bw = dim / 22, rw = dim / 45, isle = shape === "archipelago";
+  // The edge of the map falls away to sea, except where the land is meant to run on past it.
+  const edgeMargin = shape === "coast" || shape === "inland" ? 0 : shape === "pangaea" ? 0.03 : 0.07;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const i = x + y * cw, a = plates[plateOf[i]], b = plates[other[i]], g = gap[i];
+    const ba = a.land ? (isle ? 0.52 : 0.62) : 0.30, bb = b.land ? (isle ? 0.52 : 0.62) : 0.30, t = Math.min(1, g / bw), sm = t * t * (3 - 2 * t);
+    let v = (ba + bb) / 2 + (ba - (ba + bb) / 2) * sm;
+    v += (fbm(x / (dim / 6), y / (dim / 6), seed + 21, 5) - 0.5) * 0.42;
+    v += (fbm(x / (dim / 26), y / (dim / 26), seed + 22, 4) - 0.5) * (isle ? 0.34 : 0.16);
+    if (isle) v += (fbm(x / (dim / 12), y / (dim / 12), seed + 26, 3) - 0.5) * 0.3; // breaks land into islands and sounds
+    // Collisions raise ranges along the seam; partings sag.
+    const nx = b.x - a.x, ny = b.y - a.y, nl = Math.hypot(nx, ny) || 1;
+    const conv = ((a.vx - b.vx) * nx + (a.vy - b.vy) * ny) / nl;
+    if (a.land || b.land) {
+      const ridgeN = 1 - Math.abs(fbm(x / (dim / 40), y / (dim / 40), seed + 23, 4) * 2 - 1);
+      const k = Math.exp(-((g / rw) ** 2));
+      if (conv > 0) v += mtn * conv * k * (0.32 + 0.5 * ridgeN);
+      else v += conv * k * 0.08;
+    }
+    // Old worn hills inside the land.
+    if (a.land) v += mtn * Math.max(0, fbm(x / (dim / 14), y / (dim / 14), seed + 24, 4) - 0.55) * 0.5;
+    const ex = Math.min(x, cw - 1 - x) / cw, ey = Math.min(y, ch - 1 - y) / ch;
+    const edge = Math.min(ex, ey) + (fbm(x / (dim / 9), y / (dim / 9), seed + 25, 3) - 0.5) * edgeMargin * 1.4; // a ragged edge, not a frame
+    if (edgeMargin && edge < edgeMargin) v -= (1 - Math.max(0, edge) / edgeMargin) ** 2 * 0.5;
+    e[i] = v;
+  }
+  const sorted = Float32Array.from(e).sort(), sea = sorted[Math.floor((1 - landFrac) * (cn - 1))];
+  const top = sorted[Math.floor((cn - 1) * (1 - landFrac * 0.004))]; // the highest peaks, not the single highest point
+  const hgt = i => Math.max(0, (e[i] - sea) / Math.max(1e-6, top - sea)); // 0 at the coast, 1 on the highest peak
+
+  const lake = new Uint8Array(cn);
+  // 3. Wind and rain: from the west, rows marched east.
+  const moist = new Float32Array(cn), temp = new Float32Array(cn);
+  for (let y = 0; y < ch; y++) {
+    let air = 0.8;
+    for (let x = 0; x < cw; x++) {
+      const i = x + y * cw;
+      if (e[i] < sea) { air = Math.min(1, air + 0.06); moist[i] = 1; continue; }
+      const up = x > 0 ? Math.max(0, hgt(i) - hgt(i - 1)) : 0;
+      // Gentle loss over flat land, heavy rain where the ground rises: wet slopes, dry lee.
+      const rain = air * (0.0035 + up * 7);
+      moist[i] = Math.min(1, rain * 18 + air * 0.62);
+      air = Math.max(0.08, air - rain + (lake[i] ? 0.02 : 0));
+    }
+  }
+  for (let pass = 0; pass < 3; pass++) { // spread it out a little
+    const src = moist.slice();
+    for (let y = 1; y < ch - 1; y++) for (let x = 1; x < cw - 1; x++) { const i = x + y * cw; moist[i] = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - cw] + src[i + cw]) / 8; }
+  }
+  const [t0, t1] = { temperate: [0.22, 0.75], frozen: [0.02, 0.5], warm: [0.42, 0.98], span: [0.0, 1.0] }[climate];
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const i = x + y * cw;
+    temp[i] = t0 + (t1 - t0) * (y / ch) - hgt(i) * 0.5 + (fbm(x / (dim / 10), y / (dim / 10), seed + 31, 3) - 0.5) * 0.18;
+    moist[i] = Math.max(0, Math.min(1, moist[i] + (fbm(x / (dim / 12), y / (dim / 12), seed + 32, 4) - 0.5) * 0.35));
+  }
+
+  // Moisture as a share of the land (0 = the driest place there is, 1 = the wettest), so every world gets a
+  // sensible mix of forest, grassland and dry country whatever its size and shape.
+  const landMoist = Float32Array.from(moist.filter((v, i) => e[i] >= sea)).sort();
+  const rankOf = v => { let lo = 0, hi = landMoist.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (landMoist[mid] < v) lo = mid + 1; else hi = mid; } return lo / Math.max(1, landMoist.length); };
+  // 4. Water runs downhill: priority flood from the sea and the map edge, then gather the rain.
+  const filled = new Float32Array(cn), down = new Int32Array(cn).fill(-1), order = new Int32Array(cn), seen = new Uint8Array(cn);
+  const heap = { k: new Float32Array(cn), v: new Int32Array(cn), n: 0,
+    push(key, val) { let j = this.n++; while (j > 0) { const p = (j - 1) >> 1; if (this.k[p] <= key) break; this.k[j] = this.k[p]; this.v[j] = this.v[p]; j = p; } this.k[j] = key; this.v[j] = val; },
+    pop() { const r = this.v[0], key = this.k[--this.n], val = this.v[this.n]; let j = 0; for (;;) { let c = 2 * j + 1; if (c >= this.n) break; if (c + 1 < this.n && this.k[c + 1] < this.k[c]) c++; if (this.k[c] >= key) break; this.k[j] = this.k[c]; this.v[j] = this.v[c]; j = c; } this.k[j] = key; this.v[j] = val; return r; } };
+  for (let i = 0; i < cn; i++) {
+    const x = i % cw, y = (i / cw) | 0;
+    if (e[i] < sea || x === 0 || y === 0 || x === cw - 1 || y === ch - 1) { filled[i] = Math.max(e[i], sea); seen[i] = 1; heap.push(filled[i], i); }
+  }
+  let oc = 0;
+  while (heap.n) {
+    const i = heap.pop(), x = i % cw, y = (i / cw) | 0; order[oc++] = i;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+      const j = nx + ny * cw; if (seen[j]) continue;
+      // A random nudge across flats, so rivers meander over plains and basins instead of running ruler-straight.
+      seen[j] = 1; filled[j] = Math.max(e[j], filled[i] + 1e-5 * (0.2 + hrand(nx, ny, seed, 61))); down[j] = i; heap.push(filled[j], j);
+    }
+  }
+  const flow = new Float32Array(cn);
+  for (let i = 0; i < cn; i++) flow[i] = e[i] >= sea ? 0.2 + moist[i] : 0;
+  for (let k = oc - 1; k >= 0; k--) { const i = order[k]; if (down[i] >= 0) flow[down[i]] += flow[i]; }
+  // Lakes: basins the flood had to fill, deep and wide enough to matter.
+  for (let i = 0; i < cn; i++) if (e[i] >= sea && filled[i] - e[i] > 0.012 && moist[i] > 0.25) lake[i] = 1;
+
+  // Rivers and lakes sit at sea level (that's where UO water is), so the land slopes down to every river, lake
+  // and shore: valleys in the hills, gorges in the mountains, low coasts. Done here so land cover follows it.
+  const need = (cn / 1e6) * 900 / Math.max(0.2, rivers), wet = new Uint8Array(cn), cd = new Float32Array(cn).fill(1e9), cq = new Int32Array(cn);
+  let ch0 = 0, ct0 = 0;
+  for (let i = 0; i < cn; i++) if (e[i] < sea || lake[i] || flow[i] >= need) { wet[i] = flow[i] >= need && e[i] >= sea && !lake[i] ? 2 : 1; cd[i] = 0; cq[ct0++] = i; }
+  while (ch0 < ct0) {
+    const i = cq[ch0++], x = i % cw, y = (i / cw) | 0;
+    for (const [dx, dy, dd] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.41], [-1, -1, 1.41], [1, -1, 1.41], [-1, 1, 1.41]]) {
+      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+      const j = nx + ny * cw; if (cd[j] <= cd[i] + dd) continue;
+      if (cd[j] === 1e9) cq[ct0++] = j; cd[j] = cd[i] + dd;
+    }
+  }
+  for (let i = 0; i < cn; i++) {
+    if (e[i] < sea || lake[i]) continue;
+    const x = i % cw, y = (i / cw) | 0, slope = 2.6 + 2.2 * fbm(x / (dim / 30), y / (dim / 30), seed + 71, 3); // z per tile up from the water
+    const maxZ = (0.5 + cd[i] * S) * slope, hMax = Math.pow(Math.min(1, maxZ / 96), 1 / 1.3);
+    e[i] = Math.min(e[i], sea + (top - sea) * Math.max(0.004, hMax));
+  }
+
+  // 5. Bring it to full size: elevation, climate and land cover, with fine detail so borders wander.
+  const bil = (A, fx, fy) => { const x = Math.min(cw - 2, Math.floor(fx)), y = Math.min(ch - 2, Math.floor(fy)), u = fx - x, v = fy - y, i = x + y * cw;
+    return A[i] * (1 - u) * (1 - v) + A[i + 1] * u * (1 - v) + A[i + cw] * (1 - u) * v + A[i + cw + 1] * u * v; };
+  const T = TKEY, ocean = new Uint8Array(N * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < N; x++) {
+    const fx = x / S, fy = y / S, i = x + y * N, ci = Math.min(cw - 1, Math.round(fx)) + Math.min(ch - 1, Math.round(fy)) * cw;
+    const detail = (vnoise(x / 6, y / 6, seed + 41) - 0.5) * 0.02 + (vnoise(x / 23, y / 23, seed + 42) - 0.5) * 0.03;
+    const ev = bil(e, fx, fy) + (bil(cd, fx, fy) < 3 ? Math.max(0, detail) : detail);
+    if (ev < sea || lake[ci]) {
+      W.terrain[i] = T.water; W.height_[i] = -5; W.density[i] = 128; if (ev < sea) ocean[i] = 1; continue;
+    }
+    const h = Math.max(0, (ev - sea) / (top - sea)), tm = bil(temp, fx, fy) + (vnoise(x / 9, y / 9, seed + 43) - 0.5) * 0.08;
+    const m = rankOf(bil(moist, fx, fy)) + (vnoise(x / 11, y / 11, seed + 44) - 0.5) * 0.16;
+    let t;
+    if (h > 0.6) t = tm < 0.45 ? T.snow : T.rock;
+    else if (h > 0.44) t = tm < 0.2 ? T.snow : m > 0.7 && h < 0.5 ? T.forest : T.rock;
+    else if (tm < 0.1) t = T.snow;
+    else if (tm > 0.62 && m < 0.3) t = T.sand;
+    else if (m < 0.14 && tm > 0.3) t = T.dirt;
+    else if (tm > 0.6 && m > 0.55) t = T.jungle;
+    else if (m > 0.5) t = T.forest;
+    else t = T.grass;
+    W.terrain[i] = t;
+    W.height_[i] = clampZ(1 + Math.pow(h, 1.3) * 96);
+    W.density[i] = Math.max(0, Math.min(255, Math.round(128 * (0.45 + m * 0.9))));
+  }
+  // Rivers: from where enough rain has gathered, down to the sea, wider as they go.
+  let riverCells = 0;
+  for (let i = 0; i < cn; i++) {
+    if (wet[i] !== 2) continue;
+    const x = (i % cw) * S, y = ((i / cw) | 0) * S, r = Math.min(4.5, 0.6 + Math.log2(flow[i] / need) * 0.55) * Math.max(1, S * 0.6);
+    for (let dy = -Math.ceil(r); dy <= r; dy++) for (let dx = -Math.ceil(r); dx <= r; dx++) {
+      const px = x + dx, py = y + dy; if (px < 0 || py < 0 || px >= N || py >= H || dx * dx + dy * dy > r * r) continue;
+      const j = px + py * N; if (W.terrain[j] === T.water) continue;
+      W.terrain[j] = T.water; W.height_[j] = -5; riverCells++;
+    }
+  }
+  // Beaches where low land meets the open sea in warm enough places; rocky shores elsewhere stay as they are.
+  const dist = new Uint8Array(N * H).fill(255), q = new Int32Array(N * H); let qh = 0, qt = 0;
+  for (let i = 0; i < N * H; i++) if (ocean[i]) { dist[i] = 0; q[qt++] = i; }
+  while (qh < qt) { const i = q[qh++], x = i % N, y = (i / N) | 0, d = dist[i]; if (d >= 4) continue;
+    for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && dist[j] === 255) { dist[j] = d + 1; q[qt++] = j; } }
+  for (let i = 0; i < N * H; i++) {
+    const d = dist[i]; if (d === 0 || d > 4) continue;
+    const t = W.terrain[i], x = i % N, y = (i / N) | 0, wide = 1 + Math.floor(vnoise(x / 17, y / 17, seed + 51) * 3.2);
+    if (d <= wide && W.height_[i] < 14 && (t === T.grass || t === T.forest || t === T.jungle || t === T.dirt)) { W.terrain[i] = T.sand; W.density[i] = 40; }
+  }
+  return { shape, land: landFrac, plates: P, riverCells, scale: S };
+};
 OPS.town = o => {
   ensureObjects();
   const sizeKey = TOWN_SIZES[o.size] ? o.size : "village", S = TOWN_SIZES[sizeKey];
@@ -1589,6 +1819,9 @@ function populateWorld(o) {
     for (let gy = cr; gy < gh - cr; gy += 3) for (let gx = cr; gx < gw - cr; gx += 3) {
       const n = (2 * cr) ** 2, land = sum(K.land, gx - cr, gy - cr, gx + cr, gy + cr) / n;
       if (land < 0.9) continue;
+      // Not astride a river or lake: the town levels its ground, which would leave the water in a trench.
+      const ic = Math.max(1, Math.round(cr * 0.75));
+      if (sum(K.water, gx - ic, gy - ic, gx + ic, gy + ic) > 0) continue;
       const zs = sum(K.z, gx - cr, gy - cr, gx + cr, gy + cr) / n, var_ = sum(K.z2, gx - cr, gy - cr, gx + cr, gy + cr) / n - zs * zs;
       const nearWater = sum(K.water, gx - ring, gy - ring, gx + ring, gy + ring) > 0;
       const rough = sum(K.rough, gx - ring, gy - ring, gx + ring, gy + ring) > 0;
@@ -2230,11 +2463,22 @@ $("fileOpen").onchange = async e => {
   e.target.value = "";
 };
 $("btnNew").onclick = () => $("dlgNew").showModal();
+$("wShape").innerHTML = Object.entries(WORLD_SHAPES).map(([k, v]) => `<option value="${k}">${v.replace(/[&<>"]/g, "")}</option>`).join("");
+$("wClimate").innerHTML = Object.entries(WORLD_CLIMATES).map(([k, v]) => `<option value="${k}">${v.replace(/[&<>"]/g, "")}</option>`).join("");
+$("wLand").oninput = () => $("wLandOut").textContent = +$("wLand").value ? $("wLand").value + "%" : "auto";
+$("newStart").onchange = () => { $("worldOpts").hidden = $("newStart").value !== "world"; $("voidNote").hidden = $("newStart").value !== "void"; };
 $("dlgNew").addEventListener("close", () => {
   if ($("dlgNew").returnValue !== "ok") return;
   const [w, h] = $("newSize").value.split("x").map(Number);
   busy(w * h > 8e6 ? "Generating a big map, this takes a few seconds…" : "Generating…");
-  setTimeout(() => { newWorld(w, h, $("newStart").value); busy(); }, 30);
+  setTimeout(() => {
+    const t0 = performance.now();
+    newWorld(w, h, $("newStart").value); busy();
+    if ($("newStart").value === "world" && lastWorld) {
+      const kinds = ["city", "town", "village", "hamlet"].map(k => [k, W.places.filter(p => p.kind === k).length]).filter(([, n]) => n);
+      addMsg("claude", `A new world (${escapeHtml(WORLD_SHAPES[lastWorld.shape].toLowerCase())}, ${escapeHtml(WORLD_CLIMATES[lastWorld.climate].toLowerCase())}), seed <code>${lastWorld.seed}</code>, in ${((performance.now() - t0) / 1000).toFixed(1)} s${kinds.length ? `: ${kinds.map(([k, n]) => `${n} ${k === "city" ? (n === 1 ? "city" : "cities") : k + (n === 1 ? "" : "s")}`).join(", ")}` : ""}. Use the same seed to get it again.`);
+    }
+  }, 30);
 });
 
 // Autosave to this browser (best effort; Export is the real save).
@@ -2279,6 +2523,7 @@ Ops (JSON objects, applied in order):
 - {"op":"patches","terrain","within"?:[keys],"coverage":0-1,"scale"?:tiles (patch size),"region"?:{"x","y","w","h"}} natural patches, e.g. forest over grass.
 - {"op":"density","cx","cy","rx","ry","value":0-2} vegetation multiplier: 0 clears trees (towns, fields), 2 is dense.
 - {"op":"smooth","passes"?:2,"region"?:{"x","y","w","h"}} softens altitude.
+- {"op":"world","shape"?:"continent"|"twin"|"archipelago"|"inland"|"coast"|"pangaea","climate"?:"temperate"|"frozen"|"warm"|"span","land"?:0.1-0.9,"mountains"?:0-2,"rivers"?:0-2,"seed"?:int} replaces the WHOLE map with a generated world (plates, ranges, rivers, climate). Only when asked for a new world.
 - {"op":"underground","x","y","w","h","style":"cave"|"cavern"|"mine"|"crypt"|"lair","name"?,"z"?:0,"seed"?:int} carves a dungeon area into the void (terrain "void"); the build raises rock walls around cave floor and stone walls around "dungeon" floor. Underground maps start as all void; keep areas apart with void between them.
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
