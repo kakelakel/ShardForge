@@ -104,6 +104,10 @@ public sealed class LiveHub(ILogger<LiveHub> log)
     public Task PublishItems(string mapId, string by, string? cid, IReadOnlyList<System.Text.Json.Nodes.JsonObject> put, IReadOnlyList<string> remove) =>
         _rooms.TryGetValue(mapId, out var room) ? Broadcast(room, new { type = "items", by, cid, put, remove }) : Task.CompletedTask;
 
+    /// <summary>A backup was restored: everyone should reload what they see.</summary>
+    public Task PublishRestored(string by, string summary) =>
+        Task.WhenAll(_rooms.Values.Select(room => Broadcast(room, new { type = "restored", by, summary })));
+
     /// <summary>Tells everyone on every map that the house library changed.</summary>
     public Task PublishPrefabs(string by, string action, long id, string name) =>
         Task.WhenAll(_rooms.Values.Select(room => Broadcast(room, new { type = "prefabs", by, action, id, name })));

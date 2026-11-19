@@ -24,8 +24,29 @@ public sealed class ServerOptions
     /// <summary>PBKDF2 iterations for password hashes (lower only in tests).</summary>
     public int PasswordIterations { get; set; } = 210_000;
 
+    /// <summary>Automatic backups of everything the team made.</summary>
+    public BackupOptions Backups { get; set; } = new();
+
     public string ResolvedDataPath(string contentRoot) =>
         Path.GetFullPath(Path.IsPathRooted(DataPath) ? DataPath : Path.Combine(contentRoot, DataPath));
+}
+
+public sealed class BackupOptions
+{
+    /// <summary>Where backups go; empty means data/backups. Another drive is safer.</summary>
+    public string Path { get; set; } = "";
+    /// <summary>A backup every this many hours (and at start when the last one is older).</summary>
+    public double EveryHours { get; set; } = 6;
+    /// <summary>The newest automatic backups kept, whatever their age.</summary>
+    public int KeepRecent { get; set; } = 8;
+    /// <summary>Then one per day for this many days.</summary>
+    public int KeepDaily { get; set; } = 7;
+    /// <summary>Then one per week for this many weeks.</summary>
+    public int KeepWeekly { get; set; } = 4;
+    /// <summary>Manual and before-restore backups are kept this many days.</summary>
+    public int KeepManualDays { get; set; } = 30;
+    /// <summary>Include the built map files (they can be rebuilt from their projects, but restoring is quicker).</summary>
+    public bool IncludeMaps { get; set; } = true;
 }
 
 public sealed class MapSource

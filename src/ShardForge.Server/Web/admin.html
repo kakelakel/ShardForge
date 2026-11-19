@@ -15,8 +15,20 @@
   <div>
     <h1>Admin</h1>
     <p class="lead">Four levels, each including the one before: <b>Viewers</b> look around, <b>Decorators</b> decorate and build (and can undo only their own work), <b>Worldbuilders</b> also remove anything, shape the land and build projects, and <b>Admins</b> alone save to disk, export and manage people. Everything anyone does is in the <a href="#hActivity">activity log</a> below.</p>
-    <nav class="row" style="gap:8px;margin-top:6px"><a href="#hUsers">People</a><a href="#hLevels">Levels</a><a href="#hActivity">Activity</a><a href="#hServer">Server</a></nav>
+    <nav class="row" style="gap:8px;margin-top:6px"><a href="#hUsers">People</a><a href="#hLevels">Levels</a><a href="#hActivity">Activity</a><a href="#hBackups">Backups</a><a href="#hServer">Server</a></nav>
   </div>
+
+  <section aria-labelledby="hBackups">
+    <h2 id="hBackups">Backups</h2>
+    <p class="note" id="bInfo"></p>
+    <div class="row" style="gap:8px"><button class="primary" id="bNow">Back up now</button></div>
+    <div class="msg" id="bMsg" role="status" style="margin-top:8px"></div>
+    <div class="tablewrap" style="margin-top:10px"><table>
+      <thead><tr><th>When</th><th>Kind</th><th>What's in it</th><th class="num">Size</th><th style="width:1%"></th></tr></thead>
+      <tbody id="backups"></tbody>
+    </table></div>
+    <p class="note">Restoring brings back the world as it was: everything, one map's edits and server items, the projects, or the house library. People and the activity log always stay as they are now, a backup of the moment before is made first, and the restore is logged. Everyone in Walk reloads automatically.</p>
+  </section>
 
   <section aria-labelledby="hServer">
     <h2 id="hServer">Server</h2>
@@ -65,7 +77,7 @@
       <div class="field" style="width:190px"><label for="aAction">What</label><select id="aAction">
         <option value="">Everything</option><option value="statics">Statics</option><option value="land">Land</option><option value="items">Server items</option>
         <option value="library">House library</option><option value="project">Projects</option><option value="export">Exports</option><option value="publish">Publishing</option>
-        <option value="denied">Refused attempts</option><option value="auth">Sign-ins</option><option value="users">People &amp; passwords</option><option value="settings">Settings</option></select></div>
+        <option value="denied">Refused attempts</option><option value="auth">Sign-ins</option><option value="users">People &amp; passwords</option><option value="settings">Settings</option><option value="backup">Backups</option></select></div>
       <div class="field" style="width:150px"><label for="aMap">Map or project</label><select id="aMap"><option value="">Any</option></select></div>
       <div class="field" style="width:150px"><label for="aSince">From</label><input type="date" id="aSince"></div>
       <div class="field" style="width:150px"><label for="aUntil">To</label><input type="date" id="aUntil"></div>
@@ -154,7 +166,7 @@ async function loadMaps() {
   document.getElementById("aMap").innerHTML = `<option value="">Any</option>` + maps.map(m => `<option value="map:${SF.esc(m.id)}">Map: ${SF.esc(m.name)}</option>`).join("")
     + projects.map(p => `<option value="project:${p.id}">Project: ${SF.esc(p.name)}</option>`).join("");
 }
-const ICON = { statics: "▣", land: "⛰", items: "⚑", library: "⌂", project: "✎", export: "⇩", publish: "⇪", denied: "⛔", auth: "⚿", users: "☺", settings: "⚙" };
+const ICON = { backup: "⛁", statics: "▣", land: "⛰", items: "⚑", library: "⌂", project: "✎", export: "⇩", publish: "⇪", denied: "⛔", auth: "⚿", users: "☺", settings: "⚙" };
 function auditQuery() {
   const v = id => document.getElementById(id).value, q = new URLSearchParams();
   if (v("aUser")) q.set("user", v("aUser")); if (v("aAction")) q.set("action", v("aAction")); if (v("aMap")) q.set("target", v("aMap"));
@@ -185,6 +197,34 @@ document.getElementById("aForm").onsubmit = e => { e.preventDefault(); loadAudit
 for (const id of ["aUser", "aAction", "aMap", "aSince", "aUntil"]) document.getElementById(id).onchange = () => loadAudit();
 document.getElementById("aMore").onclick = () => loadAudit(true);
 document.getElementById("audit").addEventListener("click", e => { const a = e.target.closest("[data-who]"); if (a && a.dataset.who) { e.preventDefault(); document.getElementById("aUser").value = a.dataset.who; loadAudit(); } });
+const bMsg = t => SF.msg(document.getElementById("bMsg"), t, t.startsWith("✓") ? "ok" : "error");
+const KIND = { auto: "Automatic", manual: "Manual", "before-restore": "Before a restore" };
+async function loadBackups() {
+  const b = await SF.api("GET", "/api/backups"), maps = await SF.api("GET", "/api/maps");
+  document.getElementById("bInfo").innerHTML = `Every ${b.every} hours, kept as: the newest ${b.keepRecent}, one a day for ${b.keepDaily} days, one a week for ${b.keepWeekly} weeks; manual ones ${b.keepManualDays} days. Stored in <span class="mono">${SF.esc(b.dir)}</span> (set <span class="mono">Backups:Path</span> in appsettings.json to keep them on another drive).`;
+  const scopes = `<option value="all">Everything</option><option value="projects">Projects</option><option value="library">House library</option>` + maps.map(m => `<option value="map:${SF.esc(m.id)}">Map: ${SF.esc(m.name)}</option>`).join("");
+  document.getElementById("backups").innerHTML = b.list.length ? b.list.map(x => `<tr data-n="${SF.esc(x.name)}">
+    <td class="num" title="${SF.esc(x.name)}">${new Date(x.at).toLocaleString()}<br><span class="note">${SF.ago(x.at)}</span></td>
+    <td>${KIND[x.kind] || SF.esc(x.kind)}${x.by ? ` <span class="note">by ${SF.esc(x.by)}</span>` : ""}</td>
+    <td class="note">${x.counts.projects ?? 0} projects · ${(x.counts.editedBlocks ?? 0).toLocaleString()} edited blocks · ${(x.counts.serverItems ?? 0).toLocaleString()} server items · ${x.counts.libraryDesigns ?? 0} designs${x.maps ? " · map files" : ""}</td>
+    <td class="num">${(x.bytes / 1048576).toFixed(1)} MB</td>
+    <td><div class="row" style="flex-wrap:nowrap;gap:6px"><select data-scope aria-label="What to restore" style="min-width:150px">${scopes}</select><button data-restore>Restore</button>
+      <a class="btn" href="/api/backups/${encodeURIComponent(x.name)}/download">Download</a></div></td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">No backups yet: the first one is made within minutes of starting.</td></tr>`;
+}
+document.getElementById("bNow").onclick = async e => {
+  e.target.disabled = true;
+  try { const b = await SF.api("POST", "/api/backups"); bMsg(`✓ Backed up: ${b.name}`); loadBackups(); } catch (err) { bMsg(err.message); }
+  e.target.disabled = false;
+};
+document.getElementById("backups").addEventListener("click", async e => {
+  const b = e.target.closest("[data-restore]"); if (!b) return;
+  const tr = b.closest("tr"), scope = tr.querySelector("[data-scope]"), what = scope.options[scope.selectedIndex].text;
+  if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = `Restore ${what.toLowerCase()}?`; setTimeout(() => { b.dataset.armed = ""; b.textContent = "Restore"; }, 5000); return; }
+  b.disabled = true;
+  try { const r = await SF.api("POST", `/api/backups/${encodeURIComponent(tr.dataset.n)}/restore`, { scope: scope.value }); bMsg("✓ " + r.summary.charAt(0).toUpperCase() + r.summary.slice(1) + "."); loadBackups(); loadAudit(); }
+  catch (err) { bMsg(err.message); b.disabled = false; }
+});
 async function loadServer() {
   const st = await SF.api("GET", "/api/settings");
   const client = document.getElementById("client"), note = document.getElementById("clientNote");
@@ -206,7 +246,7 @@ document.getElementById("clientForm").onsubmit = async e => {
   me = await SF.requireLogin(); if (!me) return;
   if (me.level < 4) { location.href = "/"; return; }
   SF.header(me, "/admin.html");
-  load(); loadServer(); loadLevels(); loadMaps(); loadAudit();
+  load(); loadServer(); loadLevels(); loadMaps(); loadAudit(); loadBackups();
 })();
 </script>
 </body>

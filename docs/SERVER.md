@@ -20,6 +20,13 @@ shared projects with history, and live co-building on maps.
   designs, projects), every sign-in and failed sign-in, every refused attempt and every export, per person, with
   time, place and address. Admins filter it by person, kind, map or project, dates and text on the Admin page,
   open any spot straight in Walk, and download it as CSV. The app never deletes from it.
+- **Backups**: automatic every 6 hours, kept as the newest 8, one a day for a week and one a week for a month
+  (manual and before-restore backups for 30 days). Each holds the database (projects with every revision, Walk
+  edits with history, server items, the library, people, the log), the settings and the built maps. Admins back
+  up now, download, or restore everything, one map, the projects or the library; people and the activity log
+  always stay as they are, a backup of the moment before is made first, and Walk reloads for everyone. Keep them
+  on another drive with `"Backups": { "Path": "D:/ShardForgeBackups" }` in appsettings.json (also `EveryHours`,
+  `KeepRecent`, `KeepDaily`, `KeepWeekly`, `KeepManualDays`, `IncludeMaps`).
 - **The editor and Walk, served to everyone.** Your client's art, tiledata and maps are streamed only to
   signed-in users, and only the parts each page needs (HTTP range requests). Nobody needs their own copy
   of the client files to take part.
@@ -137,6 +144,7 @@ All under `/api`; changes need `X-ShardForge: 1`.
 | `GET /maps/{id}/servuo` | Admin | ServUO package: map files, items, import script (see SERVUO.md) |
 | `GET /audit`, `GET /audit/people`, `GET /audit.csv` | Admin | Activity log: `?user=&action=&target=&since=&until=&q=&before=&limit=` |
 | `GET /permissions` | Viewer | What each level may do |
+| `GET/POST /backups`, `POST /backups/{name}/restore`, `GET /backups/{name}/download` | Admin | Backups; restore takes `{ scope: "all" \| "map:<id>" \| "projects" \| "library" }` |
 | `GET /prefabs` | Viewer | The shared house library: `{ id, name, data, createdBy, created, updated }` |
 | `POST /prefabs`, `PUT /prefabs/{id}` | Decorator (own) / Worldbuilder | Save `{ name, data }`; `data` is `{ plan }` (editable) or `{ parts: [[id, x, y, z, hue?]] }`; broadcast live |
 | `DELETE /prefabs/{id}` | Decorator (own) / Worldbuilder | Remove a library entry |

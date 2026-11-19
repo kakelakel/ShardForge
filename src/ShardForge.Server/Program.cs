@@ -40,6 +40,8 @@ builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<Db>(), o
 builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddSingleton<PrefabStore>();
 builder.Services.AddSingleton<AuditLog>();
+builder.Services.AddSingleton(sp => new Backups(sp.GetRequiredService<Db>(), options, dataPath, sp.GetRequiredService<AuditLog>(), sp.GetRequiredService<ILogger<Backups>>()));
+builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddSingleton<ItemStore>();
 builder.Services.AddSingleton<BlockStore>();
 builder.Services.AddSingleton(new MapRegistry(options, dataPath));
@@ -549,6 +551,34 @@ api.MapDelete("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore
     return Results.Ok(new { ok = true });
 }).RequireAuthorization("Decorator");
 
+// ============================================================================ backups (admin)
+api.MapGet("/backups", (Backups backups) => Results.Ok(new
+{
+    dir = backups.Dir, every = options.Backups.EveryHours, keepRecent = options.Backups.KeepRecent, keepDaily = options.Backups.KeepDaily,
+    keepWeekly = options.Backups.KeepWeekly, keepManualDays = options.Backups.KeepManualDays, list = backups.List(),
+})).RequireAuthorization("Admin");
+
+api.MapPost("/backups", async (HttpContext ctx, Backups backups) => Results.Ok(await backups.Create("manual", Current(ctx)))).RequireAuthorization("Admin");
+
+api.MapPost("/backups/{name}/restore", async (string name, HttpContext ctx, Backups backups, LiveHub hub, RestoreBody body) =>
+{
+    try
+    {
+        var (before, summary) = await backups.Restore(name, body.Scope ?? "all", Current(ctx));
+        await hub.PublishRestored(Current(ctx).Username, summary);
+        return Results.Ok(new { before = before.Name, summary });
+    }
+    catch (BackupException e) { return Err(400, e.Message); }
+}).RequireAuthorization("Admin");
+
+api.MapGet("/backups/{name}/download", (string name, HttpContext ctx, Backups backups, AuditLog audit) =>
+{
+    var path = backups.PathOf(name);
+    if (path is null) return Results.NotFound();
+    audit.Write(Current(ctx), "export.backup", $"downloaded the backup {name}", ip: Ip(ctx));
+    return Results.File(path, "application/zip", name);
+}).RequireAuthorization("Admin");
+
 // ============================================================================ activity log (admin)
 api.MapGet("/audit", (long? user, string? action, string? target, string? since, string? until, string? q, long? before, int? limit, AuditLog audit) =>
     Results.Ok(audit.Query(user, action, target, since, until, q, before, limit ?? 100))).RequireAuthorization("Admin");
@@ -650,3 +680,4 @@ record BlocksBody(Dictionary<string, string?>? Blocks, Dictionary<string, string
 record BuildRequest(int? Facet);
 
 public partial class Program;
+record RestoreBody(string? Scope);

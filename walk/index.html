@@ -3877,6 +3877,9 @@ const Server = {
       } else if (msg.type === "prefabs") {
         loadMine().then(renderHouses);
         if (msg.by !== this.me?.username) this.note(`${msg.by} ${msg.action} “${msg.name}” ${msg.action === "deleted" ? "from" : "in"} the house library.`);
+      } else if (msg.type === "restored") {
+        toast(`${msg.by} ${msg.summary}. Reloading what you see…`, 8000);
+        this.resync().then(() => undoStack.length = 0).then(() => { loadMine().then(renderHouses); syncEdits(); });
       } else if (msg.type === "rebuilt") toast(`${msg.by} rebuilt this map from its project. Reload the page to see the new terrain.`, 0);
       this.renderPeers(); requestDraw();
     };

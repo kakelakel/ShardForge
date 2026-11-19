@@ -236,6 +236,38 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task BackupsBringTheWorldBackButNotThePeopleOrTheLog()
+    {
+        await EnsureUser("rogue", "Worldbuilder");
+        var (admin, _) = await As("admin");
+        var (rogue, _) = await As("rogue");
+        byte[] well = [0x2D, 0x0E, 2, 2, 0, 0, 0];
+        Assert.Equal(HttpStatusCode.OK, (await rogue.PutAsJsonAsync("/api/maps/tiny/blocks", new { blocks = new Dictionary<string, string> { ["2"] = Convert.ToBase64String(well) } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await rogue.PostAsync("/api/backups", null)).StatusCode);
+        var made = await admin.PostAsync("/api/backups", null);
+        Assert.Equal(HttpStatusCode.OK, made.StatusCode);
+        string name = (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString()!;
+
+        // The rogue wipes the block and changes something else; later someone new joins.
+        Assert.Equal(HttpStatusCode.OK, (await rogue.PutAsJsonAsync("/api/maps/tiny/blocks", new { blocks = new Dictionary<string, string> { ["2"] = "" } })).StatusCode);
+        await EnsureUser("newcomer", "Viewer");
+
+        var restore = await admin.PostAsJsonAsync($"/api/backups/{name}/restore", new { scope = "map:tiny" });
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        var blocks = await admin.GetFromJsonAsync<JsonElement>("/api/maps/tiny/blocks");
+        Assert.Equal(Convert.ToBase64String(well), blocks.GetProperty("blocks").GetProperty("2").GetString());
+        // People and the log are as they are now: the newcomer is still there, and so is the rogue's wipe in the log.
+        var users = await admin.GetFromJsonAsync<JsonElement[]>("/api/users");
+        Assert.Contains(users!, u => u.GetProperty("username").GetString() == "newcomer");
+        var log = await admin.GetFromJsonAsync<JsonElement[]>("/api/audit?q=rogue&limit=500");
+        Assert.Contains(log!, e => e.GetProperty("action").GetString() == "statics.remove" && e.GetProperty("username").GetString() == "rogue");
+        var restored = await admin.GetFromJsonAsync<JsonElement[]>("/api/audit?action=backup.restore");
+        Assert.Contains("the map tiny", restored![0].GetProperty("summary").GetString());
+        var list = await admin.GetFromJsonAsync<JsonElement>("/api/backups");
+        Assert.Contains(list.GetProperty("list").EnumerateArray(), b => b.GetProperty("kind").GetString() == "before-restore");
+    }
+
+    [Fact]
     public async Task TheHouseLibraryIsSharedByEveryone()
     {
         await EnsureUser("vic", "Viewer");
