@@ -100,6 +100,10 @@ public sealed class LiveHub(ILogger<LiveHub> log)
     public Task PublishRebuilt(string mapId, string by) =>
         _rooms.TryGetValue(mapId, out var room) ? Broadcast(room, new { type = "rebuilt", by }) : Task.CompletedTask;
 
+    /// <summary>Tells everyone on every map that the house library changed.</summary>
+    public Task PublishPrefabs(string by, string action, long id, string name) =>
+        Task.WhenAll(_rooms.Values.Select(room => Broadcast(room, new { type = "prefabs", by, action, id, name })));
+
     private static async Task Broadcast(ConcurrentDictionary<string, Peer> room, object message, Peer? except = null)
     {
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(message, Json);

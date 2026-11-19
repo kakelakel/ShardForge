@@ -36,6 +36,7 @@ builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(new Db(dataPath));
 builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<Db>(), options.PasswordIterations));
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<PrefabStore>();
 builder.Services.AddSingleton<BlockStore>();
 builder.Services.AddSingleton(new MapRegistry(options, dataPath));
 builder.Services.AddSingleton<LiveHub>();
@@ -241,7 +242,7 @@ api.MapDelete("/users/{id:long}", (long id, HttpContext ctx, UserStore users) =>
 }).RequireAuthorization("Admin");
 
 // ============================================================================ client data files
-string[] dataFiles = ["artlegacymul.uop", "art.mul", "artidx.mul", "tiledata.mul", "animdata.mul", "hues.mul", "radarcol.mul", "multi.idx", "multi.mul"];
+string[] dataFiles = ["artlegacymul.uop", "art.mul", "artidx.mul", "tiledata.mul", "animdata.mul", "hues.mul", "radarcol.mul", "multi.idx", "multi.mul", "walls.txt", "roof.txt", "floors.txt", "stairs.txt", "doors.txt", "misc.txt"];
 api.MapGet("/data", () => Results.Ok(new
 {
     files = dataFiles.Select(n => (n, path: MapRegistry.FindFile(options.ClientPath, n)))
@@ -401,6 +402,61 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
     catch (InvalidDataException e) { return Err(400, e.Message); }
     finally { gate.Release(); }
 }).RequireAuthorization("Builder");
+
+// ============================================================================ house designs (prefabs)
+api.MapGet("/prefabs", (PrefabStore prefabs) => Results.Ok(prefabs.All().Select(p => new
+{
+    id = p.Id, name = p.Name, data = p.Data, createdBy = p.CreatedByName, created = p.Created, updated = p.Updated,
+}))).RequireAuthorization("Viewer");
+
+api.MapPost("/prefabs", async (HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+{
+    try
+    {
+        var (name, data, bytes) = await PrefabBody(ctx);
+        var id = prefabs.Create(name, data, bytes, Current(ctx).Id);
+        await live.PublishPrefabs(Current(ctx).Username, "saved", id, name.Trim());
+        return Results.Ok(new { id });
+    }
+    catch (PrefabException e) { return Err(400, e.Message); }
+    catch (JsonException) { return Err(400, "Send { name, data } as JSON."); }
+}).RequireAuthorization("Builder");
+
+api.MapPut("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+{
+    try
+    {
+        var (name, data, bytes) = await PrefabBody(ctx);
+        prefabs.Update(id, name, data, bytes, Current(ctx).Id);
+        await live.PublishPrefabs(Current(ctx).Username, "updated", id, name.Trim());
+        return Results.Ok(new { id });
+    }
+    catch (PrefabException e) { return Err(e.Message == "No such design." ? 404 : 400, e.Message); }
+    catch (JsonException) { return Err(400, "Send { name, data } as JSON."); }
+}).RequireAuthorization("Builder");
+
+api.MapDelete("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+{
+    var p = prefabs.Get(id);
+    if (p is null) return Results.NotFound();
+    var me = Current(ctx);
+    if (me.Role < Role.Admin && p.CreatedBy != me.Id) return Err(403, "Only its maker or an admin can delete a design.");
+    prefabs.Delete(id);
+    await live.PublishPrefabs(me.Username, "deleted", id, p.Name);
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization("Builder");
+
+async Task<(string Name, JsonElement Data, int Bytes)> PrefabBody(HttpContext ctx)
+{
+    using var ms = new MemoryStream();
+    await ctx.Request.Body.CopyToAsync(ms);
+    if (ms.Length > PrefabStore.MaxBytes) throw new PrefabException("That design is too big (over 4 MB).");
+    using var doc = JsonDocument.Parse(ms.ToArray());
+    var root = doc.RootElement;
+    string name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : "";
+    var data = root.TryGetProperty("data", out var d) ? d.Clone() : default;
+    return (name, data, (int)ms.Length);
+}
 
 // ============================================================================ start
 app.Lifetime.ApplicationStarted.Register(() =>

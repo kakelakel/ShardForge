@@ -140,6 +140,42 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task TheHouseLibraryIsSharedByEveryone()
+    {
+        await EnsureUser("vic", "Viewer");
+        await EnsureUser("bob", "Builder");
+        await EnsureUser("ann", "Builder");
+        var (viewer, _) = await As("vic");
+        var (bob, _) = await As("bob");
+        var (ann, _) = await As("ann");
+        var plan = new { plan = new { walls = "Dark Wood Standard Walls", storeys = new[] { new[] { new[] { 0, 0 }, new[] { 1, 0 } } } } };
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync("/api/prefabs", new { name = "Hut", data = plan })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await bob.PostAsJsonAsync("/api/prefabs", new { name = "", data = plan })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await bob.PostAsJsonAsync("/api/prefabs", new { name = "Junk", data = new { parts = new[] { new[] { 1, 2 } } } })).StatusCode);
+
+        var made = await bob.PostAsJsonAsync("/api/prefabs", new { name = "Bob's hut", data = plan });
+        Assert.Equal(HttpStatusCode.OK, made.StatusCode);
+        long id = (await made.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        var piece = await ann.PostAsJsonAsync("/api/prefabs", new { name = "Ann's well", data = new { parts = new[] { new[] { 0x0E2D, 0, 0, 0 }, new[] { 0x0E2E, 1, 0, 0, 33 } } } });
+        Assert.Equal(HttpStatusCode.OK, piece.StatusCode);
+
+        // Everyone sees both, viewers included; the plan comes back as saved.
+        var all = await viewer.GetFromJsonAsync<JsonElement[]>("/api/prefabs");
+        var hut = all!.Single(p => p.GetProperty("id").GetInt64() == id);
+        Assert.Equal("bob", hut.GetProperty("createdBy").GetString());
+        Assert.Equal(2, hut.GetProperty("data").GetProperty("plan").GetProperty("storeys")[0].GetArrayLength());
+        Assert.Contains(all!, p => p.GetProperty("name").GetString() == "Ann's well");
+
+        // Any builder can improve it; only its maker or an admin can delete it.
+        Assert.Equal(HttpStatusCode.OK, (await ann.PutAsJsonAsync($"/api/prefabs/{id}", new { name = "Bob's bigger hut", data = plan })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await ann.DeleteAsync($"/api/prefabs/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.PutAsJsonAsync("/api/prefabs/999999", new { name = "x", data = plan })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await bob.DeleteAsync($"/api/prefabs/{id}")).StatusCode);
+        Assert.DoesNotContain(await viewer.GetFromJsonAsync<JsonElement[]>("/api/prefabs") ?? [], p => p.GetProperty("id").GetInt64() == id);
+    }
+
+    [Fact]
     public async Task RolesLimitWhatPeopleCanDo()
     {
         await EnsureUser("vic", "Viewer");

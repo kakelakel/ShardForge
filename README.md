@@ -94,10 +94,17 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
   plots). Apply a hue by number with a colour preview; hued statics are drawn in their colours (`hues.mul`).
 - **Minimap**: the whole map in the client's radar colours with you, your team and the view; click to go there
   (M hides it).
-- **Houses**: every house and building in the client's `multi.mul` with a picture and its size, filtered by size
-  or by what fits the plot under the cursor. A ghost shows where it goes; over a plot it fits it snaps into the
-  plot, its front toward the road. Placing levels the ground and clears plants under it (both optional), one undo
-  step. Doors are server items: add them in game (or with the live ServUO mode on the roadmap).
+- **Houses**, in three tabs: **Designs** (66 ShardForge houses from huts and cottages to keeps and castles, in 15
+  materials), the **Library** (your team's own) and **Client** (the client's `multi.mul`). Filter by size, material
+  or what fits the plot under the cursor. A ghost shows where it goes; over a plot it fits it snaps in, its door
+  toward the road. Placing levels the ground and clears plants under it (both optional), one undo step. Doors are
+  server items: add them in game.
+- **House designer**: lay each storey's floor and the walls (with windows) go up by themselves; add doorways,
+  inner walls, stairs and gable, hipped, pyramid or battlemented roofs (or Auto roof); pick the materials from the
+  client's own house kit. Open any ShardForge design as a copy to change it.
+- **Library**: save a design, or anything you built and selected, under a name. On a Walk server it's shared:
+  everyone sees it at once and can place it again and again; saved designs stay editable. Offline it lives in the
+  browser. Export and import it as a file to move it between servers.
 - **Land editing**: paint terrain (edges blend exactly like a map build; where two terrains can't blend, a
   strip of dirt goes between), raise, lower, flatten, smooth and set the ground with a soft brush. Statics
   resting on the ground move with it. Shared live and undoable like statics.
