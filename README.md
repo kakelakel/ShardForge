@@ -103,7 +103,10 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
   inner walls, stairs and gable, hipped, pyramid or battlemented roofs (or Auto roof); pick the materials from the
   client's own house kit. Open any ShardForge design as a copy to change it.
 - **Server items**: doors that open, signs, working items (forge, anvil, moongate…), teleporters, spawners and
-  regions, shared and undoable like statics. **ServUO package** downloads the map files, the items and the
+  regions, shared and undoable like statics. Spawners are made friendly: pick creatures by name with counts,
+  choose from 49 packs (farmyard, orc war band, graveyard, dragon's lair…), or press **Suggest for here**, which
+  reads the ground, graves, camps and towns around the spot and how far it is from safety. **Fill an area**
+  spreads spawners over a forest or a desert, each suggesting its own creatures; a list shows them all. **ServUO package** downloads the map files, the items and the
   import script; see [docs/SERVUO.md](docs/SERVUO.md) for getting it all onto a ServUO shard.
 - **Library**: save a design, or anything you built and selected, under a name. On a Walk server it's shared:
   everyone sees it at once and can place it again and again; saved designs stay editable. Offline it lives in the

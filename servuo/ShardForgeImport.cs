@@ -13,7 +13,7 @@
 //   sign    x y z <itemID> <hue> <text>
 //   item    x y z <TypeName> <itemID or 0> <hue>
 //   tele    x y z <destX> <destY> <destZ> <destMap>
-//   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <creature,creature,...>
+//   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <Creature:count,Creature:count,...>
 //   region  x y w h <guarded 1|0> <name>
 // Made by ShardForge (https://github.com/kakelakel/ShardForge). Change freely.
 // ===========================================================================
@@ -190,18 +190,23 @@ namespace Server.ShardForge
             Type so = ScriptCompiler.FindTypeByName("SpawnObject");
             foreach (string raw in names)
             {
-                string n = raw.Trim();
+                // "Orc:4": this many of that creature (plain "Orc" shares the total).
+                string[] pair = raw.Trim().Split(':');
+                string n = pair[0].Trim();
                 if (n.Length == 0) continue;
+                int each = pair.Length > 1 ? Math.Max(1, I(pair[1].Trim())) : Math.Max(1, count / Math.Max(1, names.Length));
+                if (ScriptCompiler.FindTypeByName(n) == null) { Console.WriteLine("ShardForge: no creature class '{0}', left out of a spawner.", n); continue; }
                 if (objects != null && so != null)
                 {
                     IList list = (IList)objects.GetValue(sp, null);
                     ConstructorInfo ctor = so.GetConstructor(new Type[] { typeof(string), typeof(int) });
-                    if (list != null && ctor != null) list.Add(ctor.Invoke(new object[] { n, Math.Max(1, count / Math.Max(1, names.Length)) }));
+                    if (list != null && ctor != null) list.Add(ctor.Invoke(new object[] { n, each }));
                 }
                 else if (names1 != null)
                 {
+                    // Older spawners pick at random from the names: list each as often as its share.
                     IList list = (IList)names1.GetValue(sp, null);
-                    if (list != null) list.Add(n);
+                    if (list != null) for (int k = 0; k < Math.Min(each, 20); k++) list.Add(n);
                 }
             }
             Set(sp, "Running", true);

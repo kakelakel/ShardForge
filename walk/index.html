@@ -132,6 +132,22 @@ footer b { color: var(--text); font-weight: 500; }
 
 @media (max-width: 860px) { main { grid-template-columns: 1fr; grid-template-rows: 60vh auto; } body { overflow: auto; } aside { border-left: 0; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.sp-ideas { display: grid; gap: 4px; margin-top: 6px; }
+.sp-ideas button { text-align: left; padding: 6px 8px; line-height: 1.3; }
+.sp-ideas button small { display: block; color: var(--muted, #9aa); font-size: 11px; }
+.sp-list { margin-top: 6px; display: grid; gap: 3px; }
+.sp-row { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.04); border-radius: 6px; padding: 3px 6px; }
+.sp-row b { flex: 1; font-weight: 500; }
+.sp-row button { padding: 1px 7px; min-width: 0; }
+.sp-row .tier, .sp-found .tier { font-size: 10px; padding: 1px 5px; border-radius: 8px; }
+.sp-search { position: relative; margin-top: 6px; }
+.sp-found { position: absolute; z-index: 5; left: 0; right: 0; max-height: 240px; overflow: auto; background: #182025; border: 1px solid #33424a; border-radius: 6px; }
+.sp-found button { display: flex; width: 100%; gap: 6px; justify-content: space-between; border: 0; border-radius: 0; background: none; text-align: left; padding: 5px 8px; }
+.sp-found button:hover, .sp-found button.on { background: rgba(214,170,76,.18); }
+.sp-found small { color: #8a9a9e; }
+.sp-all summary { cursor: pointer; margin: 8px 0 4px; }
+.sp-all .row-sp { display: flex; width: 100%; justify-content: space-between; gap: 6px; text-align: left; padding: 4px 6px; margin-bottom: 2px; }
+.sp-all .row-sp small { color: #8a9a9e; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -339,8 +355,19 @@ footer b { color: var(--text); font-weight: 500; }
         <input class="if" data-k="sign" id="ifText" placeholder="What the sign says" style="width:100%">
         <div class="if" data-k="item"><input id="ifType" list="ifTypes" placeholder="ServUO class, e.g. Forge" style="width:100%"><datalist id="ifTypes"></datalist></div>
         <div class="row if" data-k="tele" style="gap:6px;align-items:center"><label style="margin:0">To</label><input type="number" id="ifDx" style="width:70px" aria-label="Destination x"><input type="number" id="ifDy" style="width:70px" aria-label="Destination y"><input type="number" id="ifDz" style="width:56px" aria-label="Destination z"><select id="ifDmap" aria-label="Destination facet"></select></div>
-        <input class="if" data-k="spawn" id="ifCreatures" placeholder="Creatures: Orc, OrcishMage" style="width:100%">
-        <div class="row if" data-k="spawn" style="gap:6px;align-items:center;flex-wrap:wrap"><label style="margin:0">Count</label><input type="number" id="ifCount" min="1" max="200" value="3" style="width:56px"><label style="margin:0">Range</label><input type="number" id="ifRange" min="0" max="100" value="6" style="width:56px"><label style="margin:0">Respawn</label><input type="number" id="ifMin" min="0" max="1440" value="5" style="width:52px">–<input type="number" id="ifMax" min="0" max="1440" value="10" style="width:52px"> min</div>
+        <div class="if spawn-ui" data-k="spawn">
+          <div class="row" style="gap:6px"><button id="spSuggest" class="primary" title="Looks at the ground, graves, camps and towns around the cursor, and how far it is from safety">Suggest for here</button>
+            <select id="spPack" style="flex:1;min-width:0" aria-label="Packs"></select></div>
+          <div id="spIdeas" class="sp-ideas"></div>
+          <div id="spList" class="sp-list"></div>
+          <div class="sp-search"><input id="spFind" placeholder="Add a creature: wolf, orc, lich, banker…" autocomplete="off" style="width:100%"><div id="spFound" class="sp-found" hidden></div></div>
+          <div class="row" style="gap:6px;align-items:center;margin-top:6px"><label for="ifRange" style="margin:0;white-space:nowrap">Wander</label><input type="range" id="ifRange" min="0" max="40" value="8" style="flex:1"><span id="spRangeTxt" class="note" style="width:96px"></span></div>
+          <div class="row" style="gap:6px;align-items:center"><label for="spDelay" style="margin:0;white-space:nowrap">Comes back</label><select id="spDelay" style="flex:1">
+            <option value="1,3">quickly (1–3 min)</option><option value="5,10" selected>normally (5–10 min)</option><option value="15,30">slowly (15–30 min)</option><option value="60,120">rarely (1–2 hours)</option><option value="custom">custom…</option></select></div>
+          <div class="row" id="spCustom" style="gap:6px;align-items:center" hidden><input type="number" id="ifMin" min="0" max="1440" value="5" style="width:60px">–<input type="number" id="ifMax" min="0" max="1440" value="10" style="width:60px"><span class="note">minutes</span></div>
+          <div class="modes" style="margin-top:6px"><button id="spOne" aria-pressed="true" title="Click to place one spawner">Place one</button><button id="spArea" aria-pressed="false" title="Drag over an area: spawners spread across it">Fill an area</button></div>
+          <label class="check" id="spPerSpotRow" hidden><input type="checkbox" id="spPerSpot" checked> Let each spot suggest its own creatures</label>
+        </div>
         <input class="if" data-k="region" id="ifName" placeholder="Region name, e.g. Britain" style="width:100%">
         <label class="check if" data-k="region"><input type="checkbox" id="ifGuarded" checked> Guarded</label>
         <div class="row" id="ifEditRow" style="gap:6px" hidden><button id="ifApply" class="primary">Apply</button><button id="ifDelete" class="danger">Delete</button></div>
@@ -350,6 +377,8 @@ footer b { color: var(--text); font-weight: 500; }
         <button id="itemTowns" hidden title="A guarded region for every town on this map's layout">Regions for the towns</button>
         <button id="itemPackage" title="Map files, items and regions, with the ServUO import script">ServUO package (.zip)</button>
       </div>
+      <details id="spAll" class="sp-all"><summary>Spawners on this map <span id="spAllCount" class="note"></span></summary>
+        <input id="spAllFind" placeholder="Filter: orc, graveyard…" style="width:100%;margin:6px 0"><div id="spAllList"></div></details>
       <label class="check"><input type="checkbox" id="itemShow" checked> Show server items</label>
     </section>
     <section aria-label="Land" class="build-only">
@@ -854,7 +883,7 @@ function recipePlan(r, door = "S") {
 //   sign    x y z <itemID> <hue> <text>
 //   item    x y z <TypeName> <itemID or 0> <hue>
 //   tele    x y z <destX> <destY> <destZ> <destMap>
-//   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <creature,creature,...>
+//   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <Creature:count,Creature:count,...>
 //   region  x y w h <guarded 1|0> <name>
 // Made by ShardForge (https://github.com/kakelakel/ShardForge). Change freely.
 // ===========================================================================
@@ -1031,18 +1060,23 @@ namespace Server.ShardForge
             Type so = ScriptCompiler.FindTypeByName("SpawnObject");
             foreach (string raw in names)
             {
-                string n = raw.Trim();
+                // "Orc:4": this many of that creature (plain "Orc" shares the total).
+                string[] pair = raw.Trim().Split(':');
+                string n = pair[0].Trim();
                 if (n.Length == 0) continue;
+                int each = pair.Length > 1 ? Math.Max(1, I(pair[1].Trim())) : Math.Max(1, count / Math.Max(1, names.Length));
+                if (ScriptCompiler.FindTypeByName(n) == null) { Console.WriteLine("ShardForge: no creature class '{0}', left out of a spawner.", n); continue; }
                 if (objects != null && so != null)
                 {
                     IList list = (IList)objects.GetValue(sp, null);
                     ConstructorInfo ctor = so.GetConstructor(new Type[] { typeof(string), typeof(int) });
-                    if (list != null && ctor != null) list.Add(ctor.Invoke(new object[] { n, Math.Max(1, count / Math.Max(1, names.Length)) }));
+                    if (list != null && ctor != null) list.Add(ctor.Invoke(new object[] { n, each }));
                 }
                 else if (names1 != null)
                 {
+                    // Older spawners pick at random from the names: list each as often as its share.
                     IList list = (IList)names1.GetValue(sp, null);
-                    if (list != null) list.Add(n);
+                    if (list != null) for (int k = 0; k < Math.Min(each, 20); k++) list.Add(n);
                 }
             }
             Set(sp, "Running", true);
@@ -2903,7 +2937,7 @@ const ITEM_HINTS = {
   sign: "Click to put up a sign. Players see its text when they click it.",
   item: "Click to place a working item. Pick from the list or type any ServUO class name.",
   tele: "Click where the teleporter stands, then where it takes you (or type the destination).",
-  spawn: "Click to place a spawner: its creatures come back after they die, within the range.",
+  spawn: "Pick creatures (Suggest looks at the spot under the cursor), then click to place a spawner. Its creatures come back after they die and wander within the range.",
   region: "Drag out an area and name it. Guarded regions get town guards.",
   pick: "Click a server item (or inside a region) to change or delete it. Delete removes it too.",
 };
@@ -2936,6 +2970,7 @@ const ITEMS = {
     catch (e) { toast("Couldn't save the server items: " + e.message, 6000); }
   },
   count() {
+    SPAWN.listAll();
     const n = {}; for (const it of this.map.values()) n[it.kind] = (n[it.kind] || 0) + 1;
     const names = { door: "door", sign: "sign", item: "item", tele: "teleporter", spawn: "spawner", region: "region" };
     $("itemCount").textContent = this.map.size ? "· " + Object.entries(n).map(([k, v]) => `${v} ${names[k]}${v === 1 ? "" : "s"}`).join(", ") : "";
@@ -2963,7 +2998,7 @@ const ITEMS = {
     if (it.kind === "sign") v("ifText", it.name);
     if (it.kind === "item") v("ifType", it.type);
     if (it.kind === "tele") { v("ifDx", it.dx); v("ifDy", it.dy); v("ifDz", it.dz); v("ifDmap", it.dmap); }
-    if (it.kind === "spawn") { v("ifCreatures", it.creatures); v("ifCount", it.count); v("ifRange", it.range); v("ifMin", it.min); v("ifMax", it.max); }
+    if (it.kind === "spawn") SPAWN.fill(it);
     if (it.kind === "region") { v("ifName", it.name); $("ifGuarded").checked = !!it.guarded; }
   },
   /** The form's fields as an item of the given kind (for a new item, or to apply to the selected one). */
@@ -2974,8 +3009,7 @@ const ITEMS = {
     if (kind === "sign") { it.id = num("ifArt", 0x0BD2); it.hue = num("ifHue", 0); it.name = $("ifText").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 120); }
     if (kind === "item") { it.type = ($("ifType").value.trim() || "Forge").replace(/[^A-Za-z0-9_]/g, ""); it.id = num("ifArt", 0); it.hue = num("ifHue", 0); }
     if (kind === "tele") { it.dx = num("ifDx", it.dx ?? 0); it.dy = num("ifDy", it.dy ?? 0); it.dz = num("ifDz", it.dz ?? 0); it.dmap = $("ifDmap").value; }
-    if (kind === "spawn") { it.creatures = $("ifCreatures").value.split(",").map(x => x.trim().replace(/[^A-Za-z0-9_]/g, "")).filter(Boolean).join(",") || "Orc";
-      it.count = num("ifCount", 3); it.range = num("ifRange", 6); it.min = num("ifMin", 5); it.max = Math.max(num("ifMax", 10), it.min); }
+    if (kind === "spawn") { Object.assign(it, SPAWN.value()); }
     if (kind === "region") { it.name = $("ifName").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 60) || "Unnamed"; it.guarded = $("ifGuarded").checked; }
     return it;
   },
@@ -2994,7 +3028,7 @@ const ITEMS = {
     if (!hover) return;
     const { x, y } = hover, t = this.tool;
     if (t === "pick") { this.sel = this.at(x, y); if (!this.sel) toast("No server item here."); this.form(); requestDraw(); return; }
-    if (t === "region") { this.drag = { start: { x, y }, end: { x, y } }; return; }
+    if (t === "region" || (t === "spawn" && SPAWN.area)) { this.drag = { start: { x, y }, end: { x, y } }; return; }
     if (t === "tele" && !this.tele) { this.tele = { x, y, z: this.zAt(x, y, t) }; this.form(); requestDraw(); return; }
     beginTx();
     if (t === "tele") {
@@ -3008,6 +3042,7 @@ const ITEMS = {
   up() {
     const d = this.drag; if (!d) return; this.drag = null;
     const x0 = Math.min(d.start.x, d.end.x), y0 = Math.min(d.start.y, d.end.y), w = Math.abs(d.end.x - d.start.x) + 1, h = Math.abs(d.end.y - d.start.y) + 1;
+    if (this.tool === "spawn") { SPAWN.fillArea(x0, y0, w, h); return; }
     if (w * h < 4) { toast("Drag out the region's area."); requestDraw(); return; }
     beginTx(); this.put(this.fields("region", { uid: newUid(), x: x0, y: y0, z: 0, w, h })); commitTx();
     toast(`Region “${$("ifName").value.trim() || "Unnamed"}”, ${w}×${h}.`);
@@ -3055,7 +3090,7 @@ const ITEMS = {
         if (it === this.sel) diamond(it.dx, it.dy, it.dz, "#6ad1e3", null, 1);
       } else if (it.kind === "spawn") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#e07a5f", "rgba(224,122,95,.25)");
-        if (zoom >= 0.8 || it === this.sel) label(`${it.count}× ${it.creatures.split(",").join(", ")}`, sx, t - 4, "#f0a58f");
+        if (zoom >= 0.8 || it === this.sel) label(SPAWN.summary(it.creatures), sx, t - 4, "#f0a58f");
         if (it === this.sel) { ctx.save(); ctx.globalAlpha = 0.6; regionPath({ x: it.x - it.range, y: it.y - it.range, w: it.range * 2 + 1, h: it.range * 2 + 1 }, "#e07a5f", [3, 4]); ctx.restore(); }
       } else if (!it.id) diamond(it.x, it.y, it.z, "#d6aa4c", "rgba(214,170,76,.25)");
       if (it === this.sel && it.kind !== "region") diamond(it.x, it.y, it.z, "#e8c98a", null, 2.5);
@@ -3069,7 +3104,11 @@ const ITEMS = {
     const z = this.zAt(hover.x, hover.y, this.tool), ghost = this.fields(this.tool, {});
     if (ghost.id && (this.tool === "door" || this.tool === "sign" || this.tool === "item")) {
       ctx.globalAlpha = 0.7; const [sx, sy] = at(hover.x, hover.y); drawStatic({ id: ghost.id, z, hue: ghost.hue || 0 }, sx, sy, Z); ctx.globalAlpha = 1;
-    } else diamond(hover.x, hover.y, z, this.tool === "spawn" ? "#e07a5f" : "#6ad1e3", null);
+    } else {
+      diamond(hover.x, hover.y, z, this.tool === "spawn" ? "#e07a5f" : "#6ad1e3", null);
+      const r = this.tool === "spawn" && !SPAWN.area ? +$("ifRange").value : 0;
+      if (r) { ctx.save(); ctx.globalAlpha = 0.55; regionPath({ x: hover.x - r, y: hover.y - r, w: 2 * r + 1, h: 2 * r + 1 }, "#e07a5f", [3, 4]); ctx.restore(); }
+    }
     if (this.tele) { diamond(this.tele.x, this.tele.y, this.tele.z, "#6ad1e3", "rgba(106,209,227,.4)"); }
   },
   /** Regions for the towns on the map's layout, sized by kind; replaces earlier ones with the same name. */
@@ -3130,6 +3169,235 @@ $("itemShow").onchange = () => { ITEMS.show = $("itemShow").checked; requestDraw
 $("itemTowns").onclick = () => ITEMS.towns(); $("itemPackage").onclick = () => ITEMS.pack();
 view.addEventListener("mousemove", () => { if (ITEMS.tool) { ITEMS.move(); requestDraw(); } });
 window.addEventListener("mouseup", () => ITEMS.up());
+
+// ===========================================================================
+// Spawners made friendly: creatures by name with counts, ready-made packs, suggestions from the ground, graves,
+// camps and towns around a spot (and how far it is from safety), filling an area, and a list of them all.
+// Creatures are ServUO class names; "Name:count" pairs travel to the shard in the .sfitems file.
+// ===========================================================================
+const TIER_INFO = [null, ["harmless", "#7fb069"], ["easy", "#a7c957"], ["medium", "#e9c46a"], ["hard", "#f4a261"], ["deadly", "#e76f51"]];
+const SPAWN_PACKS = [
+  // name, where it fits (terrain classes or places), danger tier 1–5, creatures, wander range, respawn
+  ["Farmyard", ["farm", "town"], 1, { Chicken: 4, Cow: 2, Pig: 2, Sheep: 3 }, 6, "5,10"],
+  ["Horse paddock", ["farm"], 1, { Horse: 3 }, 5, "15,30"],
+  ["Town strays", ["town"], 1, { Dog: 1, Cat: 2, Sewerrat: 2 }, 10, "5,10"],
+  ["Smithy", ["town"], 1, { Blacksmith: 1, Weaponsmith: 1, Armorer: 1 }, 3, "1,3"],
+  ["Market", ["town"], 1, { Provisioner: 1, Butcher: 1, Baker: 1, Farmer: 1 }, 4, "1,3"],
+  ["Inn & tavern", ["town"], 1, { InnKeeper: 1, Barkeeper: 1, Waiter: 1 }, 3, "1,3"],
+  ["Healers", ["town"], 1, { Healer: 2 }, 3, "1,3"],
+  ["Bank", ["town"], 1, { Banker: 2 }, 2, "1,3"],
+  ["Mage shop", ["town"], 1, { Mage: 1, Alchemist: 1, Scribe: 1 }, 3, "1,3"],
+  ["Crafters", ["town"], 1, { Tailor: 1, Carpenter: 1, Tinker: 1, Bowyer: 1 }, 4, "1,3"],
+  ["Docks", ["town", "water"], 1, { Fisherman: 1, Shipwright: 1 }, 4, "1,3"],
+  ["Stables", ["town", "farm"], 1, { AnimalTrainer: 1, Horse: 2 }, 4, "1,3"],
+  ["Meadow wildlife", ["grass", "farmland"], 1, { Rabbit: 3, Bird: 3, Hind: 2 }, 16, "5,10"],
+  ["Forest wildlife", ["forest"], 1, { Bird: 3, Hind: 2, GreatHart: 1, Rabbit: 2 }, 18, "5,10"],
+  ["Wolves & bears", ["forest", "grass"], 2, { GreyWolf: 3, TimberWolf: 2, BlackBear: 1, BrownBear: 1 }, 16, "5,10"],
+  ["Wild boars", ["forest", "grass"], 1, { Boar: 3, Pig: 1 }, 12, "5,10"],
+  ["Bandit camp", ["grass", "forest", "camp"], 2, { Brigand: 5 }, 8, "15,30"],
+  ["Orc war band", ["grass", "forest", "rock", "camp"], 3, { Orc: 5, OrcishMage: 2, OrcishLord: 1 }, 10, "15,30"],
+  ["Orc fort", ["camp", "rock"], 4, { Orc: 6, OrcishMage: 3, OrcishLord: 2, OrcCaptain: 1, OrcBomber: 2 }, 12, "15,30"],
+  ["Haunted wood", ["forest", "jungle"], 3, { Corpser: 2, WhippingVine: 2, Wisp: 1 }, 10, "15,30"],
+  ["Trolls", ["forest", "rock", "dirt"], 4, { Troll: 3 }, 12, "15,30"],
+  ["Ogres & ettins", ["grass", "rock", "dirt"], 4, { Ogre: 2, Ettin: 2 }, 14, "15,30"],
+  ["Cyclops", ["rock", "grass"], 5, { Cyclops: 1, Titan: 1 }, 14, "60,120"],
+  ["Jungle beasts", ["jungle"], 2, { Gorilla: 2, Panther: 2, Snake: 2, BullFrog: 2 }, 16, "5,10"],
+  ["Lizardmen", ["jungle", "water"], 3, { Lizardman: 5 }, 10, "15,30"],
+  ["Serpents", ["jungle", "sand"], 3, { GiantSerpent: 3 }, 12, "15,30"],
+  ["Desert", ["sand"], 2, { Scorpion: 3, Snake: 2 }, 16, "5,10"],
+  ["Desert dead", ["sand", "graves"], 3, { Mummy: 2, Skeleton: 3 }, 10, "15,30"],
+  ["Frozen wildlife", ["snow"], 2, { WhiteWolf: 3, PolarBear: 1, SnowLeopard: 2 }, 16, "5,10"],
+  ["Frost trolls", ["snow"], 4, { FrostTroll: 3, SnowElemental: 1 }, 12, "15,30"],
+  ["Cave rats", ["cave", "rock"], 1, { GiantRat: 3, Sewerrat: 3 }, 8, "5,10"],
+  ["Ratmen", ["cave", "rock", "dirt"], 2, { Ratman: 4, RatmanArcher: 2, RatmanMage: 1 }, 10, "5,10"],
+  ["Spider nest", ["cave", "forest", "jungle"], 3, { GiantSpider: 4, DreadSpider: 1 }, 8, "15,30"],
+  ["Ettin cave", ["cave", "rock"], 4, { Ettin: 3, OgreLord: 1 }, 10, "15,30"],
+  ["Stone & earth", ["rock", "cave"], 3, { EarthElemental: 2, Gargoyle: 2 }, 10, "15,30"],
+  ["Harpy cliffs", ["rock"], 2, { Harpy: 4, StoneHarpy: 1 }, 14, "5,10"],
+  ["Fire pit", ["lava"], 4, { FireElemental: 3, HellHound: 2, Imp: 2 }, 10, "15,30"],
+  ["Dragon's lair", ["cave", "rock", "lava"], 5, { Drake: 2, Wyvern: 2, Dragon: 1 }, 12, "60,120"],
+  ["Daemon pit", ["cave", "lava"], 5, { Daemon: 2, Imp: 3, Gargoyle: 2 }, 10, "60,120"],
+  ["Graveyard", ["graves"], 2, { Skeleton: 4, Zombie: 4, Ghoul: 2 }, 10, "5,10"],
+  ["Restless dead", ["graves"], 3, { Spectre: 2, Shade: 1, Wraith: 2, SkeletalKnight: 1 }, 10, "15,30"],
+  ["Lich's crypt", ["graves", "cave"], 5, { Lich: 1, BoneMagi: 2, SkeletalMage: 2, BoneKnight: 2 }, 8, "60,120"],
+  ["Mongbats", ["cave", "forest"], 1, { Mongbat: 4 }, 12, "5,10"],
+  ["Slimes", ["cave", "jungle"], 1, { Slime: 4 }, 8, "5,10"],
+  ["Coast", ["water", "sand"], 1, { Walrus: 2, Dolphin: 2 }, 14, "5,10"],
+  ["Sea serpents", ["water"], 3, { SeaSerpent: 3 }, 20, "15,30"],
+  ["Deep sea", ["water"], 5, { DeepSeaSerpent: 2, Kraken: 1, WaterElemental: 1 }, 24, "60,120"],
+  ["Elementals", ["rock", "grass", "sand"], 4, { AirElemental: 1, EarthElemental: 1, FireElemental: 1, WaterElemental: 1 }, 10, "15,30"],
+  ["Evil mages", ["camp", "graves", "forest"], 4, { EvilMage: 3, EvilMageLord: 1 }, 8, "15,30"],
+];
+// Every creature the packs use, with a group and a danger tier, plus a few more to search for.
+const CREATURES = new Map();
+for (const [pack, , tier, list] of SPAWN_PACKS) for (const n of Object.keys(list)) if (!CREATURES.has(n)) CREATURES.set(n, { group: pack, tier: pack.match(/Smithy|Market|Inn|Healers|Bank|Mage shop|Crafters|Docks|Stables/) ? 0 : tier });
+for (const [n, g, t] of [["Llama", "Animals", 1], ["Goat", "Animals", 1], ["Eagle", "Animals", 1], ["Cougar", "Wolves & bears", 2], ["GrizzlyBear", "Wolves & bears", 3], ["Alligator", "Jungle beasts", 2],
+  ["HeadlessOne", "Graveyard", 1], ["RottingCorpse", "Restless dead", 4], ["LichLord", "Lich's crypt", 5], ["OrcBrute", "Orc fort", 4], ["Gazer", "Cave", 3], ["Reaper", "Haunted wood", 3],
+  ["Bogling", "Swamp", 2], ["BogThing", "Swamp", 4], ["PoisonElemental", "Elementals", 5], ["BloodElemental", "Elementals", 5], ["Balron", "Daemon pit", 5], ["StoneGargoyle", "Stone & earth", 4],
+  ["Jeweler", "Town", 0], ["Herbalist", "Town", 0], ["Tanner", "Town", 0], ["Cobbler", "Town", 0], ["Mapmaker", "Town", 0], ["Weaver", "Town", 0], ["Miner", "Town", 0], ["Bard", "Town", 0],
+  ["Veterinarian", "Town", 0], ["TownCrier", "Town", 0], ["RealEstateBroker", "Town", 0], ["Furtrader", "Town", 0], ["Glassblower", "Town", 0], ["Architect", "Town", 0], ["Beekeeper", "Town", 0], ["Miller", "Town", 0]])
+  if (!CREATURES.has(n)) CREATURES.set(n, { group: g, tier: t });
+const nice = n => n.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, c => c.toUpperCase()).replace(/ ([A-Z])/g, (m, c) => " " + c.toLowerCase());
+const tierTag = t => t ? `<span class="tier" style="background:${TIER_INFO[t][1]}33;color:${TIER_INFO[t][1]}">${TIER_INFO[t][0]}</span>` : `<span class="tier" style="background:#6ad1e322;color:#6ad1e3">townsfolk</span>`;
+const SPAWN = {
+  list: [["Orc", 3]], area: false, ideas: [],
+  /** "Orc:3,OrcishMage:1" (or the older "Orc,OrcishMage" with a total) to [[name, count]]. */
+  parse(str, total = 0) {
+    const parts = (str || "").split(",").map(x => x.trim()).filter(Boolean);
+    const each = Math.max(1, Math.round((total || parts.length) / Math.max(1, parts.length)));
+    return parts.map(p => { const [n, c] = p.split(":"); return [n.replace(/[^A-Za-z0-9_]/g, ""), Math.max(1, Math.min(200, +c || each))]; }).filter(([n]) => n);
+  },
+  summary(str) { return this.parse(str).map(([n, c]) => `${c} ${nice(n).toLowerCase()}`).join(", "); },
+  value() {
+    const list = this.list.length ? this.list : [["Orc", 1]];
+    const [mn, mx] = $("spDelay").value === "custom" ? [+$("ifMin").value || 0, +$("ifMax").value || 0] : $("spDelay").value.split(",").map(Number);
+    return { creatures: list.map(([n, c]) => `${n}:${c}`).join(","), count: Math.min(200, list.reduce((s, [, c]) => s + c, 0)), range: +$("ifRange").value, min: mn, max: Math.max(mn, mx) };
+  },
+  fill(it) { this.list = this.parse(it.creatures, it.count); $("ifRange").value = it.range; this.setDelay(it.min, it.max); this.render(); },
+  setDelay(min, max) {
+    const v = `${min},${max}`, o = [...$("spDelay").options].find(o => o.value === v);
+    $("spDelay").value = o ? v : "custom"; $("ifMin").value = min; $("ifMax").value = max; $("spCustom").hidden = !!o;
+  },
+  usePack(p) { this.list = Object.entries(p[3]); $("ifRange").value = p[4]; const [a, b] = p[5].split(",").map(Number); this.setDelay(a, b); this.render(); },
+  changed() { this.render(); if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); requestDraw(); },
+  render() {
+    $("spRangeTxt").textContent = +$("ifRange").value === 0 ? "stay put" : `within ${$("ifRange").value} tiles`;
+    $("spList").innerHTML = this.list.length ? this.list.map(([n, c], i) => `<div class="sp-row"><b>${escapeHtml(nice(n))}</b>${tierTag(CREATURES.get(n)?.tier ?? 3)}
+      <button data-i="${i}" data-d="-1" title="Fewer">−</button><span>${c}</span><button data-i="${i}" data-d="1" title="More">+</button><button data-i="${i}" data-d="x" title="Remove">×</button></div>`).join("")
+      : `<p class="note">No creatures yet: suggest, pick a pack, or add one below.</p>`;
+    $("spList").querySelectorAll("button").forEach(b => b.onclick = () => {
+      const i = +b.dataset.i;
+      if (b.dataset.d === "x") this.list.splice(i, 1); else this.list[i][1] = Math.max(1, Math.min(50, this.list[i][1] + +b.dataset.d));
+      this.changed();
+    });
+    $("spOne").setAttribute("aria-pressed", !this.area); $("spArea").setAttribute("aria-pressed", this.area); $("spPerSpotRow").hidden = !this.area;
+    if (ITEMS.tool === "spawn" && !ITEMS.sel) $("itemHint").textContent = this.area ? "Drag over an area: spawners spread across its walkable ground, spaced by the wander range." : ITEM_HINTS.spawn;
+  },
+  find() {
+    const q = $("spFind").value.trim().toLowerCase(), el = $("spFound");
+    if (!q) { el.hidden = true; return; }
+    const hits = [...CREATURES].filter(([n, c]) => n.toLowerCase().includes(q.replace(/\s+/g, "")) || nice(n).toLowerCase().includes(q) || c.group.toLowerCase().includes(q)).slice(0, 30);
+    const typed = $("spFind").value.trim(), raw = /^[A-Z][A-Za-z0-9_]*$/.test(typed) && ![...CREATURES.keys()].some(k => k.toLowerCase() === typed.toLowerCase()) ? typed : null;
+    el.innerHTML = hits.map(([n, c]) => `<button data-n="${n}"><span>${escapeHtml(nice(n))} <small>${escapeHtml(c.group)}</small></span>${tierTag(c.tier)}</button>`).join("")
+      + (raw ? `<button data-n="${raw}"><span>Use “${escapeHtml(raw)}” <small>any ServUO creature class</small></span></button>` : "");
+    el.hidden = !el.innerHTML;
+    el.querySelectorAll("button").forEach(b => b.onmousedown = e => { e.preventDefault(); this.add(b.dataset.n); });
+  },
+  add(n) {
+    const row = this.list.find(r => r[0] === n); if (row) row[1]++; else this.list.push([n, CREATURES.get(n)?.tier === 0 ? 1 : 2]);
+    $("spFind").value = ""; $("spFound").hidden = true; this.changed();
+  },
+  /** What's around a spot: ground mix, graves and camps nearby, the region it's in and the nearest town. */
+  look(x, y) {
+    const mix = {}; let n = 0;
+    for (let dy = -12; dy <= 12; dy += 2) for (let dx = -12; dx <= 12; dx += 2) {
+      const tx = x + dx, ty = y + dy; if (tx < 0 || ty < 0 || tx >= M.w || ty >= M.h) continue;
+      const c = TILE_CLASS.get(landAt(tx, ty).id & 0x3FFF) || ((TD.land.name[landAt(tx, ty).id & 0x3FFF] || "").toLowerCase().includes("water") ? "water" : null);
+      if (c) { mix[c] = (mix[c] || 0) + 1; n++; }
+    }
+    for (const k in mix) mix[k] /= Math.max(1, n);
+    let graves = 0, camp = 0, built = 0;
+    for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) {
+      for (const st of staticsAt(x + dx, y + dy)) {
+        const nm = (TD.st.name[st.id] || "").toLowerCase();
+        if (/grave|tomb|coffin|sarcoph|headstone/.test(nm)) graves++;
+        else if (/tent|campfire|bedroll/.test(nm)) camp++;
+        else if (tdFlags(st.id) & FL.WALL) built++;
+      }
+    }
+    const region = [...ITEMS.map.values()].filter(r => r.kind === "region" && x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h).sort((a, b) => a.w * a.h - b.w * b.h)[0] || null;
+    const towns = (M.layout?.places || []).filter(p => ["city", "town", "village", "hamlet"].includes(p.kind));
+    let near = null, dist = Infinity;
+    for (const t of towns) { const d = Math.hypot(t.x - x, t.y - y); if (d < dist) { dist = d; near = t; } }
+    for (const r of ITEMS.map.values()) if (r.kind === "region" && r.guarded) { const d = Math.max(0, Math.abs(x - (r.x + r.w / 2)) - r.w / 2, Math.abs(y - (r.y + r.h / 2)) - r.h / 2); if (d < dist) { dist = d; near = { name: r.name }; } }
+    const tier = !isFinite(dist) ? 3 : dist < 40 ? 1 : dist < 110 ? 2 : dist < 220 ? 3 : dist < 380 ? 4 : 5;
+    return { mix, graves, camp, built, region, near, dist, tier, inTown: !!region?.guarded || dist < 1 };
+  },
+  /** The packs that fit a spot best, each with why. */
+  suggest(x, y, max = 3) {
+    const L = this.look(x, y), out = [];
+    const top = Object.entries(L.mix).sort((a, b) => b[1] - a[1]);
+    for (const p of SPAWN_PACKS) {
+      const [name, where, tier] = p;
+      let score = 0, why = [];
+      for (const w of where) {
+        if (L.mix[w]) { score += L.mix[w] * 2; }
+        if (w === "graves" && L.graves >= 2) { score += 2 + Math.min(2, L.graves / 6); why.push(`${L.graves} graves nearby`); }
+        if (w === "camp" && L.camp >= 1) { score += 1.5; why.push("a camp nearby"); }
+        if (w === "town" && L.inTown) { score += 2.5; why.push(`inside ${L.region?.name || "town"}`); }
+        if (w === "farm" && L.dist < 70 && ((L.mix.grass || 0) + (L.mix.farmland || 0)) > 0.4) { score += 1.5; why.push(`open land near ${L.near?.name || "town"}`); }
+      }
+      if (L.inTown && !where.includes("town") && tier > 1) continue;            // no monsters in guarded towns
+      if (!L.inTown && where.length === 1 && where[0] === "town") continue;
+      if (where.includes("town") && L.inTown && L.built < 4 && /Smithy|Market|Inn|Bank|Mage shop|Crafters|Healers/.test(name)) score -= 1; // vendors want buildings
+      score -= Math.abs(tier - L.tier) * 0.6;
+      if (score <= 0.3) continue;
+      const ground = where.filter(w => L.mix[w] > 0.15).map(w => TERRAIN_INFO[w]?.[0]?.toLowerCase() || w);
+      if (ground.length) why.unshift(ground.join(" and "));
+      if (!L.inTown && isFinite(L.dist)) why.push(`${Math.round(L.dist)} tiles from ${L.near?.name || "safety"}: ${TIER_INFO[L.tier][0]}`);
+      out.push({ pack: p, score, why: why.join(" · ") });
+    }
+    out.sort((a, b) => b.score - a.score);
+    return { ideas: out.slice(0, max), look: L, ground: top.slice(0, 2).map(([k]) => TERRAIN_INFO[k]?.[0] || k) };
+  },
+  showIdeas(x, y) {
+    const r = this.suggest(x, y);
+    this.ideas = r.ideas;
+    $("spIdeas").innerHTML = r.ideas.length ? r.ideas.map((s, i) => `<button data-i="${i}">${escapeHtml(s.pack[0])} ${tierTag(s.pack[2])}<small>${escapeHtml(SPAWN.summary(Object.entries(s.pack[3]).map(([n, c]) => n + ":" + c).join(",")))}</small><small>${escapeHtml(s.why)}</small></button>`).join("")
+      : `<p class="note">Nothing obvious fits here (${escapeHtml(r.ground.join(", ") || "unknown ground")}). Pick a pack or add creatures.</p>`;
+    $("spIdeas").querySelectorAll("button").forEach(b => b.onclick = () => { this.usePack(this.ideas[+b.dataset.i].pack); if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); $("spIdeas").innerHTML = ""; });
+  },
+  /** Spawners spread across an area, on walkable ground, spaced by their wander range. */
+  fillArea(x0, y0, w, h) {
+    const base = this.value(), gap = Math.max(6, Math.min(30, Math.round(base.range * 1.25) || 10)), per = $("spPerSpot").checked;
+    if (w < 4 || h < 4) { toast("Drag over a bigger area."); requestDraw(); return; }
+    const spots = [];
+    const ox = Math.floor(((w - 1) % gap) / 2), oy = Math.floor(((h - 1) % gap) / 2); // centre the grid in the area
+    for (let y = y0 + oy; y < y0 + h; y += gap) for (let x = x0 + ox; x < x0 + w; x += gap) {
+      const jx = Math.max(x0, Math.min(x0 + w - 1, x + Math.round((Math.random() - 0.5) * gap * 0.5))), jy = Math.max(y0, Math.min(y0 + h - 1, y + Math.round((Math.random() - 0.5) * gap * 0.5)));
+      const land = landAt(jx, jy), cls = TILE_CLASS.get(land.id & 0x3FFF);
+      if (cls === "water" || (TD.land.flags[land.id & 0x3FFF] & F.IMPASSABLE)) continue;
+      spots.push([jx, jy]);
+    }
+    if (spots.length > 300) { toast(`That would be ${spots.length} spawners. Drag a smaller area or raise the wander range.`); requestDraw(); return; }
+    beginTx(); let n = 0;
+    for (const [x, y] of spots) {
+      let v = base;
+      if (per) { const best = this.suggest(x, y, 1).ideas[0]; if (!best) continue; const p = best.pack, [a, b] = p[5].split(",").map(Number);
+        v = { creatures: Object.entries(p[3]).map(([k, c]) => k + ":" + c).join(","), count: Object.values(p[3]).reduce((s, c) => s + c, 0), range: p[4], min: a, max: b }; }
+      ITEMS.put({ uid: newUid(), kind: "spawn", x, y, z: topSurface(x, y), ...v }); n++;
+    }
+    commitTx(); toast(n ? `${n} spawners across ${w}×${h} tiles.` : "No walkable ground there.");
+  },
+  /** Every spawner on the map, filterable; click to go there and edit it. */
+  listAll() {
+    const all = [...ITEMS.map.values()].filter(i => i.kind === "spawn"), q = $("spAllFind").value.trim().toLowerCase();
+    $("spAllCount").textContent = all.length ? `(${all.length})` : "";
+    if (!$("spAll").open) return;
+    const rows = all.filter(i => !q || i.creatures.toLowerCase().includes(q) || this.summary(i.creatures).includes(q)).sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y)).slice(0, 200);
+    $("spAllList").innerHTML = rows.length ? rows.map(i => `<button class="row-sp" data-u="${i.uid}"><span>${escapeHtml(this.summary(i.creatures))}</span><small>${i.x}, ${i.y} · ${Math.round(Math.hypot(i.x - P.x, i.y - P.y))} away</small></button>`).join("")
+      : `<p class="note">${all.length ? "None match." : "No spawners yet."}</p>`;
+    $("spAllList").querySelectorAll("button").forEach(b => b.onclick = () => {
+      const it = ITEMS.map.get(b.dataset.u); if (!it) return;
+      jump(it.x, it.y); if (ITEMS.tool !== "pick") ITEMS.setTool("pick"); ITEMS.sel = it; ITEMS.form(); requestDraw();
+    });
+  },
+};
+$("spPack").innerHTML = `<option value="">Packs…</option>` + SPAWN_PACKS.map((p, i) => `<option value="${i}">${escapeHtml(p[0])} · ${TIER_INFO[p[2]][0]}</option>`).join("");
+$("spPack").onchange = () => { if ($("spPack").value) { SPAWN.usePack(SPAWN_PACKS[+$("spPack").value]); if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); } $("spPack").value = ""; };
+$("spSuggest").onclick = () => { const at = ITEMS.sel?.kind === "spawn" ? ITEMS.sel : hover || { x: P.x, y: P.y }; SPAWN.showIdeas(at.x, at.y); };
+$("spFind").oninput = () => SPAWN.find();
+$("spFind").onkeydown = e => { if (e.key === "Enter") { const b = $("spFound").querySelector("button"); if (b) SPAWN.add(b.dataset.n); } if (e.key === "Escape") { $("spFind").value = ""; $("spFound").hidden = true; } };
+$("spFind").onblur = () => setTimeout(() => $("spFound").hidden = true, 150);
+$("ifRange").oninput = () => { SPAWN.render(); requestDraw(); };
+$("ifRange").onchange = () => { if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); };
+$("spDelay").onchange = () => { $("spCustom").hidden = $("spDelay").value !== "custom"; if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); };
+for (const id of ["ifMin", "ifMax"]) $(id).onchange = () => { if (ITEMS.sel?.kind === "spawn") ITEMS.apply(); };
+$("spOne").onclick = () => { SPAWN.area = false; SPAWN.render(); };
+$("spArea").onclick = () => { SPAWN.area = true; SPAWN.render(); };
+$("spAll").ontoggle = () => SPAWN.listAll();
+$("spAllFind").oninput = () => SPAWN.listAll();
+SPAWN.render();
 
 // ===========================================================================
 // Minimap: the whole map's land in the client's radar colours, with you, your team and the view.

@@ -57,6 +57,9 @@ creating anything.
   facet it's for: custom facet numbers default to Felucca, so edit that line if needed.
 - Regions are registered at every start and by `[SFImport`; they aren't saved with the world, so the file is
   the truth.
+- Spawners carry a count per creature (`Orc:4,OrcishMage:1`). New ServUO spawners get one spawn entry per
+  creature with its count; older ones (a plain list of names) get each name as often as its share, so the mix
+  stays about right.
 - Doors are ServUO classes (`DarkWoodDoor`, `StrongWoodDoor`, `IronGate`…), items are any ServUO class by name
   (`Forge`, `Anvil`, `PublicMoongate`…), spawners take ServUO creature class names (`Orc, OrcishMage`). A name
   ServUO doesn't know is skipped and reported in the console.

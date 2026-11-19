@@ -153,6 +153,7 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
             new { uid = "d1", kind = "door", x = 10, y = 10, z = 0, type = "DarkWoodDoor", facing = "WestCW" },
             new { uid = "s1", kind = "sign", x = 11, y = 10, z = 0, id = 0x0BD2, name = "The Rusty Anchor" },
             new { uid = "p1", kind = "spawn", x = 12, y = 12, z = 0, creatures = "Orc, OrcishMage", count = 4, range = 6, min = 5, max = 10 },
+            new { uid = "p2", kind = "spawn", x = 3, y = 3, z = 0, creatures = "Chicken:4, Cow:2", count = 0, range = 6, min = 5, max = 10 },
             new { uid = "r1", kind = "region", x = 0, y = 0, z = 0, w = 16, h = 12, name = "Anchorage", guarded = true },
         };
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PutAsJsonAsync($"/api/maps/{id}/items", new { put })).StatusCode);
@@ -162,8 +163,11 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(HttpStatusCode.OK, (await bob.PutAsJsonAsync($"/api/maps/{id}/items", new { remove = new[] { "s1" } })).StatusCode);
 
         var items = await viewer.GetFromJsonAsync<JsonElement[]>($"/api/maps/{id}/items");
-        Assert.Equal(3, items!.Length);
-        Assert.Equal("Orc,OrcishMage", items.Single(i => i.GetProperty("uid").GetString() == "p1").GetProperty("creatures").GetString());
+        Assert.Equal(4, items!.Length);
+        var farm = items.Single(i => i.GetProperty("uid").GetString() == "p2");
+        Assert.Equal("Chicken:4,Cow:2", farm.GetProperty("creatures").GetString());
+        Assert.Equal(6, farm.GetProperty("count").GetInt32());
+        Assert.Equal("Orc:2,OrcishMage:2", items.Single(i => i.GetProperty("uid").GetString() == "p1").GetProperty("creatures").GetString());
 
         var zip = new ZipArchive(new MemoryStream(await bob.GetByteArrayAsync($"/api/maps/{id}/servuo")));
         Assert.Contains(zip.Entries, e => e.FullName == "ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs");
@@ -171,7 +175,7 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         string sf = new StreamReader(zip.Entries.Single(e => e.FullName.EndsWith(".sfitems")).Open()).ReadToEnd();
         Assert.Contains("map\tFelucca", sf);
         Assert.Contains("door\t10\t10\t0\tDarkWoodDoor\tWestCW", sf);
-        Assert.Contains("spawn\t12\t12\t0\t4\t6\t5\t10\tOrc,OrcishMage", sf);
+        Assert.Contains("spawn\t12\t12\t0\t4\t6\t5\t10\tOrc:2,OrcishMage:2", sf);
         Assert.Contains("region\t0\t0\t16\t12\t1\tAnchorage", sf);
         Assert.DoesNotContain("Rusty Anchor", sf);
     }

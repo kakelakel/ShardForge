@@ -114,9 +114,14 @@ public sealed class ItemStore(Db db)
                 r["dmap"] = dm.Length == 0 ? ServUOMap(map) : Ident(dm) ? dm : throw new ItemException("A map name has letters only.");
                 break;
             case "spawn":
-                var names = Str(o, "creatures", 400).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (names.Length == 0 || !names.All(Ident)) throw new ItemException("Creatures are ServUO class names separated by commas, like Orc, OrcishMage.");
-                r["creatures"] = string.Join(",", names); r["count"] = Int(o, "count", 1, 200, 1); r["range"] = Int(o, "range", 0, 100, 5);
+                // "Orc:4, OrcishMage:1", or plain names sharing the total count.
+                var entries = Str(o, "creatures", 600).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(e => e.Split(':', 2, StringSplitOptions.TrimEntries)).ToList();
+                if (entries.Count == 0 || entries.Count > 20 || !entries.All(e => Ident(e[0]) && (e.Length == 1 || int.TryParse(e[1], out var k) && k is >= 1 and <= 200)))
+                    throw new ItemException("Creatures are ServUO class names, each with a count if you like: Orc:4, OrcishMage:1.");
+                int total = Int(o, "count", 0, 200, 0), each = Math.Max(1, (total == 0 ? entries.Count : total) / entries.Count);
+                var pairs = entries.Select(e => (Name: e[0], Count: e.Length > 1 ? int.Parse(e[1]) : each)).ToList();
+                r["creatures"] = string.Join(",", pairs.Select(p => $"{p.Name}:{p.Count}")); r["count"] = Math.Min(200, pairs.Sum(p => p.Count)); r["range"] = Int(o, "range", 0, 100, 5);
                 r["min"] = Int(o, "min", 0, 1440, 5); r["max"] = Int(o, "max", 0, 1440, 10);
                 break;
             case "region":
