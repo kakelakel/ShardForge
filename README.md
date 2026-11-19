@@ -14,8 +14,7 @@ statics.png  ─┘   (tiles + transitions + scattered statics)
 
 Then build and decorate by hand in **Walk**, ShardForge's own walk-around map editor, alone or with your team at
 the same time. Walk is meant to replace a separate tool like [CentrED#](https://github.com/kaczy93/centredsharp)
-for this. It places and removes statics and edits the land; whole houses (multis), hues and
-select/move/copy are next (roadmap item 10).
+for this: statics, land, whole houses, select/move/copy, hues and a minimap are all there.
 
 > Status: 0.4 (early). Paint and generate worlds, lay out towns, build real UO map files with soft terrain edges,
 > and walk and decorate them together through the self-hosted server. Not yet tested in a live client.
@@ -89,6 +88,12 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
   world, ghosts preview exactly what will be placed, and every click or stroke is one undo step.
 - **Building plots**: maps built from a project show its plots on the ground (tinted, the road side drawn solid,
   labelled with their purpose and size) and list its towns, camps, ruins and shrines under Known places.
+- **Select, move, copy, hue**: Select mode (6) picks statics by click (Shift adds) or by dragging a box; drag the
+  selection to move it, nudge it a tile (Ctrl+arrows) or raise it (PgUp/PgDn); Delete removes; Ctrl+C / Ctrl+V
+  copies and stamps it anywhere, heights kept relative to the ground (decorate one house, repeat it on other
+  plots). Apply a hue by number with a colour preview; hued statics are drawn in their colours (`hues.mul`).
+- **Minimap**: the whole map in the client's radar colours with you, your team and the view; click to go there
+  (M hides it).
 - **Houses**: every house and building in the client's `multi.mul` with a picture and its size, filtered by size
   or by what fits the plot under the cursor. A ghost shows where it goes; over a plot it fits it snaps into the
   plot, its front toward the road. Placing levels the ground and clears plants under it (both optional), one undo
@@ -137,8 +142,8 @@ before they play: checksummed downloads, backups of the originals, data files on
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Builder with categories, favourites, animation and placement modes.
     ✅ Land editing (paint with soft blends, raise, lower, flatten, smooth, set) and Walk edits kept when a
-    project is rebuilt. ✅ Houses (multis) that snap into plots. Next, so Walk can replace CentrED:
-    select/move/copy/delete with nudge and z adjust, hues, a minimap.
+    project is rebuilt. ✅ Houses (multis) that snap into plots. ✅ Select/move/copy/delete with nudge and z,
+    hues, a minimap. Next: live ServUO items (doors, signs, spawners), a statics brush for whole decorations.
 11. ✅ **Settlements** (first version): organic towns, villages and walled cities laid out as roads, squares and
     building plots; country roads; wilderness sites; Populate world; plots and places in Walk. Next: regions,
     guard zones and spawners exported for ServUO, docks and harbours, dungeon entrances, a plot picker in Walk that

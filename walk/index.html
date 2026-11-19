@@ -56,6 +56,8 @@ header .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
 #stage { position: relative; min-width: 0; min-height: 0; background: #07090a; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+#minimap { position: absolute; left: 12px; bottom: 12px; z-index: 3; width: 230px; border: 1px solid rgba(214,170,76,.6); border-radius: 4px;
+  background: #07090a; box-shadow: 0 4px 16px rgba(0,0,0,.5); cursor: crosshair; image-rendering: pixelated; }
 #toast {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--gold);
   padding: 6px 12px; border-radius: 999px; font-size: 13px; display: none; max-width: 80%; text-align: center;
@@ -75,6 +77,9 @@ aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.nudge { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px; }
+.nudge button { padding: 5px 4px; font-size: 12px; }
+.hue-strip { flex: 1; height: 16px; border-radius: 3px; border: 1px solid rgba(0,0,0,.4); background: #333; }
 .house-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; max-height: 330px; overflow-y: auto; }
 .house-grid button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; font-size: 11px; }
 .house-grid button[aria-pressed="true"] { outline: 2px solid var(--accent, #d6aa4c); }
@@ -144,6 +149,7 @@ footer b { color: var(--text); font-weight: 500; }
 
 <main>
   <div id="stage">
+    <canvas id="minimap" hidden title="Click to go there (M hides it)"></canvas>
     <canvas id="view" tabindex="0" aria-label="World view. Arrow keys or WASD walk, Shift runs. Click places the selected item, Delete or right-click removes, Alt-click picks up."></canvas>
     <div id="welcome">
       <div class="card">
@@ -215,6 +221,7 @@ footer b { color: var(--text); font-weight: 500; }
         <button data-mode="rect" aria-pressed="false" title="Drag to fill a rectangle (3)">Rect</button>
         <button data-mode="scatter" aria-pressed="false" title="Paint items at random (4)">Scatter</button>
         <button data-mode="erase" aria-pressed="false" title="Paint to remove statics (5)">Erase</button>
+        <button data-mode="select" aria-pressed="false" title="Select, move, copy and hue statics (6)">Select</button>
       </div>
       <div class="opts">
         <label for="zOff">Height offset</label><input type="range" id="zOff" min="-40" max="60" value="0"><output id="zOffOut">0</output>
@@ -222,6 +229,25 @@ footer b { color: var(--text); font-weight: 500; }
         <label for="density">Density</label><input type="range" id="density" min="2" max="100" value="25"><output id="densityOut">25%</output>
       </div>
       <p class="note" id="modeHint">Click a tile to place the item on the ground there. <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> raise or lower it.</p>
+    </section>
+    <section aria-label="Selection" class="build-only" id="selSection" hidden>
+      <h2>Selection <span class="note" id="selCount"></span></h2>
+      <div class="nudge">
+        <button data-nudge="0,-1" title="North (Ctrl+↑)">↑ N</button><button data-nudge="0,1" title="South (Ctrl+↓)">↓ S</button>
+        <button data-nudge="-1,0" title="West (Ctrl+←)">← W</button><button data-nudge="1,0" title="East (Ctrl+→)">→ E</button>
+        <button data-z="1" title="Up (PgUp, Shift for 5)">Up</button><button data-z="-1" title="Down (PgDn, Shift for 5)">Down</button>
+      </div>
+      <div class="row" style="margin-top:6px;flex-wrap:wrap">
+        <button id="selCopy" title="Ctrl+C">Copy</button><button id="selPaste" title="Ctrl+V: click to stamp copies, Esc to stop">Paste</button>
+        <button id="selDelete" class="danger" title="Delete">Delete</button><button id="selNone" title="Esc">Clear</button>
+      </div>
+      <div class="row" style="margin-top:8px;align-items:center;gap:6px">
+        <label for="hueId" style="margin:0">Hue</label>
+        <input type="number" id="hueId" min="0" max="3000" value="0" style="width:76px">
+        <div class="hue-strip" id="hueStrip" title="Hue colours"></div>
+        <button id="hueApply">Apply</button>
+      </div>
+      <p class="note" id="hueName"></p>
     </section>
     <section aria-label="Houses" class="build-only">
       <h2>Houses</h2>
@@ -520,6 +546,56 @@ const Art = {
 };
 
 // ===========================================================================
+// hues.mul: groups of 8 hues (int header, then per hue 32 colours, table start/end and a 20-char name).
+// A hue recolours art by brightness; "partial hue" items only recolour their grey pixels.
+// ===========================================================================
+const Hues = {
+  u8: null, cache: new Map(),
+  load(u8) { this.u8 = u8; this.cache.clear(); },
+  count() { return this.u8 ? Math.floor(this.u8.length / 708) * 8 : 0; },
+  /** The 32 colours of hue h (1-based) as [r, g, b], or null. */
+  colors(h) {
+    h = (h & 0x3FFF) - 1;
+    if (!this.u8 || h < 0) return null;
+    const g = Math.floor(h / 8), o = g * 708 + 4 + (h % 8) * 88;
+    if (o + 88 > this.u8.length) return null;
+    const dv = new DataView(this.u8.buffer, this.u8.byteOffset + o, 64), out = [];
+    for (let i = 0; i < 32; i++) { const c = dv.getUint16(i * 2, true); out.push([((c >> 10) & 31) * 255 / 31, ((c >> 5) & 31) * 255 / 31, (c & 31) * 255 / 31]); }
+    return out;
+  },
+  name(h) {
+    h = (h & 0x3FFF) - 1;
+    if (!this.u8 || h < 0) return "";
+    const o = Math.floor(h / 8) * 708 + 4 + (h % 8) * 88 + 68;
+    if (o + 20 > this.u8.length) return "";
+    let s = ""; for (let i = 0; i < 20 && this.u8[o + i]; i++) s += String.fromCharCode(this.u8[o + i]);
+    return s.trim();
+  },
+  /** The static's art recoloured with hue h (cached), or the plain art while either is unavailable. */
+  art(id, h) {
+    const key = id + ":" + h;
+    if (this.cache.has(key)) return this.cache.get(key);
+    const base = Art.get(0x4000 + id, requestDraw);
+    const cols = this.colors(h);
+    if (!base || !cols) return base;
+    const partial = (tdFlags(id) & 0x00040000) !== 0;
+    const cv = document.createElement("canvas"); cv.width = base.width; cv.height = base.height;
+    const c = cv.getContext("2d"); c.drawImage(base, 0, 0);
+    const im = c.getImageData(0, 0, cv.width, cv.height), d = im.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (!d[i + 3]) continue;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      if (partial && !(r === g && g === b)) continue;
+      const col = cols[Math.min(31, Math.round(r * 31 / 255))];
+      d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2];
+    }
+    c.putImageData(im, 0, 0);
+    this.cache.set(key, cv);
+    return cv;
+  },
+};
+
+// ===========================================================================
 // animdata.mul: frame offsets for animated statics (fires, water, forges...)
 // Groups of 8 entries: int header, then 64 signed frame offsets, unknown, count, interval, start.
 // ===========================================================================
@@ -721,7 +797,7 @@ let animSeen = false, animTimer = null;
 function drawStatic(s, sx, sy, Z) {
   let id = s.id;
   if (Anim.is(id)) { id = Anim.frame(id, performance.now()); animSeen = true; }
-  const img = Art.get(0x4000 + id, requestDraw);
+  const img = s.hue ? Hues.art(id, s.hue) : Art.get(0x4000 + id, requestDraw);
   if (!img) return;
   ctx.drawImage(img, sx - img.width * zoom / 2, sy + (44 - img.height) * zoom - s.z * Z, img.width * zoom, img.height * zoom);
 }
@@ -815,6 +891,37 @@ function draw() {
       }
     }
   }
+  // Selection: a gold diamond at each selected item's height; a box while dragging; ghosts while moving or pasting.
+  if (SEL.items.length) {
+    const live = selLive(); ctx.strokeStyle = "#f0c95a"; ctx.lineWidth = 2;
+    if (live.length > 24) {
+      // Many items: one outline around the cells they cover, on the ground.
+      const cells = new Set(live.map(it => it.x + "," + it.y)), corner = (u, v) => { const [sx, sy] = at(u, v); return [sx, sy - landAt(u, v).z * Z]; };
+      ctx.beginPath();
+      for (const c of cells) {
+        const [x, y] = c.split(",").map(Number);
+        const edges = [[!cells.has(x + "," + (y - 1)), [x, y], [x + 1, y]], [!cells.has((x + 1) + "," + y), [x + 1, y], [x + 1, y + 1]],
+                       [!cells.has(x + "," + (y + 1)), [x, y + 1], [x + 1, y + 1]], [!cells.has((x - 1) + "," + y), [x, y], [x, y + 1]]];
+        for (const [open, a, b] of edges) if (open) { const p = corner(...a), q = corner(...b); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+      }
+      ctx.stroke();
+    } else for (const { s, x, y } of live) {
+      const [sx, sy] = at(x, y), top = sy - s.z * Z;
+      ctx.beginPath(); ctx.moveTo(sx, top); ctx.lineTo(sx + 22 * zoom, top + 22 * zoom); ctx.lineTo(sx, top + 44 * zoom); ctx.lineTo(sx - 22 * zoom, top + 22 * zoom); ctx.closePath(); ctx.stroke();
+    }
+  }
+  if (drag?.mode === "selbox" && hover) {
+    const x0 = Math.min(drag.start.x, hover.x), x1 = Math.max(drag.start.x, hover.x), y0 = Math.min(drag.start.y, hover.y), y1 = Math.max(drag.start.y, hover.y);
+    const [ax, ay] = at(x0, y0), [bx, by] = at(x1 + 1, y0), [cx2, cy2] = at(x1 + 1, y1 + 1), [dx2, dy2] = at(x0, y1 + 1), gz = landAt(drag.start.x, drag.start.y).z * Z;
+    ctx.strokeStyle = "#f0c95a"; ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(ax, ay - gz); ctx.lineTo(bx, by - gz); ctx.lineTo(cx2, cy2 - gz); ctx.lineTo(dx2, dy2 - gz); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const sg = selGhost();
+  if (sg.length) {
+    ctx.globalAlpha = 0.6;
+    for (const g of sg.sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z)) { const [sx, sy] = at(g.x, g.y); drawStatic({ id: g.id, z: g.z, hue: g.hue }, sx, sy, Z); }
+    ctx.globalAlpha = 1;
+  }
   // A house ghost: the whole multi where a click will put it.
   const hg = houseGhost();
   if (hg) {
@@ -851,6 +958,7 @@ function draw() {
     outline(hover.x, hover.y, B.sel.length ? "#d6aa4c" : "rgba(255,255,255,.75)");
   }
   if (animSeen && !animTimer) animTimer = setTimeout(() => { animTimer = null; requestDraw(); }, 100);
+  Minimap.draw(rect, R);
   status();
 }
 
@@ -917,10 +1025,14 @@ function bump() { toast("Blocked", 500); }
 window.addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if ((e.key === "Delete" || e.key === "Backspace") && SEL.items.length) { e.preventDefault(); selDelete(); return; }
   if (e.key === "Delete" || e.key === "Backspace") { if (hover && loaded) { e.preventDefault(); beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); } return; }
-  if (e.key === "Escape") { if (HOUSE.sel != null) selectHouse(null); else if (LAND.tool) setLandTool(null); else selectItems([]); return; }
+  if (e.key === "Escape") { if (SEL.paste) setPaste(false); else if (SEL.items.length) selClear(); else if (HOUSE.sel != null) selectHouse(null); else if (LAND.tool) setLandTool(null); else selectItems([]); return; }
+  if ((e.key === "PageUp" || e.key === "PageDown") && SEL.items.length) { e.preventDefault(); selMoveZ((e.key === "PageUp" ? 1 : -1) * (e.shiftKey ? 5 : 1)); return; }
   if (e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); setZOff(B.zOff + (e.key === "PageUp" ? 1 : -1) * (e.shiftKey ? 5 : 1)); return; }
-  if (/^[1-5]$/.test(e.key) && !e.ctrlKey && !e.metaKey) { setBuildMode(["single", "line", "rect", "scatter", "erase"][+e.key - 1]); return; }
+  if (/^[1-6]$/.test(e.key) && !e.ctrlKey && !e.metaKey) { setBuildMode(["single", "line", "rect", "scatter", "erase", "select"][+e.key - 1]); return; }
+  if (selKey(e)) return;
+  if (e.key.toLowerCase() === "m" && !e.ctrlKey && !e.metaKey && loaded) { Minimap.toggle(); return; }
   if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && B.sel.length) { toggleFav(B.sel[0]); return; }
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIR[k] || k === "Shift") { keys.add(k); if (KEYDIR[k]) e.preventDefault(); }
@@ -942,9 +1054,11 @@ view.addEventListener("contextmenu", e => e.preventDefault());
 view.addEventListener("mousedown", e => {
   view.focus();
   if (!loaded || !hover) return;
-  if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase" || LAND.tool)) { toast("Viewers can look around but not build."); return; }
+  if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase" || B.mode === "select" || LAND.tool || HOUSE.sel != null || SEL.paste)) { toast("Viewers can look around but not build."); return; }
   if (LAND.tool && e.button === 0 && !e.altKey) { landDown(); return; }
   if (HOUSE.sel != null && e.button === 0 && !e.altKey) { placeHouse(); return; }
+  if (SEL.paste && e.button === 0 && !e.altKey) { pasteAt(hover.x, hover.y); return; }
+  if (B.mode === "select" && e.button === 0 && !e.altKey) { selDown(e); return; }
   if (e.button === 2) { beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); return; }
   if (e.button !== 0) return;
   if (e.altKey) { pickFromWorld(hover.x, hover.y); return; }
@@ -954,7 +1068,8 @@ view.addEventListener("mousedown", e => {
   if (B.mode === "line" || B.mode === "rect") { drag = { mode: B.mode, start: { x: hover.x, y: hover.y } }; requestDraw(); return; }
   if (B.mode === "scatter") { beginTx(); drag = { mode: "scatter", visited: new Set() }; brushStroke(); }
 });
-window.addEventListener("mouseup", () => {
+window.addEventListener("mouseup", ev => {
+  if (drag?.mode === "selbox" || drag?.mode === "selmove") { selUp(ev); return; }
   if (!drag) return;
   const d = drag; drag = null;
   if (d.mode === "line" || d.mode === "rect") {
@@ -1034,7 +1149,7 @@ function removeAll(x, y) {
 function undo() {
   const u = undoStack.pop(); if (!u) return;
   for (const e of u) {
-    if (e.lkey != null) { M.land.set(e.lbefore, e.lkey * 196 + 4); M.landDirty.add(e.lkey); }
+    if (e.lkey != null) { M.land.set(e.lbefore, e.lkey * 196 + 4); M.landDirty.add(e.lkey); Minimap.touch(); }
     else M.blocks.set(e.key, e.before);
   }
   syncEdits(); requestDraw();
@@ -1084,7 +1199,7 @@ function dragCells(d, cap) {
   return out;
 }
 function ghostCells() {
-  if (!loaded || !hover || !B.sel.length || B.mode === "erase" || B.mode === "scatter") return [];
+  if (!loaded || !hover || !B.sel.length || B.mode === "erase" || B.mode === "scatter" || B.mode === "select") return [];
   const cells = drag && (drag.mode === "line" || drag.mode === "rect") ? dragCells(drag, 900) : [{ x: hover.x, y: hover.y }];
   return cells.slice(0, 900).map(c => ({ ...c, id: pick(c.x, c.y), z: placeZ(c.x, c.y) }));
 }
@@ -1285,6 +1400,7 @@ const MODE_HINTS = {
   rect: `Drag to fill a rectangle: floors, fields, carpets. Up to 20,000 tiles at once.`,
   scatter: `Paint to place items at random under the brush, at the chosen density. Great with several items selected.`,
   erase: `Paint to remove every static under the brush. Right-click removes just the top one.`,
+  select: `Click a static to select it (Shift adds), or drag a box around several. Drag a selected item to move them all; PgUp/PgDn raise or lower; Ctrl+C/Ctrl+V copy and stamp; Delete removes.`,
 };
 function setBuildMode(m) {
   B.mode = m;
@@ -1353,6 +1469,7 @@ function applyLandBlocks(map) {
     const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
     if (bytes.length === 192 && (+k) * 196 + 196 <= M.land.length) M.land.set(bytes, (+k) * 196 + 4);
   }
+  if (map && Object.keys(map).length) Minimap.touch();
 }
 /** Writes a land cell inside the current step (undo snapshot of its block first). */
 function setLandCell(x, y, id, z) {
@@ -1361,6 +1478,7 @@ function setLandCell(x, y, id, z) {
   if (ltx && !ltx.has(key)) ltx.set(key, M.land.slice(key * 196 + 4, key * 196 + 196));
   M.land[o] = id & 255; M.land[o + 1] = id >> 8; M.land[o + 2] = (Math.max(-128, Math.min(127, Math.round(z))) + 256) & 255;
   M.landDirty.add(key);
+  Minimap.touch();
 }
 /** Cells under the brush with a weight: 1 inside, easing to 0 at the rim. */
 function brushCells(cx, cy) {
@@ -1637,6 +1755,188 @@ function placeHouse() {
   toast(`Placed ${HOUSE_NAMES[m.id] || "multi 0x" + hex(m.id)} (${m.parts.length} pieces).${p.plot ? " Snapped into the plot." : ""}`);
 }
 
+// ===========================================================================
+// Minimap: the whole map's land in the client's radar colours, with you, your team and the view.
+// ===========================================================================
+const Minimap = {
+  colors: null, base: null, scale: 1, dirty: false, timer: null, on: true,
+  async load() {
+    const f = findAnywhere("radarcol.mul");
+    this.colors = f ? new Uint16Array((await readBytes(f, 0, f.size)).buffer.slice(0)) : null;
+    this.render();
+  },
+  render() {
+    const cv = $("minimap");
+    if (!loaded || !this.colors) { cv.hidden = true; return; }
+    const s = this.scale = Math.max(1, Math.ceil(Math.max(M.w, M.h) / 900));
+    const w = Math.ceil(M.w / s), h = Math.ceil(M.h / s);
+    if (!this.base || this.base.width !== w || this.base.height !== h) { this.base = document.createElement("canvas"); this.base.width = w; this.base.height = h; }
+    const c = this.base.getContext("2d"), im = c.createImageData(w, h), d = im.data;
+    for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+      const x = px * s, y = py * s, o = landOff(x, y), id = M.land[o] | (M.land[o + 1] << 8), z = (M.land[o + 2] << 24) >> 24;
+      const col = this.colors[id & 0x3FFF] ?? 0, k = (px + py * w) * 4;
+      // Radar colour, lightly shaded by altitude so hills read.
+      const shade = Math.max(0.65, Math.min(1.35, 1 + z / 160));
+      d[k] = Math.min(255, ((col >> 10) & 31) * 8.2 * shade); d[k + 1] = Math.min(255, ((col >> 5) & 31) * 8.2 * shade); d[k + 2] = Math.min(255, (col & 31) * 8.2 * shade); d[k + 3] = 255;
+    }
+    c.putImageData(im, 0, 0);
+    cv.width = w; cv.height = h; cv.hidden = !this.on;
+    cv.style.height = Math.round(230 * h / w) + "px";
+    this.dirty = false;
+  },
+  /** Land changed somewhere: redraw the overview soon (at most once a second). */
+  touch() { if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.render(); requestDraw(); }, 1000); },
+  draw(rect, R) {
+    const cv = $("minimap");
+    if (!this.base || cv.hidden) return;
+    const c = cv.getContext("2d"), s = this.scale;
+    c.drawImage(this.base, 0, 0);
+    // The part of the map in view (a diamond on the map grid).
+    c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = Math.max(1, cv.width / 230);
+    c.beginPath(); c.moveTo((P.x - R) / s, P.y / s); c.lineTo(P.x / s, (P.y - R) / s); c.lineTo((P.x + R) / s, P.y / s); c.lineTo(P.x / s, (P.y + R) / s); c.closePath(); c.stroke();
+    const dot = (x, y, col) => { c.fillStyle = col; c.beginPath(); c.arc(x / s, y / s, Math.max(2.5, cv.width / 110), 0, Math.PI * 2); c.fill(); c.strokeStyle = "#000"; c.lineWidth = 1; c.stroke(); };
+    for (const p of Server.peers.values()) dot(p.x, p.y, p.color);
+    dot(P.x, P.y, "#d6aa4c");
+  },
+  toggle() { this.on = !this.on; $("minimap").hidden = !this.on || !this.base; requestDraw(); },
+};
+$("minimap").addEventListener("mousedown", e => {
+  e.stopPropagation();
+  const r = $("minimap").getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * M.w), y = Math.floor((e.clientY - r.top) / r.height * M.h);
+  const land = nearestWalkable(x, y);
+  jump(...(land || [x, y]));
+});
+
+// ===========================================================================
+// Selection: select statics, move, nudge, raise, delete, copy and stamp, hue.
+// Items are the block lists' own objects; anything changed by someone else since is dropped from the selection.
+// ===========================================================================
+const SEL = { items: [], clip: null, paste: false };
+/** Selected items that still exist, with their world position. */
+function selLive() {
+  return SEL.items.filter(it => blockStatics(Math.floor(it.key / M.bh), it.key % M.bh).includes(it.s))
+    .map(it => ({ ...it, x: Math.floor(it.key / M.bh) * 8 + it.s.x, y: (it.key % M.bh) * 8 + it.s.y }));
+}
+function selSet(items) {
+  SEL.items = items;
+  const n = selLive().length;
+  $("selSection").hidden = !n && !SEL.clip;
+  $("selCount").textContent = n ? `· ${n} item${n === 1 ? "" : "s"}` : SEL.clip ? "· copied" : "";
+  const hues = new Set(selLive().map(it => it.s.hue));
+  if (n && hues.size === 1) { $("hueId").value = [...hues][0] & 0x3FFF; showHue(); }
+  requestDraw();
+}
+function selClear() { selSet([]); }
+function itemsAtCell(x, y) { const key = keyOf(x, y); return staticsAt(x, y).map(s => ({ key, s })); }
+function topItemAt(x, y) { return itemsAtCell(x, y).sort((a, b) => b.s.z - a.s.z || tdHeight(b.s.id) - tdHeight(a.s.id))[0] || null; }
+function selDown(e) {
+  if (!hover) return;
+  const top = topItemAt(hover.x, hover.y), live = selLive();
+  if (top && live.some(it => it.s === top.s) && !e.shiftKey) { drag = { mode: "selmove", start: { x: hover.x, y: hover.y } }; return; }
+  drag = { mode: "selbox", start: { x: hover.x, y: hover.y }, shift: e.shiftKey };
+}
+function selUp() {
+  const d = drag; drag = null;
+  if (!hover) { requestDraw(); return; }
+  if (d.mode === "selmove") { const dx = hover.x - d.start.x, dy = hover.y - d.start.y; if (dx || dy) selMove(dx, dy); requestDraw(); return; }
+  const x0 = Math.min(d.start.x, hover.x), x1 = Math.max(d.start.x, hover.x), y0 = Math.min(d.start.y, hover.y), y1 = Math.max(d.start.y, hover.y);
+  let picked = [];
+  if (x0 === x1 && y0 === y1) { const t = topItemAt(x0, y0); if (t) picked = [t]; }
+  else if ((x1 - x0 + 1) * (y1 - y0 + 1) > 40000) { toast("That box is too big (over 40,000 tiles)."); return; }
+  else for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) picked.push(...itemsAtCell(x, y));
+  if (d.shift) {
+    const cur = selLive();
+    for (const p of picked) { const i = cur.findIndex(c => c.s === p.s); if (i >= 0) cur.splice(i, 1); else cur.push(p); }
+    selSet(cur.map(({ key, s }) => ({ key, s })));
+  } else selSet(picked);
+}
+/** Moves the selection by whole tiles, into other blocks where needed; z stays relative to the ground. */
+function selMove(dx, dy) {
+  const live = selLive(); if (!live.length || (!dx && !dy)) return;
+  for (const it of live) { const nx = it.x + dx, ny = it.y + dy; if (nx < 0 || ny < 0 || nx >= M.w || ny >= M.h) { toast("That would move items off the map."); return; } }
+  beginTx();
+  const moved = [];
+  for (const it of live) {
+    const from = touchBlock(it.key); from.splice(from.indexOf(it.s), 1); M.dirty.add(it.key);
+    const nx = it.x + dx, ny = it.y + dy, key = keyOf(nx, ny), to = touchBlock(key);
+    const ns = { ...it.s, x: nx & 7, y: ny & 7, z: Math.max(-128, Math.min(127, it.s.z + landAt(nx, ny).z - landAt(it.x, it.y).z)) };
+    to.push(ns); M.dirty.add(key); moved.push({ key, s: ns });
+  }
+  commitTx(); selSet(moved);
+}
+function selMoveZ(dz) {
+  const live = selLive(); if (!live.length) return;
+  beginTx();
+  for (const it of live) { touchBlock(it.key); it.s.z = Math.max(-128, Math.min(127, it.s.z + dz)); M.dirty.add(it.key); }
+  commitTx(); selSet(live.map(({ key, s }) => ({ key, s })));
+}
+function selDelete() {
+  const live = selLive(); if (!live.length) return;
+  beginTx();
+  for (const it of live) { const list = touchBlock(it.key); list.splice(list.indexOf(it.s), 1); M.dirty.add(it.key); }
+  commitTx(); toast(`Removed ${live.length} item${live.length === 1 ? "" : "s"}.`); selSet([]);
+}
+function selHue(h) {
+  const live = selLive(); if (!live.length) return;
+  beginTx();
+  for (const it of live) { touchBlock(it.key); it.s.hue = h & 0x3FFF; M.dirty.add(it.key); }
+  commitTx(); selSet(live.map(({ key, s }) => ({ key, s })));
+}
+/** Copies the selection: positions relative to its corner, heights relative to the ground there. */
+function selCopy() {
+  const live = selLive(); if (!live.length) { toast("Select something to copy first."); return; }
+  const ax = Math.min(...live.map(i => i.x)), ay = Math.min(...live.map(i => i.y)), gz = landAt(ax, ay).z;
+  SEL.clip = live.map(it => ({ id: it.s.id, dx: it.x - ax, dy: it.y - ay, dz: it.s.z - gz, hue: it.s.hue }));
+  toast(`Copied ${live.length} item${live.length === 1 ? "" : "s"}. Ctrl+V, then click to stamp copies.`); selSet(SEL.items);
+}
+function setPaste(on) {
+  SEL.paste = on && !!SEL.clip;
+  if (SEL.paste) { if (HOUSE.sel != null) selectHouse(null); if (LAND.tool) setLandTool(null); toast("Click to stamp the copy; Esc to stop.", 2500); }
+  requestDraw();
+}
+function selGhost() {
+  if (!loaded || !hover) return [];
+  if (SEL.paste && SEL.clip) { const gz = landAt(hover.x, hover.y).z; return SEL.clip.map(c => ({ id: c.id, x: hover.x + c.dx, y: hover.y + c.dy, z: gz + c.dz, hue: c.hue })); }
+  if (drag?.mode === "selmove") {
+    const dx = hover.x - drag.start.x, dy = hover.y - drag.start.y;
+    if (!dx && !dy) return [];
+    return selLive().map(it => ({ id: it.s.id, x: it.x + dx, y: it.y + dy, z: it.s.z + landAt(it.x + dx, it.y + dy).z - landAt(it.x, it.y).z, hue: it.s.hue }));
+  }
+  return [];
+}
+function pasteAt(x, y) {
+  if (!SEL.clip) return;
+  const gz = landAt(x, y).z;
+  if (SEL.clip.some(c => x + c.dx < 0 || y + c.dy < 0 || x + c.dx >= M.w || y + c.dy >= M.h)) { toast("The copy would stick out of the map here."); return; }
+  beginTx();
+  for (const c of SEL.clip) {
+    const key = keyOf(x + c.dx, y + c.dy);
+    touchBlock(key).push({ id: c.id, x: (x + c.dx) & 7, y: (y + c.dy) & 7, z: Math.max(-128, Math.min(127, gz + c.dz)), hue: c.hue });
+    M.dirty.add(key);
+  }
+  commitTx();
+}
+function selKey(e) {
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === "c" && SEL.items.length) { e.preventDefault(); selCopy(); return true; }
+  if (mod && k === "v" && SEL.clip) { e.preventDefault(); setPaste(true); return true; }
+  if (mod && SEL.items.length && e.key.startsWith("Arrow")) {
+    e.preventDefault();
+    const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+    selMove(d[0], d[1]); return true;
+  }
+  return false;
+}
+function showHue() {
+  const h = +$("hueId").value || 0, cols = h ? Hues.colors(h) : null;
+  $("hueStrip").style.background = cols ? `linear-gradient(90deg, ${cols.filter((_, i) => i % 4 === 0 || i === 31).map(c => `rgb(${c.map(Math.round).join(",")})`).join(",")})` : "#333";
+  $("hueName").textContent = h ? (Hues.name(h) ? `${Hues.name(h)} (hue ${h})` : `Hue ${h}`) : "0 = the item's own colours.";
+}
+document.querySelectorAll("[data-nudge]").forEach(b => b.onclick = () => { const [dx, dy] = b.dataset.nudge.split(",").map(Number); selMove(dx, dy); });
+document.querySelectorAll("[data-z]").forEach(b => b.onclick = e => selMoveZ(+b.dataset.z * (e.shiftKey ? 5 : 1)));
+$("selCopy").onclick = selCopy; $("selPaste").onclick = () => setPaste(true); $("selDelete").onclick = selDelete; $("selNone").onclick = selClear;
+$("hueId").oninput = showHue; $("hueApply").onclick = () => selHue(+$("hueId").value || 0);
+
 /** An uncompressed Mythic Package (.uop), like ShardForge.Core's UopWriter. */
 function uopWrite(files) {
   const CAP = 1000, ES = 34, HS = 0x200, tables = Math.max(1, Math.ceil(files.length / CAP));
@@ -1730,6 +2030,8 @@ $("btnLoad").onclick = async () => {
     if (!tdFile) throw new Error("tiledata.mul wasn't found. Pick your client folder.");
     TD = parseTiledata(await readBytes(tdFile, 0, tdFile.size));
     if (!Art.uop && !Art.mul) await Art.open();
+    const hf = findAnywhere("hues.mul");
+    if (hf) Hues.load(await readBytes(hf, 0, hf.size));
     const ad = findAnywhere("animdata.mul");
     if (ad) Anim.parse(await readBytes(ad, 0, ad.size));
     if (srv) { Server.leave(); await loadMap(srv.facet, `maps/${srv.id}`, srv.width, srv.height, srv.name); await Server.afterLoad(srv); }
@@ -1753,6 +2055,7 @@ $("btnLoad").onclick = async () => {
     jump(...(land || [start[1], start[2]]));
     toast(srv ? `${M.name} loaded. Everyone here sees you and your edits live.` : `${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
     buildCatalog(); renderTree(); setView(B.view); renderDetails();
+    Minimap.load().catch(() => {});
     loadMultis().catch(e => { $("houseGrid").innerHTML = `<p class="note">Couldn't read the houses: ${escapeHtml(e.message || String(e))}</p>`; });
   } catch (e) { toast("Couldn't load: " + (e?.message || e), 6000); }
   finally { $("btnLoad").disabled = false; }
