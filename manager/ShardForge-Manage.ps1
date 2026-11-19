@@ -107,7 +107,9 @@ function Get-Release([string]$tag = '') {
     $c = Get-Config
     $base = "$($c.apiBase)/repos/$($c.repository)/releases"
     if ($tag) { if ($tag -notmatch '^v') { $tag = 'v' + $tag }; return Invoke-Api "$base/tags/$tag" }
-    $all = @(Invoke-Api "$base`?per_page=30") | Where-Object { -not $_.draft -and ($c.includePrereleases -or -not $_.prerelease) }
+    # Windows PowerShell 5.1 hands a JSON list back as ONE object (the whole array); ForEach-Object unrolls it into
+    # releases on every version, so the filter sees each release and not the list.
+    $all = @(Invoke-Api "$base`?per_page=30" | ForEach-Object { $_ } | Where-Object { $_.tag_name -and -not $_.draft -and ($c.includePrereleases -or -not $_.prerelease) })
     if (-not $all) { throw "No releases on github.com/$($c.repository) yet." }
     return @($all | Sort-Object { ConvertTo-VersionObject $_.tag_name } -Descending)[0]
 }
