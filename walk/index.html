@@ -75,6 +75,10 @@ aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.house-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; max-height: 330px; overflow-y: auto; }
+.house-grid button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; font-size: 11px; }
+.house-grid button[aria-pressed="true"] { outline: 2px solid var(--accent, #d6aa4c); }
+.house-grid canvas { width: 88px; height: 72px; image-rendering: auto; }
 .terrain-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0; }
 .terrain-pick button { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 4px 5px; text-align: left; }
 .terrain-pick button i { width: 12px; height: 12px; border-radius: 2px; flex: none; border: 1px solid rgba(0,0,0,.4); }
@@ -218,6 +222,25 @@ footer b { color: var(--text); font-weight: 500; }
         <label for="density">Density</label><input type="range" id="density" min="2" max="100" value="25"><output id="densityOut">25%</output>
       </div>
       <p class="note" id="modeHint">Click a tile to place the item on the ground there. <span class="kbd">PgUp</span>/<span class="kbd">PgDn</span> raise or lower it.</p>
+    </section>
+    <section aria-label="Houses" class="build-only">
+      <h2>Houses</h2>
+      <div class="row" style="gap:6px">
+        <select id="houseFilter" aria-label="Which houses" style="flex:1">
+          <option value="houses">Houses &amp; buildings</option>
+          <option value="fit">Fit the plot under the cursor</option>
+          <option value="small">Small (up to 8×8)</option>
+          <option value="medium">Medium (up to 14×14)</option>
+          <option value="large">Large</option>
+          <option value="all">Everything (boats too)</option>
+        </select>
+        <input type="search" id="houseSearch" placeholder="id" aria-label="Find by id" style="width:70px">
+      </div>
+      <div class="house-grid" id="houseGrid"><p class="note">Load a map to see the client's houses.</p></div>
+      <div class="row" id="houseMoreRow" hidden><button id="houseMore">Show more</button></div>
+      <label class="check"><input type="checkbox" id="houseLevel" checked> Level the ground under it</label>
+      <label class="check"><input type="checkbox" id="houseClear" checked> Clear plants inside it</label>
+      <p class="note" id="houseHint">Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot. Doors are server items: add them in game or with the live ServUO mode later.</p>
     </section>
     <section aria-label="Land" class="build-only">
       <h2>Land</h2>
@@ -792,6 +815,19 @@ function draw() {
       }
     }
   }
+  // A house ghost: the whole multi where a click will put it.
+  const hg = houseGhost();
+  if (hg) {
+    ctx.globalAlpha = 0.65;
+    for (const g of hg.parts) { const [sx, sy] = at(g.x, g.y); drawStatic({ id: g.id, z: g.z }, sx, sy, Z); }
+    ctx.globalAlpha = 1;
+    const [sx, sy] = at(hg.cx, hg.cy);
+    const label = `0x${hex(hg.id)} · ${hg.w}×${hg.h}${hg.plot ? ` · fits ${hg.plot.kind === "home" ? "plot" : hg.plot.kind} ${hg.plot.w}×${hg.plot.h}` : ""}`;
+    ctx.font = "600 12px system-ui, sans-serif"; ctx.textAlign = "center";
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = "rgba(14,19,22,.8)"; ctx.fillRect(sx - tw / 2, sy - 40 - hg.z * Z, tw, 18);
+    ctx.fillStyle = hg.plot ? "#8fc27a" : "#d6aa4c"; ctx.fillText(label, sx, sy - 27 - hg.z * Z); ctx.textAlign = "start";
+  }
   // Ghosts show exactly what a click or drag will place.
   const ghosts = ghostCells();
   if (ghosts.length) {
@@ -882,7 +918,7 @@ window.addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
   if (e.key === "Delete" || e.key === "Backspace") { if (hover && loaded) { e.preventDefault(); beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); } return; }
-  if (e.key === "Escape") { if (LAND.tool) setLandTool(null); else selectItems([]); return; }
+  if (e.key === "Escape") { if (HOUSE.sel != null) selectHouse(null); else if (LAND.tool) setLandTool(null); else selectItems([]); return; }
   if (e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); setZOff(B.zOff + (e.key === "PageUp" ? 1 : -1) * (e.shiftKey ? 5 : 1)); return; }
   if (/^[1-5]$/.test(e.key) && !e.ctrlKey && !e.metaKey) { setBuildMode(["single", "line", "rect", "scatter", "erase"][+e.key - 1]); return; }
   if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && B.sel.length) { toggleFav(B.sel[0]); return; }
@@ -898,6 +934,7 @@ view.addEventListener("mousemove", e => {
   hover = h;
   if (moved && drag && (drag.mode === "scatter" || drag.mode === "erase")) brushStroke();
   if (moved && drag && drag.mode === "land") landStroke();
+  if (moved && h && $("houseFilter").value === "fit") { const l = plotAt(h.x, h.y); if (l && l !== HOUSE.filterPlot) { HOUSE.filterPlot = l; HOUSE.shown = 60; renderHouses(); } }
   requestDraw();
 });
 view.addEventListener("mouseleave", () => { hover = null; requestDraw(); });
@@ -907,6 +944,7 @@ view.addEventListener("mousedown", e => {
   if (!loaded || !hover) return;
   if (Server.on && Server.me.level < 2 && (e.button === 2 || B.sel.length || B.mode === "erase" || LAND.tool)) { toast("Viewers can look around but not build."); return; }
   if (LAND.tool && e.button === 0 && !e.altKey) { landDown(); return; }
+  if (HOUSE.sel != null && e.button === 0 && !e.altKey) { placeHouse(); return; }
   if (e.button === 2) { beginTx(); if (!removeTop(hover.x, hover.y)) toast("Nothing to remove here."); commitTx(); return; }
   if (e.button !== 0) return;
   if (e.altKey) { pickFromWorld(hover.x, hover.y); return; }
@@ -1209,6 +1247,8 @@ $("grid").ondblclick = e => { const b = e.target.closest("button[data-id]"); if 
 function selectItems(ids) {
   B.sel = ids.filter(validId); ids = B.sel; B.seed++;
   if (ids.length && B.mode === "erase") setBuildMode("single");
+  if (ids.length && typeof HOUSE !== "undefined" && HOUSE.sel != null) selectHouse(null);
+  if (ids.length && typeof LAND !== "undefined" && LAND.tool) setLandTool(null);
   document.querySelectorAll("#grid button[data-id]").forEach(b => b.setAttribute("aria-pressed", ids.includes(+b.dataset.id)));
   renderDetails(); requestDraw();
 }
@@ -1431,6 +1471,7 @@ const LAND_HINTS = {
 };
 function setLandTool(t) {
   LAND.tool = t || null;
+  if (LAND.tool && HOUSE.sel != null) selectHouse(null);
   document.querySelectorAll(".land-tools button").forEach(b => b.setAttribute("aria-pressed", (b.dataset.land || null) === LAND.tool));
   $("terrainPick").hidden = LAND.tool !== "paint";
   $("landHint").textContent = LAND_HINTS[t || ""];
@@ -1443,6 +1484,158 @@ $("landBrush").oninput = e => { LAND.brush = +e.target.value; $("landBrushOut").
 $("landStrength").oninput = e => { LAND.strength = +e.target.value; $("landStrengthOut").textContent = LAND.strength; };
 $("landZ").oninput = e => { LAND.z = +e.target.value; $("landZOut").textContent = LAND.z; };
 $("landFollow").onchange = e => { LAND.follow = e.target.checked; };
+
+// ===========================================================================
+// Houses: the client's multis (multi.idx / multi.mul), placed whole as statics.
+// ===========================================================================
+const HOUSE = { list: [], sel: null, shown: 60, filterPlot: null, idx: null, mul: null, cache: new Map() };
+// Classic house deeds (ServUO multi ids); the rest are shown by id and size.
+const HOUSE_NAMES = { 0x64: "Stone & plaster house", 0x66: "Fieldstone house", 0x68: "Small brick house", 0x6A: "Wooden house",
+  0x6C: "Wood & plaster house", 0x6E: "Thatched cottage", 0x74: "Brick house", 0x76: "Two-story wood & plaster", 0x78: "Two-story stone & plaster",
+  0x7A: "Tower", 0x7C: "Small stone keep", 0x7E: "Castle" };
+async function loadMultis() {
+  HOUSE.list = []; HOUSE.cache.clear(); HOUSE.sel = null;
+  const fi = findAnywhere("multi.idx"), fm = findAnywhere("multi.mul");
+  if (!fi || !fm) { $("houseGrid").innerHTML = `<p class="note">This client folder has no multi.idx / multi.mul.</p>`; return; }
+  HOUSE.idx = await readBytes(fi, 0, fi.size); HOUSE.mul = await readBytes(fm, 0, fm.size);
+  const dv = new DataView(HOUSE.idx.buffer, HOUSE.idx.byteOffset);
+  const seen = new Set();
+  for (let id = 0; id * 12 + 12 <= HOUSE.idx.length; id++) {
+    const m = multiAt(id);
+    if (!m || !m.parts.length) continue;
+    // The client lists many houses twice (the deed's two ids): show each design once.
+    const sig = m.parts.length + ":" + m.parts.map(p => `${p.id},${p.x},${p.y},${p.z}`).join(";");
+    if (seen.has(sig)) continue;
+    seen.add(sig); HOUSE.list.push(m);
+  }
+  renderHouses();
+}
+/** A multi's visible parts (flag 0 marks invisible helpers), with its footprint. */
+function multiAt(id) {
+  if (HOUSE.cache.has(id)) return HOUSE.cache.get(id);
+  const dv = new DataView(HOUSE.idx.buffer, HOUSE.idx.byteOffset), off = dv.getInt32(id * 12, true), len = dv.getInt32(id * 12 + 4, true);
+  let m = null;
+  if (off >= 0 && len > 0 && off + len <= HOUSE.mul.length) {
+    const size = len % 16 === 0 ? 16 : 12, mv = new DataView(HOUSE.mul.buffer, HOUSE.mul.byteOffset + off, len), parts = [];
+    for (let k = 0; k + size <= len; k += size) {
+      const p = { id: mv.getUint16(k, true), x: mv.getInt16(k + 2, true), y: mv.getInt16(k + 4, true), z: mv.getInt16(k + 6, true), flags: mv.getUint32(k + 8, true) };
+      if (p.flags !== 0 && validId(p.id)) parts.push(p);
+    }
+    if (parts.length) {
+      const xs = parts.map(p => p.x), ys = parts.map(p => p.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+      m = { id, parts, minX, maxX, minY, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+    }
+  }
+  HOUSE.cache.set(id, m);
+  return m;
+}
+function houseVisible() {
+  const f = $("houseFilter").value, q = $("houseSearch").value.trim().toLowerCase().replace(/^0x/, "");
+  return HOUSE.list.filter(m => {
+    if (q) return m.id.toString(16).includes(q) || String(m.id) === q;
+    if (f === "all") return true;
+    if (m.id < 0x64) return false; // boats and ships come first
+    if (m.parts.length < 4) return false;
+    const big = Math.max(m.w, m.h);
+    if (f === "small") return big <= 8;
+    if (f === "medium") return big > 8 && big <= 14;
+    if (f === "large") return big > 14;
+    if (f === "fit") { const l = HOUSE.filterPlot; return !!l && fitsPlot(m, l); }
+    return true;
+  }).sort((a, b) => f === "fit" ? (b.w * b.h - a.w * a.h) : (a.id - b.id));
+}
+const fitsPlot = (m, l) => (m.w <= l.w && m.h <= l.h);
+function renderHouses() {
+  const list = houseVisible(), el = $("houseGrid");
+  if (!list.length) el.innerHTML = `<p class="note">${$("houseFilter").value === "fit" ? (HOUSE.filterPlot ? "Nothing fits that plot." : "Point at a plot on the map.") : "No houses match."}</p>`;
+  else el.innerHTML = list.slice(0, HOUSE.shown).map(m => `<button data-h="${m.id}" aria-pressed="${HOUSE.sel === m.id}" title="${escapeHtml(HOUSE_NAMES[m.id] || "Multi 0x" + hex(m.id))} · ${m.w}×${m.h} · ${m.parts.length} pieces">
+    <canvas width="176" height="144" data-h="${m.id}"></canvas><span>${escapeHtml(HOUSE_NAMES[m.id] || "0x" + hex(m.id))} · ${m.w}×${m.h}</span></button>`).join("");
+  $("houseMoreRow").hidden = list.length <= HOUSE.shown;
+  el.querySelectorAll("button[data-h]").forEach(b => b.onclick = () => selectHouse(+b.dataset.h));
+  el.querySelectorAll("canvas").forEach(cv => houseThumbObserver.observe(cv));
+}
+const houseThumbObserver = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { houseThumbObserver.unobserve(e.target); drawHouseThumb(e.target); } }, { root: null });
+/** Draws a multi isometrically into a canvas, scaled to fit; redraws as its art arrives. */
+function drawHouseThumb(cv) {
+  const m = multiAt(+cv.dataset.h); if (!m) return;
+  const parts = m.parts.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
+  let pending = false, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const imgs = parts.map(p => { const img = Art.get(0x4000 + p.id, () => { if (!cv._queued) { cv._queued = true; setTimeout(() => { cv._queued = false; drawHouseThumb(cv); }, 50); } }); if (!img) pending = true; return img; });
+  parts.forEach((p, i) => {
+    const img = imgs[i]; if (!img) return;
+    const px = (p.x - p.y) * 22, py = (p.x + p.y) * 22 - p.z * 4;
+    x0 = Math.min(x0, px - img.width / 2); x1 = Math.max(x1, px + img.width / 2); y0 = Math.min(y0, py + 44 - img.height); y1 = Math.max(y1, py + 44);
+  });
+  // Art still loading (another thumbnail may hold the callback): try again shortly.
+  if (pending && (cv._tries = (cv._tries || 0) + 1) < 40 && !cv._queued) { cv._queued = true; setTimeout(() => { cv._queued = false; drawHouseThumb(cv); }, 250); }
+  const c = cv.getContext("2d"); c.clearRect(0, 0, cv.width, cv.height);
+  if (!isFinite(x0)) return;
+  const s = Math.min(cv.width / (x1 - x0), cv.height / (y1 - y0), 1);
+  c.save(); c.translate((cv.width - (x1 - x0) * s) / 2 - x0 * s, (cv.height - (y1 - y0) * s) / 2 - y0 * s); c.scale(s, s);
+  parts.forEach((p, i) => { const img = imgs[i]; if (img) c.drawImage(img, (p.x - p.y) * 22 - img.width / 2, (p.x + p.y) * 22 - p.z * 4 + 44 - img.height); });
+  c.restore();
+}
+function selectHouse(id) {
+  HOUSE.sel = id;
+  if (id != null) { if (LAND.tool) setLandTool(null); if (B.sel.length) selectItems([]); }
+  $("houseGrid").querySelectorAll("button[data-h]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.h === id));
+  $("houseHint").textContent = id == null ? "Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot. Doors are server items: add them in game or with the live ServUO mode later."
+    : `${HOUSE_NAMES[id] || "Multi 0x" + hex(id)}: click the map to place it (Esc to stop). Over a plot it fits, it snaps into the plot.`;
+  requestDraw();
+}
+$("houseFilter").onchange = () => { HOUSE.shown = 60; renderHouses(); };
+$("houseSearch").oninput = () => { HOUSE.shown = 60; renderHouses(); };
+$("houseMore").onclick = () => { HOUSE.shown += 60; renderHouses(); };
+/** The plot under a cell, if the map has a layout. */
+function plotAt(x, y) { return M.layout?.lots?.find(l => x >= l.x && y >= l.y && x < l.x + l.w && y < l.y + l.h) || null; }
+/** Where the selected house would go: centred on the cursor, or snapped into the plot under it if it fits. */
+function housePlacement() {
+  if (!loaded || !hover || HOUSE.sel == null) return null;
+  const m = multiAt(HOUSE.sel); if (!m) return null;
+  let cx = hover.x, cy = hover.y;
+  const plot = plotAt(hover.x, hover.y);
+  const fits = plot && fitsPlot(m, plot) ? plot : null;
+  if (fits) {
+    // Centred across the plot, with the house's south/east (door) side toward the road when the plot faces that way.
+    const ox = fits.face === "E" ? fits.x + fits.w - 1 - m.maxX : fits.face === "W" ? fits.x - m.minX : fits.x + Math.floor((fits.w - m.w) / 2) - m.minX;
+    const oy = fits.face === "S" ? fits.y + fits.h - 1 - m.maxY : fits.face === "N" ? fits.y - m.minY : fits.y + Math.floor((fits.h - m.h) / 2) - m.minY;
+    cx = ox; cy = oy;
+  }
+  const z = $("houseLevel").checked ? landAt(cx, cy).z : null;
+  return { m, cx, cy, plot: fits, z };
+}
+function houseGhost() {
+  const p = housePlacement(); if (!p) return null;
+  const base = p.z ?? landAt(p.cx, p.cy).z;
+  const parts = p.m.parts.map(q => ({ id: q.id, x: p.cx + q.x, y: p.cy + q.y, z: base + q.z })).sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
+  return { id: p.m.id, parts, cx: p.cx, cy: p.cy, z: base, w: p.m.w, h: p.m.h, plot: p.plot };
+}
+function placeHouse() {
+  const p = housePlacement(); if (!p) return;
+  const { m, cx, cy } = p, base = landAt(cx, cy).z;
+  const x0 = cx + m.minX, y0 = cy + m.minY, x1 = cx + m.maxX, y1 = cy + m.maxY;
+  if (x0 < 0 || y0 < 0 || x1 >= M.w || y1 >= M.h) { toast("The house would stick out of the map here."); return; }
+  beginTx();
+  if ($("houseLevel").checked) {
+    // Level the footprint to the centre's height, easing one tile around it.
+    const follow = LAND.follow; LAND.follow = true;
+    for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) {
+      if (x < 0 || y < 0 || x >= M.w || y >= M.h) continue;
+      const inside = x >= x0 && x <= x1 && y >= y0 && y <= y1, z = landAt(x, y).z;
+      setHeight(x, y, inside ? base : Math.round((z + base) / 2));
+    }
+    LAND.follow = follow;
+  }
+  if ($("houseClear").checked)
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const nature = staticsAt(x, y).filter(s => (B.catalog?.where.get(s.id)?.[0] === "Nature") && s.z <= base + 4);
+      if (nature.length) { const key = keyOf(x, y), list = touchBlock(key); for (const s of nature) list.splice(list.indexOf(s), 1); M.dirty.add(key); }
+    }
+  for (const q of m.parts) addStatic(cx + q.x, cy + q.y, q.id, base + q.z);
+  commitTx();
+  toast(`Placed ${HOUSE_NAMES[m.id] || "multi 0x" + hex(m.id)} (${m.parts.length} pieces).${p.plot ? " Snapped into the plot." : ""}`);
+}
 
 /** An uncompressed Mythic Package (.uop), like ShardForge.Core's UopWriter. */
 function uopWrite(files) {
@@ -1560,6 +1753,7 @@ $("btnLoad").onclick = async () => {
     jump(...(land || [start[1], start[2]]));
     toast(srv ? `${M.name} loaded. Everyone here sees you and your edits live.` : `${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
     buildCatalog(); renderTree(); setView(B.view); renderDetails();
+    loadMultis().catch(e => { $("houseGrid").innerHTML = `<p class="note">Couldn't read the houses: ${escapeHtml(e.message || String(e))}</p>`; });
   } catch (e) { toast("Couldn't load: " + (e?.message || e), 6000); }
   finally { $("btnLoad").disabled = false; }
 };

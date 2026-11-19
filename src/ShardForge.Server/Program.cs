@@ -241,7 +241,7 @@ api.MapDelete("/users/{id:long}", (long id, HttpContext ctx, UserStore users) =>
 }).RequireAuthorization("Admin");
 
 // ============================================================================ client data files
-string[] dataFiles = ["artlegacymul.uop", "art.mul", "artidx.mul", "tiledata.mul", "animdata.mul", "hues.mul", "radarcol.mul"];
+string[] dataFiles = ["artlegacymul.uop", "art.mul", "artidx.mul", "tiledata.mul", "animdata.mul", "hues.mul", "radarcol.mul", "multi.idx", "multi.mul"];
 api.MapGet("/data", () => Results.Ok(new
 {
     files = dataFiles.Select(n => (n, path: MapRegistry.FindFile(options.ClientPath, n)))

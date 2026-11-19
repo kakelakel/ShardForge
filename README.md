@@ -89,6 +89,10 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
   world, ghosts preview exactly what will be placed, and every click or stroke is one undo step.
 - **Building plots**: maps built from a project show its plots on the ground (tinted, the road side drawn solid,
   labelled with their purpose and size) and list its towns, camps, ruins and shrines under Known places.
+- **Houses**: every house and building in the client's `multi.mul` with a picture and its size, filtered by size
+  or by what fits the plot under the cursor. A ghost shows where it goes; over a plot it fits it snaps into the
+  plot, its front toward the road. Placing levels the ground and clears plants under it (both optional), one undo
+  step. Doors are server items: add them in game (or with the live ServUO mode on the roadmap).
 - **Land editing**: paint terrain (edges blend exactly like a map build; where two terrains can't blend, a
   strip of dirt goes between), raise, lower, flatten, smooth and set the ground with a soft brush. Statics
   resting on the ground move with it. Shared live and undoable like statics.
@@ -133,7 +137,7 @@ before they play: checksummed downloads, backups of the originals, data files on
 10. ✅ **Walk mode** (first version): walk at ground level with real art, place/remove statics, export.
     Builder with categories, favourites, animation and placement modes.
     ✅ Land editing (paint with soft blends, raise, lower, flatten, smooth, set) and Walk edits kept when a
-    project is rebuilt. Next, so Walk can replace CentrED: multis (whole houses, sized to plots),
+    project is rebuilt. ✅ Houses (multis) that snap into plots. Next, so Walk can replace CentrED:
     select/move/copy/delete with nudge and z adjust, hues, a minimap.
 11. ✅ **Settlements** (first version): organic towns, villages and walled cities laid out as roads, squares and
     building plots; country roads; wilderness sites; Populate world; plots and places in Walk. Next: regions,
