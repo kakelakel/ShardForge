@@ -28,6 +28,8 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 var options = builder.Configuration.GetSection("ShardForge").Get<ServerOptions>() ?? new ServerOptions();
 string dataPath = options.ResolvedDataPath(builder.Environment.ContentRootPath);
 Directory.CreateDirectory(dataPath);
+if (options.Detached) { builder.Logging.ClearProviders(); Console.SetOut(TextWriter.Null); Console.SetError(TextWriter.Null); }
+builder.Logging.AddProvider(new ShardForge.Server.Logging.FileLoggerProvider(Path.Combine(dataPath, "logs")));
 var settings = new ServerSettings(options, dataPath);
 settings.Load();
 // No client folder configured: use the first one found on this PC.
@@ -623,9 +625,38 @@ async Task<(string Name, JsonElement Data, int Bytes)> PrefabBody(HttpContext ct
     return (name, data, (int)ms.Length);
 }
 
+// ============================================================================ the Manager
+// The Manager (ShardForge-Manager) stops the server cleanly through this: only from this PC, and only with the
+// secret written to data/control/server.json at start (a file only someone with access to the data folder reads).
+string controlFile = Path.Combine(dataPath, "control", "server.json");
+string controlToken = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+api.MapPost("/control/stop", (HttpContext ctx, AuditLog audit) =>
+{
+    if (!IsLocal(ctx)) return Results.NotFound();
+    string given = ctx.Request.Headers["X-ShardForge-Control"].ToString();
+    if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(System.Text.Encoding.UTF8.GetBytes(given), System.Text.Encoding.UTF8.GetBytes(controlToken)))
+        return Err(403, "Wrong control token.");
+    audit.Write(null, "server.stop", "the server was stopped by the Manager", username: "(manager)");
+    _ = Task.Run(async () => { await Task.Delay(300); app.Lifetime.StopApplication(); });
+    return Results.Ok(new { stopping = true });
+});
+app.Lifetime.ApplicationStopped.Register(() => { try { File.Delete(controlFile); } catch (IOException) { } });
+
 // ============================================================================ start
 app.Lifetime.ApplicationStarted.Register(() =>
 {
+    try
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(controlFile)!);
+        string local = (app.Urls.FirstOrDefault() ?? "http://localhost:2595").Replace("://0.0.0.0", "://localhost").Replace("://+", "://localhost").Replace("://*", "://localhost").Replace("://[::]", "://localhost");
+        File.WriteAllText(controlFile, JsonSerializer.Serialize(new
+        {
+            pid = Environment.ProcessId, version, url = local, urls = app.Urls.ToArray(), started = DateTime.UtcNow.ToString("O"),
+            exe = Environment.ProcessPath, token = controlToken,
+        }));
+        app.Services.GetRequiredService<AuditLog>().Write(null, "server.start", $"the server started (version {version})", username: "(server)");
+    }
+    catch (Exception e) { app.Logger.LogWarning(e, "Couldn't write the control file for the Manager"); }
     var users = app.Services.GetRequiredService<UserStore>();
     var maps = app.Services.GetRequiredService<MapRegistry>();
     app.Logger.LogInformation("ShardForge Server {Version}", version);

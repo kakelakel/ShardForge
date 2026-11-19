@@ -1,0 +1,5 @@
+{
+  "repository": "kakelakel/ShardForge",
+  "includePrereleases": false,
+  "apiBase": "https://api.github.com"
+}

@@ -32,8 +32,14 @@ for rid in "${rids[@]}"; do
   cp src/ShardForge.Server/appsettings.json "$out/appsettings.json"
   cp samples/*.shardforge.json "$out/samples/"
   cp LICENSE "$out/LICENSE.txt"
+  echo "$version" > "$out/VERSION"
+  # The Manager: start, stop and update from GitHub releases (a window on Windows, a script on Linux).
+  mkdir -p "$out/manager"
+  cp manager/ShardForge-Manage.ps1 manager/Manager-Action.ps1 manager/ShardForge-Manager.ps1 manager/manager.json "$out/manager/"
+  if [[ "$rid" == win-* ]]; then cp manager/ShardForge-Manager.bat "$out/ShardForge-Manager.bat"
+  else cp manager/shardforge-manager.sh "$out/shardforge-manager.sh"; chmod +x "$out/shardforge-manager.sh"; fi
   sed "s/{{VERSION}}/$version/g; s/{{EXE}}/$ext/g" scripts/QUICKSTART.txt > "$out/QUICKSTART.txt"
-  [[ "$rid" == win-* ]] && sed -i 's/$/\r/' "$out/QUICKSTART.txt" "$out/LICENSE.txt"
+  [[ "$rid" == win-* ]] && sed -i 's/$/\r/' "$out/QUICKSTART.txt" "$out/LICENSE.txt" "$out/manager/"*.ps1
   rm -rf "$tmp"
 
   if [[ "$rid" == win-* ]]; then
@@ -45,3 +51,7 @@ for rid in "${rids[@]}"; do
     echo "   dist/$name.tar.gz ($(du -h "dist/$name.tar.gz" | cut -f1))"
   fi
 done
+
+# Checksums for every package, so the Manager can verify what it downloads.
+(cd dist && sha256sum ShardForge-"$version"-*.zip ShardForge-"$version"-*.tar.gz 2>/dev/null > SHA256SUMS.txt || true)
+echo "   dist/SHA256SUMS.txt"

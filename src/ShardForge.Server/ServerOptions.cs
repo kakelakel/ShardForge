@@ -21,6 +21,9 @@ public sealed class ServerOptions
     /// <summary>Open the dashboard in the default browser when the server starts (Windows).</summary>
     public bool OpenBrowser { get; set; } = true;
 
+    /// <summary>Started by the Manager without a window: write nothing to the console, only the log file.</summary>
+    public bool Detached { get; set; }
+
     /// <summary>PBKDF2 iterations for password hashes (lower only in tests).</summary>
     public int PasswordIterations { get; set; } = 210_000;
 

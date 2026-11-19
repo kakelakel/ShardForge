@@ -33,6 +33,13 @@ See [docs/SERVER.md](docs/SERVER.md) for sharing it with your team.
 building a whole new facet tile by tile is impractical. Older paint-to-map tools (Dragon, UO Landscaper)
 haven't kept up with modern clients. This project tries to fill that gap.
 
+## ShardForge Manager
+
+Every download includes the Manager: `ShardForge-Manager.bat` on Windows (a small window), `./shardforge-manager.sh`
+on Linux. It starts and stops ShardForge without a console window, shows its log, and updates it from GitHub
+releases: checks the download against the release's checksums, stops the server, keeps your data and settings,
+starts it again, and can roll back. See [docs/MANAGER.md](docs/MANAGER.md).
+
 ## Editor
 
 `editor/index.html` is a single-page world editor (open it in a browser, or use the hosted copy on claude.ai):

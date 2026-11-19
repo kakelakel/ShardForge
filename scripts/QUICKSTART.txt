@@ -15,6 +15,10 @@ START
    the folders it finds and checks them. It only reads the client; it never changes it.
 4. Keep the console window open while you work. Close it (or press Ctrl+C) to stop the server.
 
+Or use the Manager: ShardForge-Manager.bat on Windows (a small window), ./shardforge-manager.sh on Linux.
+It starts and stops ShardForge without a console window, shows the log, and updates ShardForge from GitHub:
+it checks the download, stops the server, keeps your data and settings, starts it again, and can roll back.
+
 Everything ShardForge saves (accounts, projects, built maps, shared edits) is in the "data" folder next to
 ShardForge{{EXE}}. Back it up to back up your work; move it along with the program to move your work.
 

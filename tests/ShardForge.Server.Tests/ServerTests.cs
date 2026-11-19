@@ -268,6 +268,25 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task OnlyTheManagerWithTheTokenCanStopTheServer()
+    {
+        var c = Anon();
+        var none = await c.PostAsync("/api/control/stop", null);
+        Assert.Equal(HttpStatusCode.Forbidden, none.StatusCode);
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/control/stop");
+        req.Headers.Add("X-ShardForge-Control", "not-the-token");
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(req)).StatusCode);
+        // The control file the Manager reads: this process, with a token, in the data folder.
+        string file = Path.Combine(fx.Root, "data", "control", "server.json");
+        Assert.True(File.Exists(file));
+        var info = JsonDocument.Parse(File.ReadAllText(file)).RootElement;
+        Assert.Equal(Environment.ProcessId, info.GetProperty("pid").GetInt32());
+        Assert.Equal(48, info.GetProperty("token").GetString()!.Length);
+        // And the server keeps its own log in data/logs.
+        Assert.NotEmpty(Directory.GetFiles(Path.Combine(fx.Root, "data", "logs"), "server-*.log"));
+    }
+
+    [Fact]
     public async Task TheHouseLibraryIsSharedByEveryone()
     {
         await EnsureUser("vic", "Viewer");

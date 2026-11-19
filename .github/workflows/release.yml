@@ -41,4 +41,4 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "ShardForge $TAG" --notes-file scripts/RELEASE_NOTES.md
           fi
-          gh release upload "$TAG" dist/*.zip dist/*.tar.gz --clobber
+          gh release upload "$TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS.txt --clobber
