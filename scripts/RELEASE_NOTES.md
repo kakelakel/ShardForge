@@ -1,3 +1,9 @@
+## ShardForge 0.5.4
+
+- **Decorate inside buildings**: Walk hides roofs and upper floors over your head, like the game (Movement →
+  *Above you*: Auto, Hide or Show; **R** cycles). Hidden things can't be clicked, removed or built on, so new
+  items land on your floor, not the roof. In Fly, **[** and **]** move a floor down or up.
+
 ## ShardForge 0.5.3
 
 - **Manager on Windows finds updates again**: Windows PowerShell 5.1 read GitHub's release list wrong and said

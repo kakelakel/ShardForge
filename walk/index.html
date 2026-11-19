@@ -195,7 +195,15 @@ footer b { color: var(--text); font-weight: 500; }
         <button id="modeFly" aria-pressed="false">Fly</button>
       </div>
       <p class="note">Walk follows UO rules: water, mountain rock, trees and walls block you, and you climb only gentle slopes. Fly goes anywhere; click a tile to jump there.</p>
-      <p class="note"><span class="kbd">Arrows / WASD</span> walk · <span class="kbd">Shift</span> run · <span class="kbd">wheel</span> zoom</p>
+      <div class="row" style="align-items:center;gap:8px;margin-top:8px">
+        <span class="note" style="margin:0;white-space:nowrap">Above you</span>
+        <div class="seg" style="flex:1" role="group" aria-label="What to show above your character">
+          <button id="cutAuto" aria-pressed="true" title="Hide roofs and upper floors when you're under them, like the game">Auto</button>
+          <button id="cutOn" aria-pressed="false" title="Always hide everything from head height up: work inside on your floor">Hide</button>
+          <button id="cutOff" aria-pressed="false" title="Show everything">Show</button>
+        </div>
+      </div>
+      <p class="note"><span class="kbd">Arrows / WASD</span> walk · <span class="kbd">Shift</span> run · <span class="kbd">wheel</span> zoom · <span class="kbd">R</span> above you · <span class="kbd">[</span> <span class="kbd">]</span> floor down/up (Fly)</p>
     </section>
     <section>
       <h2>Go to</h2>
@@ -1551,6 +1559,48 @@ function nearestWalkable(cx, cy, maxR = 400) {
 const topSurface = (x, y) => { const s = surfacesAt(x, y); return s.length ? s[0].top : landAvg(x, y); };
 
 // ===========================================================================
+// Above you: like the game, roofs and upper floors over your head are hidden so you can see (and decorate) inside.
+// Auto hides from the lowest thing over your head (when there is one); Hide always cuts at head height; Show
+// shows everything. Whatever is hidden can't be clicked, removed or built on either.
+// ===========================================================================
+const CUT = { mode: (() => { try { return localStorage.getItem("sf.walk.cut") || "auto"; } catch { return "auto"; } })() };
+function cutZ() {
+  if (CUT.mode === "off" || !loaded) return Infinity;
+  if (CUT.mode === "on") return P.z + 15;
+  let z = Infinity;
+  for (const [x, y] of [[P.x, P.y], [P.x + 1, P.y + 1]])
+    if (x >= 0 && y >= 0 && x < M.w && y < M.h) for (const s of staticsAt(x, y)) if (s.z >= P.z + 14 && s.z < z) z = s.z;
+  return z;
+}
+/** The statics you can see at a tile (the ones above the cut are hidden). */
+function visibleAt(x, y, cz = cutZ()) { const all = staticsAt(x, y); return cz === Infinity ? all : all.filter(s => s.z < cz); }
+/** Where something placed at a tile lands: the highest surface you can see there. */
+function visibleTop(x, y, cz = cutZ()) {
+  if (cz === Infinity) return topSurface(x, y);
+  const s = surfacesAt(x, y).filter(t => t.land || t.item.z < cz);
+  return s.length ? s[0].top : landAvg(x, y);
+}
+/** Flying with roofs hidden keeps you on your floor (a step up is fine) instead of on the roof. */
+function flyZ(x, y) {
+  if (CUT.mode === "off") return topSurface(x, y);
+  const s = surfacesAt(x, y), mine = s.filter(t => t.top <= P.z + 15);
+  return mine.length ? mine[0].top : s.length ? s[s.length - 1].top : landAvg(x, y);
+}
+function floorStep(up) {
+  const s = surfacesAt(P.x, P.y).map(t => t.top);
+  const next = up ? Math.min(...s.filter(z => z >= P.z + 10)) : Math.max(...s.filter(z => z <= P.z - 10));
+  if (!isFinite(next)) { toast(up ? "No floor above here." : "No floor below here."); return; }
+  P.z = next; Server.sendPos?.(); requestDraw();
+}
+function setCut(m, quiet) {
+  CUT.mode = m;
+  try { localStorage.setItem("sf.walk.cut", m); } catch { }
+  for (const [id, v] of [["cutAuto", "auto"], ["cutOn", "on"], ["cutOff", "off"]]) $(id)?.setAttribute("aria-pressed", String(m === v));
+  if (!quiet) toast(m === "auto" ? "Above you: roofs and floors over your head hide, like in the game." : m === "on" ? "Above you: hidden from head height up." : "Above you: everything shown.");
+  requestDraw();
+}
+
+// ===========================================================================
 // Rendering
 // ===========================================================================
 const view = $("view"), ctx = view.getContext("2d");
@@ -1647,6 +1697,7 @@ function draw() {
   ctx.imageSmoothingEnabled = zoom < 1;
   const Z = 4 * zoom, cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
   const R = Math.ceil(Math.max(rect.width, rect.height + 400) / (22 * zoom) / 2) + 3;
+  const cz = cutZ();
   const peerAt = new Map();
   for (const p of Server.peers.values()) { const k = p.x + "," + p.y; if (!peerAt.has(k)) peerAt.set(k, []); peerAt.get(k).push(p); }
   for (let sum = -2 * R; sum <= 2 * R; sum++) {
@@ -1657,7 +1708,8 @@ function draw() {
       if (sx < -80 || sx > rect.width + 80 || sy < -300 || sy > rect.height + 600) continue;
       drawLand(x, y, sx, sy, Z);
       const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
-      const list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
+      let list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
+      if (cz !== Infinity && list.length) list = list.filter(s => s.z < cz);
       if (list.length) list.slice().sort(byDrawDepth).forEach(s => {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
         drawStatic(s, sx, sy, Z);
@@ -1797,10 +1849,11 @@ function screenToCell(mx, my) {
 }
 
 function status() {
-  $("fPos").textContent = `${P.x}, ${P.y}, z ${P.z}`;
+  const czs = cutZ();
+  $("fPos").textContent = `${P.x}, ${P.y}, z ${P.z}${czs !== Infinity ? ` · hidden from z ${czs}` : ""}`;
   $("fMap").textContent = `${M.name} ${M.w}×${M.h}`;
   if (!hover) { $("fCur").textContent = $("fGround").textContent = $("fTop").textContent = "–"; return; }
-  const l = landAt(hover.x, hover.y), st = staticsAt(hover.x, hover.y).sort((a, b) => b.z - a.z)[0];
+  const l = landAt(hover.x, hover.y), st = visibleAt(hover.x, hover.y).sort((a, b) => b.z - a.z)[0];
   $("fCur").textContent = `${hover.x}, ${hover.y}`;
   $("fGround").textContent = `${TD.land.name[l.id & 0x3FFF] || "?"} 0x${l.id.toString(16).toUpperCase().padStart(4, "0")} z ${l.z}${LAND_MISSING.has(l.id & 0x3FFF) ? " (no art in this client)" : ""}`;
   $("fTop").textContent = st ? `${TD.st.name[st.id] || "?"} 0x${st.id.toString(16).toUpperCase().padStart(4, "0")} z ${st.z}` : "–";
@@ -1829,7 +1882,7 @@ function tryStep(dx, dy) {
   const nx = P.x + dx, ny = P.y + dy;
   if (mode === "fly") {
     if (nx < 0 || ny < 0 || nx >= M.w || ny >= M.h) return;
-    P.x = nx; P.y = ny; P.z = topSurface(nx, ny);
+    P.x = nx; P.y = ny; P.z = flyZ(nx, ny);
   } else {
     const z = stepTo(nx, ny, P.z);
     if (z === null) { bump(); requestDraw(); return; }
@@ -1854,6 +1907,8 @@ window.addEventListener("keydown", e => {
   if (/^[1-6]$/.test(e.key) && !e.ctrlKey && !e.metaKey) { setBuildMode(["single", "line", "rect", "scatter", "erase", "select"][+e.key - 1]); return; }
   if (selKey(e)) return;
   if (e.key.toLowerCase() === "m" && !e.ctrlKey && !e.metaKey && loaded) { Minimap.toggle(); return; }
+  if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && loaded) { setCut({ auto: "on", on: "off", off: "auto" }[CUT.mode] || "auto"); return; }
+  if ((e.key === "[" || e.key === "]") && loaded && mode === "fly") { floorStep(e.key === "]"); return; }
   if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && B.sel.length) { toggleFav(B.sel[0]); return; }
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (KEYDIR[k] || k === "Shift") { keys.add(k); if (KEYDIR[k]) e.preventDefault(); }
@@ -1887,7 +1942,7 @@ view.addEventListener("mousedown", e => {
   if (e.button !== 0) return;
   if (e.altKey) { pickFromWorld(hover.x, hover.y); return; }
   if (B.mode === "erase") { beginTx(); drag = { mode: "erase", visited: new Set() }; brushStroke(); return; }
-  if (!B.sel.length) { if (mode === "fly") { P.x = hover.x; P.y = hover.y; P.z = topSurface(P.x, P.y); requestDraw(); } return; }
+  if (!B.sel.length) { if (mode === "fly") { P.z = visibleTop(hover.x, hover.y); P.x = hover.x; P.y = hover.y; Server.sendPos?.(); requestDraw(); } return; }
   if (B.mode === "single") { beginTx(); placeCell(hover.x, hover.y); commitTx(); B.seed++; return; }
   if (B.mode === "line" || B.mode === "rect") { drag = { mode: B.mode, start: { x: hover.x, y: hover.y } }; requestDraw(); return; }
   if (B.mode === "scatter") { beginTx(); drag = { mode: "scatter", visited: new Set() }; brushStroke(); }
@@ -1907,6 +1962,8 @@ view.addEventListener("wheel", e => { e.preventDefault(); zoom = Math.max(0.5, M
 new ResizeObserver(requestDraw).observe($("stage"));
 
 function setMode(m) { mode = m; $("modeWalk").setAttribute("aria-pressed", m === "walk"); $("modeFly").setAttribute("aria-pressed", m === "fly"); view.focus(); }
+$("cutAuto").onclick = () => setCut("auto"); $("cutOn").onclick = () => setCut("on"); $("cutOff").onclick = () => setCut("off");
+setCut(CUT.mode, true);
 $("modeWalk").onclick = () => setMode("walk");
 $("modeFly").onclick = () => setMode("fly");
 function jump(x, y) {
@@ -1962,14 +2019,14 @@ function addStatic(x, y, id, z) {
   M.dirty.add(key);
 }
 function removeTop(x, y) {
-  const top = staticsAt(x, y).sort((a, b) => byDrawDepth(b, a))[0];
+  const top = visibleAt(x, y).sort((a, b) => byDrawDepth(b, a))[0];
   if (!top) return false;
   const key = keyOf(x, y), list = touchBlock(key);
   list.splice(list.indexOf(top), 1); M.dirty.add(key);
   return true;
 }
 function removeAll(x, y) {
-  const here = staticsAt(x, y);
+  const here = visibleAt(x, y);
   if (!here.length) return;
   const key = keyOf(x, y), list = touchBlock(key);
   for (const s of here) list.splice(list.indexOf(s), 1);
@@ -2008,7 +2065,7 @@ function pick(x, y) {
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h = (h ^ (h >>> 12)) >>> 0;
   return B.sel[h % B.sel.length];
 }
-const placeZ = (x, y) => topSurface(x, y) + B.zOff;
+const placeZ = (x, y) => visibleTop(x, y) + B.zOff;
 function placeCell(x, y) {
   if (x < 0 || y < 0 || x >= M.w || y >= M.h) return;
   const id = pick(x, y);
@@ -2049,7 +2106,7 @@ function brushStroke() {
   syncEdits(); requestDraw();
 }
 function pickFromWorld(x, y) {
-  const top = staticsAt(x, y).sort((a, b) => b.z - a.z)[0];
+  const top = visibleAt(x, y).sort((a, b) => b.z - a.z)[0];
   if (!top) { toast("No static here to pick up."); return; }
   selectItems([top.id]);
   toast(`Picked ${TD.st.name[top.id] || "item"} 0x${hex(top.id)}.`);
@@ -3053,9 +3110,9 @@ const ITEMS = {
   },
   /** Where a new item stands: a door on its wall's base, other things on top of what's there. */
   zAt(x, y, kind) {
-    const st = staticsAt(x, y), g = landAt(x, y).z;
+    const st = visibleAt(x, y), g = landAt(x, y).z;
     if (kind === "door") { const walls = st.filter(s => s.z >= g - 2); return walls.length ? Math.min(...walls.map(s => s.z)) : g; }
-    return topSurface(x, y);
+    return visibleTop(x, y);
   },
   at(x, y) {
     const here = (this.cell.get(x + "," + y) || []).slice().sort((a, b) => b.z - a.z);
@@ -3470,7 +3527,7 @@ const SPAWN = {
       let v = base;
       if (per) { const best = this.suggest(x, y, 1).ideas[0]; if (!best) continue; const p = best.pack, [a, b] = p[5].split(",").map(Number);
         v = { creatures: Object.entries(p[3]).map(([k, c]) => k + ":" + c).join(","), count: Object.values(p[3]).reduce((s, c) => s + c, 0), range: p[4], min: a, max: b }; }
-      ITEMS.put({ uid: newUid(), kind: "spawn", x, y, z: topSurface(x, y), ...v }); n++;
+      ITEMS.put({ uid: newUid(), kind: "spawn", x, y, z: visibleTop(x, y), ...v }); n++;
     }
     commitTx(); toast(n ? `${n} spawners across ${w}×${h} tiles.` : "No walkable ground there.");
   },
@@ -3613,7 +3670,7 @@ function selSet(items) {
   requestDraw();
 }
 function selClear() { selSet([]); }
-function itemsAtCell(x, y) { const key = keyOf(x, y); return staticsAt(x, y).map(s => ({ key, s })); }
+function itemsAtCell(x, y) { const key = keyOf(x, y); return visibleAt(x, y).map(s => ({ key, s })); }
 function topItemAt(x, y) { return itemsAtCell(x, y).sort((a, b) => b.s.z - a.s.z || tdHeight(b.s.id) - tdHeight(a.s.id))[0] || null; }
 function selDown(e) {
   if (!hover) return;
