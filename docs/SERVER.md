@@ -99,8 +99,12 @@ Every setting can also be given on the command line, e.g. `--ShardForge:ClientPa
 
 ## Letting others in
 
-- **Same network**: set `Urls` to `http://0.0.0.0:2595`, allow port 2595 in Windows Firewall, and share
-  `http://<your-pc-ip>:2595`.
+- **Same network** (a browser on another PC in your house or office): in **Admin → Server → Who can connect**
+  pick *Other computers on my network too*, then **Restart** in the Manager. Admin then lists the addresses to
+  open on the other PC, like `http://192.168.1.20:2595`. Windows asks once whether to let ShardForge through the
+  firewall: allow it on private networks, or press **Firewall** in the Manager. The choice is saved in
+  `data/settings.json` (`"listen": "network"`) and logged in Activity. Everyone still signs in; creating the first
+  admin only works on the server PC itself.
 - **Over the internet**: put the server behind HTTPS. Passwords and session cookies must not cross the internet
   unencrypted. The simplest way is a reverse proxy such as [Caddy](https://caddyserver.com) (`caddy reverse-proxy
   --from forge.example.com --to localhost:2595`), which gets a certificate automatically. Keep `Urls` on localhost

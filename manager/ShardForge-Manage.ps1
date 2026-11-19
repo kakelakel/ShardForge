@@ -13,7 +13,7 @@
 # program files are kept for Rollback. Works with Windows PowerShell 5.1 and PowerShell 7 (Windows or Linux).
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Start', 'Stop', 'Restart', 'Check', 'Update', 'Rollback', 'Logs', 'Open')]
+    [ValidateSet('Status', 'Start', 'Stop', 'Restart', 'Check', 'Update', 'Rollback', 'Logs', 'Open', 'Firewall')]
     [string]$Action = 'Status',
     [string]$Version = '',
     [int]$Lines = 200,
@@ -296,6 +296,18 @@ try {
         'Logs' {
             $f = @(Get-ChildItem -LiteralPath (Join-Path $dataDir 'logs') -Filter 'server-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
             if ($f.Count) { Get-Content -LiteralPath $f[0].FullName -Tail $Lines } else { Write-Line 'No log yet: the server writes one in data/logs once it has run.' }
+        }
+        'Firewall' {
+            # Lets other computers on a private (home/work) network reach ShardForge's port. Windows only; asks for admin.
+            if (-not $onWindows) { Write-Line 'On Linux, open the port with your firewall tool, e.g.: sudo ufw allow 2595/tcp'; break }
+            $port = 2595
+            $cfg = Join-Path $root 'appsettings.json'
+            if (Test-Path -LiteralPath $cfg) { try { $u = (Get-Content -LiteralPath $cfg -Raw | ConvertFrom-Json).Urls; if ($u -match ':(\d+)/?$') { $port = [int]$Matches[1] } } catch { } }
+            $rule = "New-NetFirewallRule -DisplayName 'ShardForge (port $port)' -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private,Domain | Out-Null; " +
+                    "Get-NetFirewallRule -DisplayName 'ShardForge (port $port)' | Select-Object -Skip 1 | Remove-NetFirewallRule"
+            $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-Command', $rule)
+            if ($p.ExitCode -eq 0) { Write-Line "Done: computers on your private network can reach port $port. (Turn on 'Other computers on my network' in Admin, then Restart.)" }
+            else { Write-Line "The firewall wasn't changed (exit $($p.ExitCode))." }
         }
         'Open' {
             $s = Get-Server

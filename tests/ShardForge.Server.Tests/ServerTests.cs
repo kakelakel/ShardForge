@@ -507,6 +507,32 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task AdminsCanLetOtherComputersOnTheNetworkIn()
+    {
+        var (admin, _) = await As("admin");
+        var net = (await admin.GetFromJsonAsync<JsonElement>("/api/settings")).GetProperty("network");
+        Assert.False(net.GetProperty("now").GetBoolean());
+        Assert.True(net.GetProperty("port").GetInt32() > 0);
+        Assert.Equal(JsonValueKind.Array, net.GetProperty("addresses").ValueKind);
+
+        // Saved for the next start (the running server keeps listening where it is), and logged.
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/settings", new { network = true })).StatusCode);
+        net = (await admin.GetFromJsonAsync<JsonElement>("/api/settings")).GetProperty("network");
+        Assert.True(net.GetProperty("saved").GetBoolean());
+        Assert.False(net.GetProperty("now").GetBoolean());
+        Assert.Contains("\"network\"", File.ReadAllText(Path.Combine(fx.Root, "data", "settings.json")));
+        var audit = await admin.GetFromJsonAsync<JsonElement>("/api/audit?action=settings.network");
+        Assert.Contains("other computers", audit.ToString());
+
+        // Only admins.
+        await EnsureUser("wes2", "Worldbuilder");
+        var (wb, _) = await As("wes2");
+        Assert.Equal(HttpStatusCode.Forbidden, (await wb.PutAsJsonAsync("/api/settings", new { network = false })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/settings", new { network = false })).StatusCode);
+        Assert.Contains("\"local\"", File.ReadAllText(Path.Combine(fx.Root, "data", "settings.json")));
+    }
+
+    [Fact]
     public async Task AdminsChooseTheClientFolderAndOnlyARealClientIsAccepted()
     {
         var (admin, _) = await As("admin");

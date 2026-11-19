@@ -1303,7 +1303,7 @@ function decodeStatic(u8) {
   return img;
 }
 const Art = {
-  uop: null, mul: null, idx: null, cache: new Map(), pending: new Set(),
+  uop: null, mul: null, idx: null, cache: new Map(), pending: new Set(), fails: new Map(),
   async open() {
     const u = findAnywhere("artlegacymul.uop");
     if (u) { this.uop = await openUop(u); return; }
@@ -1332,7 +1332,12 @@ const Art = {
         const img = u8 && u8.length >= 8 ? (index < 0x4000 ? decodeLand(u8) : decodeStatic(u8)) : null;
         if (img) { cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").putImageData(img, 0, 0); }
         this.cache.set(index, cv); this.pending.delete(index); onReady?.();
-      }).catch(() => { this.cache.set(index, null); this.pending.delete(index); });
+      }).catch(() => {
+        // A read that failed (network, busy server) is not "this tile has no art": try again shortly, a few times.
+        const n = (this.fails.get(index) || 0) + 1; this.fails.set(index, n);
+        if (n >= 4) { this.cache.set(index, null); this.pending.delete(index); return; }
+        setTimeout(() => { this.pending.delete(index); onReady?.(); }, 800 * n);
+      });
     }
     return undefined;
   },
@@ -1564,9 +1569,22 @@ function affineTri(img, s, d) {
   ctx.restore();
 }
 
+/** A land tile with no picture in this client: draw a plain tile of the same ground instead (the original client
+ *  draws those from its texture file; a dark hole helps nobody). Remembered per tile id; logged once. */
+const LAND_STANDIN = new Map(), LAND_MISSING = new Set();
+function landStandIn(id) {
+  if (LAND_STANDIN.has(id)) return LAND_STANDIN.get(id);
+  const cls = typeof TILE_CLASS !== "undefined" ? TILE_CLASS.get(id) : null;
+  let pick;
+  for (const t of (cls && TERRAIN.pure[cls]) || []) { const im = Art.get(t, requestDraw); if (im) { pick = t; break; } if (im === undefined) pick = undefined; }
+  if (pick !== undefined) LAND_STANDIN.set(id, pick ?? null);
+  if (!LAND_MISSING.has(id)) { LAND_MISSING.add(id); console.info(`Walk: land tile 0x${id.toString(16)} has no art in this client${cls ? `; drawing ${cls} instead` : ""}.`); }
+  return pick ?? null;
+}
 function drawLand(x, y, sx, sy, Z) {
   const land = landAt(x, y), [zt, zr, zb, zl] = landCorners(x, y);
-  const img = Art.get(land.id & 0x3FFF, requestDraw);
+  let img = Art.get(land.id & 0x3FFF, requestDraw);
+  if (img === null) { const alt = landStandIn(land.id & 0x3FFF); if (alt != null) img = Art.get(alt, requestDraw); }
   const T = [sx, sy - zt * Z], R = [sx + 22 * zoom, sy + 22 * zoom - zr * Z], B = [sx, sy + 44 * zoom - zb * Z], L = [sx - 22 * zoom, sy + 22 * zoom - zl * Z];
   if (!img) { // loading or missing: a neutral diamond so the shape still reads
     ctx.fillStyle = img === null ? "#1b2328" : "#253038";
@@ -1779,7 +1797,7 @@ function status() {
   if (!hover) { $("fCur").textContent = $("fGround").textContent = $("fTop").textContent = "–"; return; }
   const l = landAt(hover.x, hover.y), st = staticsAt(hover.x, hover.y).sort((a, b) => b.z - a.z)[0];
   $("fCur").textContent = `${hover.x}, ${hover.y}`;
-  $("fGround").textContent = `${TD.land.name[l.id & 0x3FFF] || "?"} 0x${l.id.toString(16).toUpperCase().padStart(4, "0")} z ${l.z}`;
+  $("fGround").textContent = `${TD.land.name[l.id & 0x3FFF] || "?"} 0x${l.id.toString(16).toUpperCase().padStart(4, "0")} z ${l.z}${LAND_MISSING.has(l.id & 0x3FFF) ? " (no art in this client)" : ""}`;
   $("fTop").textContent = st ? `${TD.st.name[st.id] || "?"} 0x${st.id.toString(16).toUpperCase().padStart(4, "0")} z ${st.z}` : "–";
 }
 
@@ -3831,6 +3849,29 @@ $("btnLoad").onclick = async () => {
 // ShardForge Server mode: when this page is served by ShardForge Server, files come from the
 // server (range requests), statics edits are shared, and everyone on a map sees each other.
 // ===========================================================================
+// Range requests go through one queue: a screen of new ground asks for hundreds of tiles at once, and a browser
+// given that many at the same time drops some (Chrome: ERR_INSUFFICIENT_RESOURCES). A few at a time, retried on a
+// network hiccup or a busy server, and every picture arrives.
+const FETCHQ = { max: 8, active: 0, waiting: [] };
+function fetchSlot() { return FETCHQ.active < FETCHQ.max ? (FETCHQ.active++, Promise.resolve()) : new Promise(r => FETCHQ.waiting.push(r)); }
+function fetchDone() { const next = FETCHQ.waiting.shift(); if (next) next(); else FETCHQ.active--; }
+async function fetchRange(url, start, end, name) {
+  for (let attempt = 0; ; attempt++) {
+    await fetchSlot();
+    let status = 0, buf = null;
+    try {
+      const r = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` }, credentials: "same-origin" });
+      status = r.status;
+      if (r.ok) buf = await r.arrayBuffer();
+    } catch { status = 0; /* network error: retry */ }
+    finally { fetchDone(); }
+    if (buf) return { status, buf };
+    if (status === 401) { location.href = "/login.html?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("Signed out."); }
+    const transient = status === 0 || status === 429 || status >= 500;
+    if (!transient || attempt >= 4) throw new Error(`${name}: ${status || "network error"}`);
+    await new Promise(res => setTimeout(res, 250 * 2 ** attempt + Math.random() * 200));
+  }
+}
 function remoteFile(url, name, size) {
   return {
     name, size,
@@ -3838,11 +3879,8 @@ function remoteFile(url, name, size) {
       return {
         async arrayBuffer() {
           if (end <= start) return new ArrayBuffer(0);
-          const r = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` }, credentials: "same-origin" });
-          if (r.status === 401) { location.href = "/login.html?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("Signed out."); }
-          if (!r.ok) throw new Error(`${name}: ${r.status}`);
-          const buf = await r.arrayBuffer();
-          return r.status === 200 && (start > 0 || end < size) ? buf.slice(start, end) : buf;
+          const { status, buf } = await fetchRange(url, start, end, name);
+          return status === 200 && (start > 0 || end < size) ? buf.slice(start, end) : buf;
         },
       };
     },

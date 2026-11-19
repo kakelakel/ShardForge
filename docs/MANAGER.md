@@ -4,7 +4,7 @@ Start, stop and update ShardForge without a console window, from GitHub releases
 
 - **Windows**: `ShardForge-Manager.bat` opens the Manager window (Windows PowerShell 5.1, built into Windows).
 - **Linux**: `./shardforge-manager.sh status | start | stop | restart | check | update [vX.Y.Z] | rollback | logs`.
-- **Any console**: `manager/ShardForge-Manage.ps1 -Action Status | Start | Stop | Restart | Check | Update | Rollback | Logs | Open`
+- **Any console**: `manager/ShardForge-Manage.ps1 -Action Status | Start | Stop | Restart | Check | Update | Rollback | Logs | Open | Firewall`
   (Windows PowerShell or PowerShell 7). The window runs exactly these actions, one at a time.
 
 ## What it does
@@ -34,3 +34,9 @@ Start, stop and update ShardForge without a console window, from GitHub releases
 
 `manager/manager.json`: `repository` (default `kakelakel/ShardForge`), `includePrereleases` (the window's
 checkbox) and `apiBase` (the GitHub API).
+
+## Other computers on your network
+
+To use Walk or the editor from another PC, turn on *Other computers on my network too* in Admin → Server, press
+**Restart**, then **Firewall** (Windows asks for permission once; it opens the ShardForge port for private and
+domain networks only). Admin shows the addresses to type on the other PC.

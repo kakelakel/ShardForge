@@ -29,7 +29,7 @@ WHAT'S INSIDE
 Dashboard   http://localhost:2595/         maps, projects, Build & walk, your account
 Editor      http://localhost:2595/editor/  paint terrain, sculpt, Ask Claude, towns and Populate world
 Walk        http://localhost:2595/walk/    walk a map at ground level, decorate with statics, see plots
-Admin       http://localhost:2595/admin.html  client folder, users (Viewer, Builder, Admin)
+Admin       http://localhost:2595/admin.html  client folder, users, levels, activity, backups, network
 
 Typical loop: New project in the editor -> shape the land, found towns (Town tool, T) or Populate world
 -> Save -> Build & walk on the dashboard -> decorate and build on the plots in Walk, together.
@@ -38,9 +38,9 @@ Typical loop: New project in the editor -> shape the land, found towns (Town too
 WORKING TOGETHER
 ----------------
 
-The server listens only on this PC by default. To let your team in, change "Urls" in appsettings.json to
-"http://0.0.0.0:2595", allow port 2595 in your firewall, and give them http://<this PC's address>:2595.
-Add them on the Admin page. For the internet, put it behind HTTPS (see docs/SERVER.md on GitHub).
+The server listens only on this PC by default. To use it from another PC on your network: Admin -> Server ->
+Who can connect -> "Other computers on my network too", then Restart and Firewall in the Manager. Admin lists
+the addresses to open (like http://192.168.1.20:2595). Add your team as users on the Admin page. For the internet, put it behind HTTPS (see docs/SERVER.md on GitHub).
 
 
 COMMAND LINE

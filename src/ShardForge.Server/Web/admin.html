@@ -38,6 +38,13 @@
       <div id="found" class="found"></div>
       <p class="note" id="clientNote" style="margin:4px 0 0"></p>
     </form>
+    <div class="field" style="max-width:820px;margin-top:14px">
+      <label>Who can connect</label>
+      <label class="check"><input type="radio" name="net" value="local" id="netLocal"> Only this PC</label>
+      <label class="check"><input type="radio" name="net" value="network" id="netNetwork"> Other computers on my network too (a browser on another PC opens one of the addresses below)</label>
+      <div class="msg" id="netMsg" role="status" style="margin-top:6px"></div>
+      <p class="note" id="netInfo"></p>
+    </div>
     <p class="note" id="serverInfo"></p>
   </section>
 
@@ -225,8 +232,22 @@ document.getElementById("backups").addEventListener("click", async e => {
   try { const r = await SF.api("POST", `/api/backups/${encodeURIComponent(tr.dataset.n)}/restore`, { scope: scope.value }); bMsg("✓ " + r.summary.charAt(0).toUpperCase() + r.summary.slice(1) + "."); loadBackups(); loadAudit(); }
   catch (err) { bMsg(err.message); b.disabled = false; }
 });
+function showNetwork(n) {
+  document.getElementById(n.saved ? "netNetwork" : "netLocal").checked = true;
+  const addr = n.addresses.length ? n.addresses.map(a => `<span class="mono">${SF.esc(a)}</span>`).join(", ") : "no network address found on this PC";
+  const pending = n.saved !== n.now;
+  document.getElementById("netInfo").innerHTML = (n.now ? `Open now on the network: ${addr}.` : `This PC only, at <span class="mono">http://localhost:${n.port}</span>. This PC's network addresses: ${addr}.`)
+    + (pending ? ` <b>Restart ShardForge to apply the change</b> (Manager: Restart).` : "")
+    + (n.saved ? ` Windows asks whether to allow ShardForge through the firewall the first time: allow it on private networks (or press Firewall in the Manager). Only people with an account here can sign in; first-time setup works only from this PC.` : "");
+}
+document.querySelectorAll('input[name="net"]').forEach(r => r.onchange = async () => {
+  const on = document.getElementById("netNetwork").checked;
+  try { await SF.api("PUT", "/api/settings", { network: on }); SF.msg(document.getElementById("netMsg"), on ? "✓ Saved: other computers on your network can connect after a restart." : "✓ Saved: only this PC after a restart.", "ok"); loadServer(); }
+  catch (err) { SF.msg(document.getElementById("netMsg"), err.message, "error"); }
+});
 async function loadServer() {
   const st = await SF.api("GET", "/api/settings");
+  showNetwork(st.network);
   const client = document.getElementById("client"), note = document.getElementById("clientNote");
   client.value = st.client.path;
   note.textContent = (st.client.ok ? "✓ " : "") + st.client.note; note.className = "note " + (st.client.ok ? "ok" : "bad");

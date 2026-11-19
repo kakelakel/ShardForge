@@ -15,7 +15,12 @@ public sealed class ServerSettings(ServerOptions options, string dataPath)
     private sealed class Stored
     {
         [JsonPropertyName("clientPath")] public string? ClientPath { get; set; }
+        /// <summary>"network": other computers on the network can connect; "local" (default): only this PC.</summary>
+        [JsonPropertyName("listen")] public string? Listen { get; set; }
     }
+
+    /// <summary>Whether the server listens on the network (from settings.json; applies at the next start).</summary>
+    public bool NetworkAccess { get; private set; }
 
     /// <summary>Applies saved settings over the configuration (called at startup).</summary>
     public void Load()
@@ -25,19 +30,47 @@ public sealed class ServerSettings(ServerOptions options, string dataPath)
         {
             var s = JsonSerializer.Deserialize<Stored>(File.ReadAllText(FilePath));
             if (!string.IsNullOrWhiteSpace(s?.ClientPath)) options.ClientPath = s.ClientPath;
+            NetworkAccess = s?.Listen == "network";
         }
         catch (JsonException) { /* a broken file: keep the configuration */ }
     }
 
     public void SetClientPath(string path)
     {
-        lock (_gate)
+        lock (_gate) { options.ClientPath = path; Save(); }
+    }
+
+    /// <summary>Lets other computers in (or not). Takes effect when the server next starts.</summary>
+    public void SetNetworkAccess(bool on)
+    {
+        lock (_gate) { NetworkAccess = on; Save(); }
+    }
+
+    private void Save()
+    {
+        string tmp = FilePath + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(new Stored { ClientPath = string.IsNullOrWhiteSpace(options.ClientPath) ? null : options.ClientPath, Listen = NetworkAccess ? "network" : "local" },
+            new JsonSerializerOptions { WriteIndented = true }));
+        File.Move(tmp, FilePath, overwrite: true);
+    }
+
+    /// <summary>This PC's addresses on the local network (what the team types in), private ranges first.</summary>
+    public static List<string> LanAddresses()
+    {
+        var list = new List<string>();
+        try
         {
-            options.ClientPath = path;
-            string tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(new Stored { ClientPath = path }, new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmp, FilePath, overwrite: true);
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up || ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+                foreach (var a in ni.GetIPProperties().UnicastAddresses)
+                    if (a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a.Address) && !a.Address.ToString().StartsWith("169.254."))
+                        list.Add(a.Address.ToString());
+            }
         }
+        catch (System.Net.NetworkInformation.NetworkInformationException) { }
+        static bool Private(string ip) => ip.StartsWith("192.168.") || ip.StartsWith("10.") || System.Text.RegularExpressions.Regex.IsMatch(ip, @"^172\.(1[6-9]|2\d|3[01])\.");
+        return list.Distinct().OrderBy(ip => Private(ip) ? 0 : 1).ToList();
     }
 
     /// <summary>What a folder holds, for the setup and settings pages.</summary>

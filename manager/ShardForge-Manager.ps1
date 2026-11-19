@@ -105,6 +105,9 @@ $logBtn = Add-Button 'Live log' {
     $script:liveLog = $true; $script:logFile = $files[0].FullName; $script:logStamp = [DateTime]::MinValue
 }
 $null = Add-Button 'Open folder' { Start-Process explorer.exe $root }
+$null = Add-Button 'Firewall' {
+    if ([Windows.Forms.MessageBox]::Show("Let other computers on your home or work network reach ShardForge?`r`n`r`nWindows asks for permission once. Public networks (cafés, hotels) stay closed.", 'Firewall', 'YesNo', 'Question') -eq 'Yes') { Invoke-Action 'Firewall' }
+}
 $checkBtn = Add-Button 'Check for updates' { Invoke-Action 'Check' } 150
 $updateBtn = Add-Button 'Update' {
     $msg = if ($script:latest) { "Update ShardForge to $($script:latest)?" } else { 'Update ShardForge to the newest release?' }

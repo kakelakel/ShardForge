@@ -32,6 +32,14 @@ if (options.Detached) { builder.Logging.ClearProviders(); Console.SetOut(TextWri
 builder.Logging.AddProvider(new ShardForge.Server.Logging.FileLoggerProvider(Path.Combine(dataPath, "logs")));
 var settings = new ServerSettings(options, dataPath);
 settings.Load();
+// "Let other computers in" (Admin page): listen on every network address, on the configured port.
+int port = 2595;
+{
+    string configured = builder.Configuration["Urls"] ?? builder.Configuration["urls"] ?? "http://localhost:2595";
+    var m = System.Text.RegularExpressions.Regex.Match(configured.Split(';')[0], @":(\d+)/?$");
+    if (m.Success) port = int.Parse(m.Groups[1].Value);
+    if (settings.NetworkAccess) builder.WebHost.UseUrls($"http://*:{port}");
+}
 // No client folder configured: use the first one found on this PC.
 if (!ServerSettings.Check(options.ClientPath).Ok && ServerSettings.Detect(null).FirstOrDefault() is { } found) options.ClientPath = found.Path;
 
@@ -161,9 +169,16 @@ api.MapPost("/setup/check", (HttpContext ctx, UserStore users, PathBody body) =>
 }).RequireRateLimiting("login");
 
 // ============================================================================ server settings (admin)
-api.MapGet("/settings", (MapRegistry maps) => Results.Ok(new
+api.MapGet("/settings", (MapRegistry maps, ServerSettings store) => Results.Ok(new
 {
     version, dataPath, urls = app.Urls.ToArray(), client = ServerSettings.Check(options.ClientPath),
+    network = new
+    {
+        // What it does now, and what it will do after a restart.
+        now = app.Urls.Any(u => u.Contains("://*") || u.Contains("://+") || u.Contains("://0.0.0.0") || u.Contains("://[::]")),
+        saved = store.NetworkAccess, port,
+        addresses = ServerSettings.LanAddresses().Select(a => $"http://{a}:{port}").ToArray(),
+    },
     found = ServerSettings.Detect(options.ClientPath), maps = maps.All().Count,
 })).RequireAuthorization("Admin");
 api.MapPut("/settings", (HttpContext ctx, ServerSettings store, SettingsBody body, AuditLog audit) =>
@@ -175,7 +190,12 @@ api.MapPut("/settings", (HttpContext ctx, ServerSettings store, SettingsBody bod
         store.SetClientPath(check.Path);
         audit.Write(Current(ctx), "settings.client", $"set the client folder to {check.Path}", ip: Ip(ctx));
     }
-    return Results.Ok(new { client = ServerSettings.Check(options.ClientPath) });
+    if (body.Network is bool net && net != store.NetworkAccess)
+    {
+        store.SetNetworkAccess(net);
+        audit.Write(Current(ctx), "settings.network", net ? "let other computers on the network in (from the next start)" : "made the server this PC only (from the next start)", ip: Ip(ctx));
+    }
+    return Results.Ok(new { client = ServerSettings.Check(options.ClientPath), network = store.NetworkAccess });
 }).RequireAuthorization("Admin");
 
 api.MapPost("/setup", async (HttpContext ctx, UserStore users, Credentials body, AuditLog audit) =>
@@ -716,7 +736,7 @@ static int GuessFacet(int w, int h) => (w, h) switch
 
 record Credentials(string? Username, string? Password, string? ClientPath = null);
 record PathBody(string? Path);
-record SettingsBody(string? ClientPath);
+record SettingsBody(string? ClientPath, bool? Network = null);
 record PasswordChange(string? Current, string? Password);
 record NewUser(string? Username, string? Password, string? Role);
 record UserPatch(string? Role, string? Password, bool? Disabled);
