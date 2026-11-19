@@ -53,7 +53,10 @@ const FACETS = ["Felucca", "Trammel", "Ilshenar", "Malas", "Tokuno", "TerMur"];
 async function loadMaps() {
   const maps = await SF.api("GET", "/api/maps");
   const el = document.getElementById("maps");
-  if (!maps.length) { el.innerHTML = `<div class="empty">No maps found. Check ShardForge:ClientPath in appsettings.json, or build a project.</div>`; return; }
+  if (!maps.length) {
+    el.innerHTML = `<div class="empty">No maps yet. ${me.level >= 3 ? `Choose your UO client folder on the <a href="/admin.html">Admin page</a> to walk the original facets, or` : "Ask an admin to set the UO client folder, or"} build a project.</div>`;
+    return;
+  }
   el.innerHTML = maps.map(m => `
     <div class="card">
       <div class="title">${SF.esc(m.name)}</div>

@@ -17,12 +17,22 @@ using ShardForge.Server.Live;
 using ShardForge.Server.Maps;
 using ShardForge.Server.Projects;
 
-var builder = WebApplication.CreateBuilder(args);
+// Started from a shortcut or another folder: settings and data live next to the program.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json")) ? null : AppContext.BaseDirectory,
+});
 var options = builder.Configuration.GetSection("ShardForge").Get<ServerOptions>() ?? new ServerOptions();
 string dataPath = options.ResolvedDataPath(builder.Environment.ContentRootPath);
 Directory.CreateDirectory(dataPath);
+var settings = new ServerSettings(options, dataPath);
+settings.Load();
+// No client folder configured: use the first one found on this PC.
+if (!ServerSettings.Check(options.ClientPath).Ok && ServerSettings.Detect(null).FirstOrDefault() is { } found) options.ClientPath = found.Path;
 
 builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(new Db(dataPath));
 builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<Db>(), options.PasswordIterations));
 builder.Services.AddSingleton<ProjectStore>();
@@ -121,15 +131,53 @@ string version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.1
 api.MapGet("/status", (UserStore users, MapRegistry maps) => Results.Ok(new
 {
     name = "ShardForge Server", version, needsSetup = users.Count() == 0,
-    clientFound = Directory.Exists(options.ClientPath) && MapRegistry.FindFile(options.ClientPath, "tiledata.mul") is not null,
+    clientFound = ServerSettings.Check(options.ClientPath).Ok,
 }));
+
+// First-run setup can suggest client folders found on this PC (only from this PC, only before setup).
+api.MapGet("/setup/detect", (HttpContext ctx, UserStore users) =>
+{
+    if (users.Count() > 0) return Err(403, "Setup is done; admins change settings on the Admin page.");
+    if (!options.AllowRemoteSetup && !IsLocal(ctx)) return Err(403, "Only from the PC the server runs on.");
+    return Results.Ok(new { current = ServerSettings.Check(options.ClientPath), found = ServerSettings.Detect(options.ClientPath) });
+});
+api.MapPost("/setup/check", (HttpContext ctx, UserStore users, PathBody body) =>
+{
+    if (users.Count() > 0 && !(ctx.User.Identity?.IsAuthenticated == true && Level(ctx.User) >= Role.Admin)) return Err(403, "Admins only.");
+    if (users.Count() == 0 && !options.AllowRemoteSetup && !IsLocal(ctx)) return Err(403, "Only from the PC the server runs on.");
+    return Results.Ok(ServerSettings.Check(body.Path));
+}).RequireRateLimiting("login");
+
+// ============================================================================ server settings (admin)
+api.MapGet("/settings", (MapRegistry maps) => Results.Ok(new
+{
+    version, dataPath, urls = app.Urls.ToArray(), client = ServerSettings.Check(options.ClientPath),
+    found = ServerSettings.Detect(options.ClientPath), maps = maps.All().Count,
+})).RequireAuthorization("Admin");
+api.MapPut("/settings", (ServerSettings store, SettingsBody body) =>
+{
+    if (body.ClientPath is not null)
+    {
+        var check = ServerSettings.Check(body.ClientPath);
+        if (!check.Ok) return Err(400, check.Note);
+        store.SetClientPath(check.Path);
+    }
+    return Results.Ok(new { client = ServerSettings.Check(options.ClientPath) });
+}).RequireAuthorization("Admin");
 
 api.MapPost("/setup", async (HttpContext ctx, UserStore users, Credentials body) =>
 {
     if (!options.AllowRemoteSetup && !IsLocal(ctx)) return Err(403, "Create the first admin from the PC the server runs on (open http://localhost:2595/ there).");
+    ServerSettings.ClientCheck? client = null;
+    if (!string.IsNullOrWhiteSpace(body.ClientPath))
+    {
+        client = ServerSettings.Check(body.ClientPath);
+        if (!client.Ok) return Err(400, client.Note);
+    }
     try
     {
         var u = users.Create(body.Username ?? "", body.Password ?? "", Role.Admin, onlyIfNoUsers: true);
+        if (client is not null) ctx.RequestServices.GetRequiredService<ServerSettings>().SetClientPath(client.Path);
         await SignIn(ctx, u);
         return Results.Ok(Me(u));
     }
@@ -349,8 +397,16 @@ app.Lifetime.ApplicationStarted.Register(() =>
     var maps = app.Services.GetRequiredService<MapRegistry>();
     app.Logger.LogInformation("ShardForge Server {Version}", version);
     app.Logger.LogInformation("Data: {Data}", dataPath);
-    app.Logger.LogInformation("Client: {Client} ({State})", options.ClientPath, Directory.Exists(options.ClientPath) ? $"{maps.All().Count} maps found" : "NOT FOUND - set ShardForge:ClientPath");
-    if (users.Count() == 0) app.Logger.LogWarning("First run: open {Url} on this PC to create the admin account.", app.Urls.FirstOrDefault() ?? "http://localhost:2595");
+    var client = ServerSettings.Check(options.ClientPath);
+    app.Logger.LogInformation("Client: {Client} ({State})", options.ClientPath, client.Ok ? $"{maps.All().Count} maps found" : "not set: choose it in the browser");
+    string url = (app.Urls.FirstOrDefault() ?? "http://localhost:2595").Replace("://0.0.0.0", "://localhost").Replace("://+", "://localhost").Replace("://*", "://localhost").Replace("://[::]", "://localhost");
+    Console.WriteLine();
+    Console.WriteLine($"  ShardForge is running: open {url} in your browser.");
+    Console.WriteLine(users.Count() == 0 ? "  First run: create the admin account and pick your UO client folder there." : "  Keep this window open while you work; close it (or press Ctrl+C) to stop the server.");
+    Console.WriteLine();
+    if (options.OpenBrowser && OperatingSystem.IsWindows() && Environment.UserInteractive)
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception e) { app.Logger.LogDebug(e, "Couldn't open a browser"); }
 });
 app.Run();
 
@@ -393,7 +449,9 @@ static int GuessFacet(int w, int h) => (w, h) switch
     (1448, 1448) => 4, (2304, 1600) => 2, (2560, 2048) => 3, (1280, 4096) => 5, (7168, 4096) => 0, _ => 0,
 };
 
-record Credentials(string? Username, string? Password);
+record Credentials(string? Username, string? Password, string? ClientPath = null);
+record PathBody(string? Path);
+record SettingsBody(string? ClientPath);
 record PasswordChange(string? Current, string? Password);
 record NewUser(string? Username, string? Password, string? Role);
 record UserPatch(string? Role, string? Password, bool? Disabled);

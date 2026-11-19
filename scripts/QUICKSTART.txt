@@ -1,0 +1,51 @@
+ShardForge {{VERSION}}
+=====================
+
+A worldbuilder for Ultima Online (ServUO): paint and generate whole maps, lay out towns, build them into
+real client map files, then walk and decorate them together with your team in the browser.
+
+
+START
+-----
+
+1. Unzip this folder anywhere (for example next to your UO client, or in Documents).
+2. Start ShardForge{{EXE}}. A console window opens and your browser opens http://localhost:2595.
+   (If the browser doesn't open, open that address yourself. Windows may ask to allow the program: allow it.)
+3. First run: create the admin account and pick your Ultima Online client folder. ShardForge suggests
+   the folders it finds and checks them. It only reads the client; it never changes it.
+4. Keep the console window open while you work. Close it (or press Ctrl+C) to stop the server.
+
+Everything ShardForge saves (accounts, projects, built maps, shared edits) is in the "data" folder next to
+ShardForge{{EXE}}. Back it up to back up your work; move it along with the program to move your work.
+
+
+WHAT'S INSIDE
+-------------
+
+Dashboard   http://localhost:2595/         maps, projects, Build & walk, your account
+Editor      http://localhost:2595/editor/  paint terrain, sculpt, Ask Claude, towns and Populate world
+Walk        http://localhost:2595/walk/    walk a map at ground level, decorate with statics, see plots
+Admin       http://localhost:2595/admin.html  client folder, users (Viewer, Builder, Admin)
+
+Typical loop: New project in the editor -> shape the land, found towns (Town tool, T) or Populate world
+-> Save -> Build & walk on the dashboard -> decorate and build on the plots in Walk, together.
+
+
+WORKING TOGETHER
+----------------
+
+The server listens only on this PC by default. To let your team in, change "Urls" in appsettings.json to
+"http://0.0.0.0:2595", allow port 2595 in your firewall, and give them http://<this PC's address>:2595.
+Add them on the Admin page. For the internet, put it behind HTTPS (see docs/SERVER.md on GitHub).
+
+
+COMMAND LINE
+------------
+
+shardforge-cli{{EXE}} --version
+shardforge-cli{{EXE}} build samples/populated-tokuno.shardforge.json out --facet 4 --client "<UO folder>"
+shardforge-cli{{EXE}} render "<UO folder>" 4 tokuno.png --scale 4
+shardforge-cli{{EXE}} (no arguments) lists every command.
+
+
+More: https://github.com/kakelakel/ShardForge

@@ -427,3 +427,4 @@ FodyWeavers.xsd
 
 # ShardForge Server runtime data
 src/ShardForge.Server/data/
+dist/

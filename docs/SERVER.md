@@ -24,16 +24,15 @@ shared projects with history, and live co-building on maps.
 
 ## Run it
 
-### Windows, no install
+### Download (Windows or Linux)
 
-Publish a single self-contained program (needs the .NET 10 SDK on the machine that builds it):
+Get **ShardForge-<version>-win-x64.zip** (or `-linux-x64.tar.gz`) from the
+[Releases page](https://github.com/kakelakel/ShardForge/releases), unzip it anywhere and start **ShardForge.exe**.
+The browser opens <http://localhost:2595>. .NET is included; nothing to install. Windows may warn that the program
+isn't signed. The download also holds `shardforge-cli.exe`, the samples and QUICKSTART.txt.
 
-```sh
-dotnet publish src/ShardForge.Server -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
-```
-
-Copy the `publish` folder anywhere, edit `appsettings.json` (below), and double-click `shardforge-server.exe`.
-Windows may warn that the program isn't signed.
+To build the same packages yourself: `scripts/package.sh` (needs the .NET 10 SDK, zip and tar). Pushing a version
+tag (`git tag v0.4.0 && git push origin v0.4.0`) makes GitHub build them and publish a release.
 
 ### From source
 
@@ -43,9 +42,11 @@ dotnet run --project src/ShardForge.Server
 
 ### First run
 
-Open <http://localhost:2595> **on the PC the server runs on** and create the admin account. (Setup is refused from
-other machines.) Then add people on the **Users** page. New users get a starting password from you and can change it
-on the dashboard.
+On **the PC the server runs on** (setup is refused from other machines), create the admin account and choose your
+UO client folder. ShardForge suggests the folders it finds (EA's install locations, the registry, the folder the
+program is in) and checks that the art and tiledata are there; it only ever reads the client. You can skip it and
+choose later on the **Admin** page, which also manages people: new users get a starting password from you and can
+change it on the dashboard.
 
 ## Settings (`appsettings.json`)
 
@@ -53,8 +54,9 @@ on the dashboard.
 {
   "Urls": "http://localhost:2595",
   "ShardForge": {
-    "ClientPath": "C:\\Games\\Electronic Arts\\Ultima Online Classic",
+    "ClientPath": "",
     "DataPath": "data",
+    "OpenBrowser": true,
     "Maps": [
       { "Id": "test-isles", "Name": "ShardForge Test Isles", "Facet": 4,
         "Path": "C:\\Games\\Electronic Arts\\Ultima Online Classic\\ShardForge-test" }
@@ -66,7 +68,8 @@ on the dashboard.
 | Setting | Meaning |
 |---|---|
 | `Urls` | Where the server listens. `http://localhost:2595` is this PC only. Use `http://0.0.0.0:2595` to accept your network. |
-| `ClientPath` | Your UO client folder: art, tiledata, animdata and the original facets (offered as maps). |
+| `ClientPath` | Your UO client folder: art, tiledata, animdata and the original facets (offered as maps). Usually chosen in the browser instead (saved in `data/settings.json`, which wins over this); empty means "find it". |
+| `OpenBrowser` | Open the dashboard in the default browser when the server starts (Windows). |
 | `DataPath` | The database, built maps and published files. **Back this folder up.** |
 | `Maps` | Extra map folders to offer, such as a `shardforge build` output. `Width`/`Height` for custom sizes. |
 | `LoginAttemptsPerMinute` | Sign-in attempts allowed per address per minute (default 10). |

@@ -8,6 +8,8 @@ using ShardForge.Core.Uop;
 const string Usage = """
 ShardForge - forge your own shard.
 
+  shardforge --version
+
 Usage:
   shardforge info   <clientDir> <facet>
   shardforge render <clientDir> <facet> <out.png> [--scale N] [--no-statics] [--no-shade]
@@ -26,6 +28,7 @@ try
 {
     return args switch
     {
+        ["--version" or "version"] => Version(),
         ["info", var dir, var f] => Info(dir, int.Parse(f)),
         ["render", var dir, var f, var output, .. var rest] => Render(dir, int.Parse(f), output, rest),
         ["uop", var path] => DumpUop(path),
@@ -275,4 +278,10 @@ static int Fail(string message)
 {
     Console.Error.WriteLine(message);
     return 1;
+}
+
+static int Version()
+{
+    Console.WriteLine($"ShardForge {typeof(ShardForge.Core.Map.Facet).Assembly.GetName().Version?.ToString(3)}");
+    return 0;
 }

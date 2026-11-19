@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build ShardForge.slnx -c Release
+      - name: Test
+        run: dotnet test ShardForge.slnx -c Release --no-build
+      - name: Check the web pages parse
+        run: |
+          for f in editor/index.html walk/index.html; do
+            python3 -c "import re,sys;s=open(sys.argv[1]).read();open('/tmp/p.js','w').write('\n'.join(re.findall(r'<script>(.*?)</script>',s,re.S)))" "$f"
+            node --check /tmp/p.js
+          done

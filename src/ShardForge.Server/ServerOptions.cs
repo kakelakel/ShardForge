@@ -18,6 +18,9 @@ public sealed class ServerOptions
     /// <summary>Sign-in and setup attempts allowed per minute from one address.</summary>
     public int LoginAttemptsPerMinute { get; set; } = 10;
 
+    /// <summary>Open the dashboard in the default browser when the server starts (Windows).</summary>
+    public bool OpenBrowser { get; set; } = true;
+
     /// <summary>PBKDF2 iterations for password hashes (lower only in tests).</summary>
     public int PasswordIterations { get; set; } = 210_000;
 

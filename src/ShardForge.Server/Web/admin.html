@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Users · ShardForge</title>
+<title>Admin · ShardForge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,9 +13,20 @@
 <header class="top"><a class="brand" href="/">ShardForge</a></header>
 <main class="page">
   <div>
-    <h1>Users</h1>
+    <h1>Admin</h1>
     <p class="lead"><b>Viewers</b> can open maps and projects and walk around. <b>Builders</b> can also edit projects, place statics and build maps. <b>Admins</b> can also manage users, delete projects and publish. Changing someone's role or password signs them out everywhere.</p>
   </div>
+
+  <section aria-labelledby="hServer">
+    <h2 id="hServer">Server</h2>
+    <form id="clientForm" class="field" style="max-width:820px">
+      <label for="client">Ultima Online client folder</label>
+      <div class="row" style="flex-wrap:nowrap"><input type="text" id="client" style="flex:1" autocomplete="off" spellcheck="false"><button class="primary" type="submit">Save</button></div>
+      <div id="found" class="found"></div>
+      <p class="note" id="clientNote" style="margin:4px 0 0"></p>
+    </form>
+    <p class="note" id="serverInfo"></p>
+  </section>
 
   <section aria-labelledby="hAdd">
     <h2 id="hAdd">Add someone</h2>
@@ -91,11 +102,28 @@ document.getElementById("addForm").onsubmit = async e => {
     e.target.reset(); load();
   } catch (err) { msg(err.message); }
 };
+async function loadServer() {
+  const st = await SF.api("GET", "/api/settings");
+  const client = document.getElementById("client"), note = document.getElementById("clientNote");
+  client.value = st.client.path;
+  note.textContent = (st.client.ok ? "✓ " : "") + st.client.note; note.className = "note " + (st.client.ok ? "ok" : "bad");
+  const found = document.getElementById("found");
+  const others = st.found.filter(f => f.path !== st.client.path);
+  found.innerHTML = others.length ? "Also found: " + others.map((f, i) => `<button type="button" data-i="${i}">${SF.esc(f.path)}</button>`).join("") : "";
+  found.querySelectorAll("button").forEach(btn => btn.onclick = () => { client.value = others[+btn.dataset.i].path; });
+  document.getElementById("serverInfo").innerHTML = `Version ${SF.esc(st.version)} · ${st.maps} map${st.maps === 1 ? "" : "s"} · data in <span class="mono">${SF.esc(st.dataPath)}</span> · listening on <span class="mono">${st.urls.map(SF.esc).join(", ")}</span>`;
+}
+document.getElementById("clientForm").onsubmit = async e => {
+  e.preventDefault();
+  const note = document.getElementById("clientNote");
+  try { await SF.api("PUT", "/api/settings", { clientPath: document.getElementById("client").value }); await loadServer(); note.textContent = "✓ Saved. " + note.textContent.replace(/^✓ /, ""); }
+  catch (err) { note.textContent = err.message; note.className = "note bad"; }
+};
 (async () => {
   me = await SF.requireLogin(); if (!me) return;
   if (me.level < 3) { location.href = "/"; return; }
   SF.header(me, "/admin.html");
-  load();
+  load(); loadServer();
 })();
 </script>
 </body>

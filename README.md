@@ -14,8 +14,16 @@ statics.png  ─┘   (tiles + transitions + scattered statics)
 
 Then polish towns and dungeons by hand in [CentrED#](https://github.com/kaczy93/centredsharp).
 
-> Status: early prototype. Read/render existing maps, paint a new world in the editor, ask Claude to shape it,
-> and build it into UO map files with proper terrain transitions. Not yet tested in a live client.
+> Status: 0.4 (early). Paint and generate worlds, lay out towns, build real UO map files with soft terrain edges,
+> and walk and decorate them together through the self-hosted server. Not yet tested in a live client.
+
+## Download
+
+One package holds everything: the **server** with the **editor** and **Walk** built in, and the command-line tool.
+Get **ShardForge-<version>-win-x64.zip** (or the Linux tarball) from
+[Releases](https://github.com/kakelakel/ShardForge/releases), unzip it, start **ShardForge.exe**, and the browser
+opens: create the admin account and pick your UO client folder (it's found for you). Nothing to install.
+See [docs/SERVER.md](docs/SERVER.md) for sharing it with your team.
 
 ## Why
 
@@ -133,8 +141,8 @@ before they play: checksummed downloads, backups of the originals, data files on
 
 ## Requirements
 
-- .NET 10 SDK
-- A legally obtained Ultima Online Classic client (no game assets are included in this repo)
+- A legally obtained Ultima Online Classic client (no game assets are included in this repo or the download)
+- To build from source: the .NET 10 SDK (`scripts/package.sh` makes the download packages)
 
 ## Usage
 

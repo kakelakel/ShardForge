@@ -23,6 +23,7 @@ public sealed class ServerFixture : IDisposable
         string client = Path.Combine(Root, "client"), maps = Path.Combine(Root, "mapdir");
         Directory.CreateDirectory(client);
         File.WriteAllBytes(Path.Combine(client, "tiledata.mul"), Enumerable.Range(0, 1000).Select(i => (byte)i).ToArray());
+        File.WriteAllBytes(Path.Combine(client, "art.mul"), new byte[16]);
         FacetWriter.WriteAll(TinyProject().Build(7), maps, 7);
 
         var env = new Dictionary<string, string>
@@ -30,6 +31,7 @@ public sealed class ServerFixture : IDisposable
             ["ShardForge__ClientPath"] = client,
             ["ShardForge__DataPath"] = Path.Combine(Root, "data"),
             ["ShardForge__PasswordIterations"] = "1000",
+            ["ShardForge__OpenBrowser"] = "false",
             ["ShardForge__LoginAttemptsPerMinute"] = "10000",
             ["ShardForge__Maps__0__Id"] = "tiny",
             ["ShardForge__Maps__0__Name"] = "Tiny",
@@ -314,5 +316,37 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         using var ms = new MemoryStream();
         s.CopyTo(ms);
         return ms.ToArray();
+    }
+
+    [Fact]
+    public async Task AdminsChooseTheClientFolderAndOnlyARealClientIsAccepted()
+    {
+        var (admin, _) = await As("admin");
+        var st = await admin.GetFromJsonAsync<JsonElement>("/api/settings");
+        Assert.True(st.GetProperty("client").GetProperty("ok").GetBoolean());
+        string good = st.GetProperty("client").GetProperty("path").GetString()!;
+
+        // Not a client folder: refused, and the setting is unchanged.
+        string empty = Path.Combine(fx.Root, "not-a-client");
+        Directory.CreateDirectory(empty);
+        var bad = await admin.PutAsJsonAsync("/api/settings", new { clientPath = empty });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains("isn't a UO client folder", await bad.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/settings", new { clientPath = "relative\\path" })).StatusCode);
+
+        // A copy of the client: accepted and saved to data/settings.json.
+        string copy = Path.Combine(fx.Root, "client2");
+        Directory.CreateDirectory(copy);
+        foreach (var f in Directory.GetFiles(good)) File.Copy(f, Path.Combine(copy, Path.GetFileName(f)), true);
+        var ok = await admin.PutAsJsonAsync("/api/settings", new { clientPath = copy });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Contains("client2", File.ReadAllText(Path.Combine(fx.Root, "data", "settings.json")));
+        Assert.True((await Anon().GetFromJsonAsync<JsonElement>("/api/status")).GetProperty("clientFound").GetBoolean());
+        await admin.PutAsJsonAsync("/api/settings", new { clientPath = good });
+
+        // Viewers and strangers can't read or change server settings; detection is only for first-run setup.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Anon().GetAsync("/api/settings")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Anon().GetAsync("/api/setup/detect")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Anon().PostAsJsonAsync("/api/setup/check", new { path = good })).StatusCode);
     }
 }

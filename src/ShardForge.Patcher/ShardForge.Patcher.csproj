@@ -7,7 +7,6 @@
     <Nullable>enable</Nullable>
     <AssemblyName>ShardForge-Patcher</AssemblyName>
     <RootNamespace>ShardForge.Patcher</RootNamespace>
-    <Version>0.1.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Small single-file download for players -->
     <PublishTrimmed>true</PublishTrimmed>

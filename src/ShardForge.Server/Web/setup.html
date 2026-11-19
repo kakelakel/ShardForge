@@ -17,18 +17,42 @@
     <div class="field"><label for="username">Admin name</label><input type="text" id="username" autocomplete="username" required minlength="2" maxlength="32"></div>
     <div class="field"><label for="password">Password (at least 8 characters)</label><input type="password" id="password" autocomplete="new-password" required minlength="8"></div>
     <div class="field"><label for="password2">Password again</label><input type="password" id="password2" autocomplete="new-password" required minlength="8"></div>
+    <div class="field">
+      <label for="client">Ultima Online client folder</label>
+      <input type="text" id="client" placeholder="C:\Program Files (x86)\Electronic Arts\Ultima Online Classic" autocomplete="off" spellcheck="false">
+      <div id="found" class="found"></div>
+      <p class="note" id="clientNote" style="margin:4px 0 0">ShardForge reads art, tiledata and the original maps from it (it never changes your client). You can set it later on the Admin page.</p>
+    </div>
     <div class="msg" id="msg" role="alert"></div>
     <button class="primary" type="submit">Create admin and sign in</button>
   </form>
 </div>
 <script src="/app.js"></script>
 <script>
-(async () => { const st = await SF.api("GET", "/api/status"); if (!st.needsSetup) location.href = "/login.html"; })();
+const client = document.getElementById("client"), note = document.getElementById("clientNote");
+let checkTimer = null;
+async function check() {
+  if (!client.value.trim()) { note.textContent = "Optional now: you can set it later on the Admin page."; note.className = "note"; return; }
+  try { const c = await SF.api("POST", "/api/setup/check", { path: client.value }); note.textContent = (c.ok ? "✓ " : "") + c.note; note.className = "note " + (c.ok ? "ok" : "bad"); }
+  catch (e) { note.textContent = e.message; note.className = "note bad"; }
+}
+client.oninput = () => { clearTimeout(checkTimer); checkTimer = setTimeout(check, 350); };
+(async () => {
+  const st = await SF.api("GET", "/api/status"); if (!st.needsSetup) { location.href = "/login.html"; return; }
+  try {
+    const d = await SF.api("GET", "/api/setup/detect");
+    if (d.current?.ok) client.value = d.current.path;
+    const found = document.getElementById("found");
+    found.innerHTML = d.found.length ? "Found on this PC: " + d.found.map((f, i) => `<button type="button" data-i="${i}" title="${SF.esc(f.note)}">${SF.esc(f.path)}</button>`).join("") : "";
+    found.querySelectorAll("button").forEach(btn => btn.onclick = () => { client.value = d.found[+btn.dataset.i].path; check(); });
+    check();
+  } catch { /* not local: leave it empty */ }
+})();
 document.getElementById("form").onsubmit = async e => {
   e.preventDefault();
   const msg = document.getElementById("msg");
   if (password.value !== password2.value) { SF.msg(msg, "The passwords don't match."); return; }
-  try { await SF.api("POST", "/api/setup", { username: username.value, password: password.value }); location.href = "/"; }
+  try { await SF.api("POST", "/api/setup", { username: username.value, password: password.value, clientPath: client.value.trim() || undefined }); location.href = "/"; }
   catch (err) { SF.msg(msg, err.message); }
 };
 </script>
