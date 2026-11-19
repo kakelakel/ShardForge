@@ -53,7 +53,38 @@ header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; backg
 header .spacer { flex: 1; }
 header .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
-main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+main { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+/* Workspace: tool windows float over the world; the top menu opens them, and where they are is remembered. */
+aside { display: none; }
+#menubar { display: flex; gap: 2px; align-items: center; }
+.menu { position: relative; }
+.menu > button { background: transparent; border-color: transparent; padding: 5px 10px; }
+.menu > button:hover, .menu > button[aria-expanded="true"] { background: var(--panel-2); border-color: var(--line); }
+.menu-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 1000; min-width: 220px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px; box-shadow: 0 12px 30px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+.menu-pop[hidden] { display: none; }
+.menu-pop button { background: transparent; border: 0; text-align: left; display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 6px; }
+.menu-pop button:hover, .menu-pop button:focus-visible { background: var(--panel-2); }
+.menu-pop .tick { width: 14px; color: var(--gold); }
+.menu-pop .hint { margin-left: auto; font: 11px var(--font-mono); color: var(--muted); }
+.menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+#winLayer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.win { position: absolute; pointer-events: auto; display: flex; flex-direction: column; width: 340px; min-width: 240px; min-height: 38px;
+  max-height: calc(100% - 16px); background: rgba(21,28,32,.97); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45); resize: both; overflow: hidden; }
+.win[hidden] { display: none; }
+.win.front { border-color: #3c4a52; }
+.win-title { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; cursor: grab; user-select: none; touch-action: none;
+  border-bottom: 1px solid var(--line); background: var(--panel-2); border-radius: 10px 10px 0 0; }
+.win-title:active { cursor: grabbing; }
+.win-title h2 { margin: 0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.win-title button { padding: 0 7px; line-height: 20px; font-size: 13px; background: transparent; border-color: transparent; color: var(--muted); }
+.win-title button:hover { color: var(--text); border-color: var(--line); }
+.win-body { overflow: auto; padding: 12px; flex: 1; min-height: 0; }
+.win-body > section { display: block; }
+.win.collapsed { height: auto !important; min-height: 0; resize: horizontal; }
+.win.collapsed .win-body { display: none; }
+.win.collapsed .win-title { border-bottom: 0; border-radius: 10px; }
 #stage { position: relative; min-width: 0; min-height: 0; background: #07090a; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
 #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 3; width: 230px; border: 1px solid rgba(214,170,76,.6); border-radius: 4px;
@@ -130,7 +161,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: v
 footer { display: flex; gap: 18px; padding: 5px 14px; background: var(--panel); border-top: 1px solid var(--line); font: 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
 footer b { color: var(--text); font-weight: 500; }
 
-@media (max-width: 860px) { main { grid-template-columns: 1fr; grid-template-rows: 60vh auto; } body { overflow: auto; } aside { border-left: 0; } }
+@media (max-width: 860px) { .brand small { display: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .sp-ideas { display: grid; gap: 4px; margin-top: 6px; }
 .sp-ideas button { text-align: left; padding: 6px 8px; line-height: 1.3; }
@@ -152,7 +183,8 @@ footer b { color: var(--text); font-weight: 500; }
 </head>
 <body>
 <header>
-  <div class="brand">ShardForge Walk <small>walk and decorate your world at ground level</small></div>
+  <div class="brand">ShardForge Walk <small>walk and decorate your world</small></div>
+  <nav id="menubar" aria-label="Windows"></nav>
   <div class="spacer"></div>
   <div class="group">
     <label class="filebtn" id="pickDirBtn" title="Pick your Ultima Online client folder (subfolders with built maps are found too)">Open client folder…<input type="file" id="pickDir" webkitdirectory multiple></label>
@@ -180,6 +212,7 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="winLayer"></div>
   </div>
 
   <aside aria-label="Tools">
@@ -4117,6 +4150,217 @@ Server.start().catch(e => toast("Server error: " + e.message, 6000));
 
 if (window.claude?.use) claude.use("downloads").then(d => { downloads = d; });
 draw();
+
+// ===========================================================================
+// Workspace: every tool is a window over the world. The top menu opens and closes them; drag a window by its
+// title, resize it from its corner, double-click the title to fold it. Where each one is, its size and whether
+// it's open are remembered in this browser. Panels that come and go on their own (Selection, House designer,
+// Here now) open by themselves when they have something to show.
+// ===========================================================================
+const WIN = {
+  storeKey: "sf.walk.windows.v1", wins: new Map(), z: 10, saved: {},
+  // key: [menu, title in the menu, default place: [side, order] or null (closed), auto, hint when not available]
+  defs: {
+    "movement": ["World", "Movement", ["left", 0]],
+    "go-to": ["World", "Go to", ["left", 1]],
+    "liveSection": ["World", "Here now", ["left", 2], true, "Shows who's here when Walk runs on the ShardForge server."],
+    "builder-palette": ["Build", "Builder", ["right", 0]],
+    "selected-item": ["Build", "Selected item", ["right", 1]],
+    "placement": ["Build", "Placement", ["right", 2]],
+    "selSection": ["Build", "Selection", ["right", 3], true, "Opens when you select things (Select tool, 6)."],
+    "land": ["Build", "Land", null],
+    "houseSection": ["Houses", "Houses", null],
+    "designer": ["Houses", "House designer", ["left", 3], true, "Opens when you start or edit a design in Houses → Designs."],
+    "itemsSection": ["Server", "Server items", null],
+    "your-edits": ["Server", "Your edits", null],
+  },
+  init() {
+    try { this.saved = JSON.parse(localStorage.getItem(this.storeKey) || "{}") || {}; } catch { this.saved = {}; }
+    this.layer = $("winLayer");
+    for (const sec of document.querySelectorAll("aside > section")) {
+      const key = sec.id || (sec.getAttribute("aria-label") || sec.querySelector("h2")?.textContent || "panel").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const def = this.defs[key] || ["Windows", sec.querySelector("h2")?.textContent || key, null];
+      const el = document.createElement("div");
+      el.className = "win"; el.dataset.key = key; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", def[1]);
+      for (const c of ["build-only", "world-only", "admin-only"]) if (sec.classList.contains(c)) el.classList.add(c + "-win");
+      const bar = document.createElement("div"); bar.className = "win-title";
+      const h2 = sec.querySelector(":scope > h2") || Object.assign(document.createElement("h2"), { textContent: def[1] });
+      const fold = Object.assign(document.createElement("button"), { textContent: "▾", title: "Fold (or double-click the title)" });
+      const close = Object.assign(document.createElement("button"), { textContent: "✕", title: "Close (reopen it from the menu)" });
+      fold.setAttribute("aria-label", "Fold " + def[1]); close.setAttribute("aria-label", "Close " + def[1]);
+      bar.append(h2, fold, close);
+      const body = document.createElement("div"); body.className = "win-body";
+      body.append(sec);
+      el.append(bar, body);
+      this.layer.append(el);
+      const w = { key, def, el, sec, bar, auto: !!def[3], open: false, collapsed: false };
+      this.wins.set(key, w);
+      fold.onclick = () => this.fold(w);
+      close.onclick = () => this.show(w, false);
+      bar.addEventListener("dblclick", e => { if (e.target.closest("button")) return; this.fold(w); });
+      el.addEventListener("pointerdown", () => this.front(w), true);
+      this.dragging(w);
+      new ResizeObserver(() => { if (this.ready && (el.style.width || el.style.height)) this.saveSoon(); }).observe(el);
+      // A panel the page hides (not available, or nothing to show) hides its window; an automatic one that
+      // appears opens its window.
+      let was = sec.hidden;
+      new MutationObserver(() => {
+        if (sec.hidden === was) return;
+        const appeared = was && !sec.hidden; was = sec.hidden;
+        if (appeared && w.auto) { w.open = true; this.front(w); }
+        this.apply(w); this.renderMenu();
+      }).observe(sec, { attributes: true, attributeFilter: ["hidden"] });
+    }
+    this.layout(false);
+    this.renderMenu();
+    // Lay out again once the fonts are in (heights change), then start remembering.
+    const settle = () => { if (this.ready) return; this.layout(false); this.ready = true; };
+    (document.fonts?.ready || Promise.resolve()).then(settle); setTimeout(settle, 1500);
+    document.addEventListener("pointerdown", e => { if (!e.target.closest(".menu")) this.closeMenus(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") this.closeMenus(); });
+    window.addEventListener("resize", () => { for (const w of this.wins.values()) this.clamp(w); });
+  },
+  /** Places every window: saved place, or the default arrangement (left and right columns). */
+  layout(reset) {
+    const L = this.layer.getBoundingClientRect(), W = L.width || window.innerWidth, H = L.height || window.innerHeight - 90;
+    const cols = { left: 12, right: Math.max(12, W - 352) };
+    const next = { left: 12, right: 12 };
+    const order = [...this.wins.values()].sort((a, b) => (a.def[2]?.[1] ?? 99) - (b.def[2]?.[1] ?? 99));
+    let cascade = 0;
+    for (const w of order) {
+      const sv = reset ? null : this.saved[w.key];
+      w.el.style.width = w.el.style.height = "";
+      if (sv) {
+        w.open = !!sv.open; w.collapsed = !!sv.c;
+        w.el.style.left = sv.x + "px"; w.el.style.top = sv.y + "px";
+        if (sv.w) w.el.style.width = sv.w + "px";
+        if (sv.h) w.el.style.height = sv.h + "px";
+      } else {
+        const d = w.def[2];
+        w.open = !!d; w.collapsed = false;
+        if (d) { w.el.style.left = cols[d[0]] + "px"; w.el.style.top = next[d[0]] + "px"; }
+        else { w.el.style.left = (W / 2 - 170 + cascade * 26) + "px"; w.el.style.top = (40 + cascade * 26) + "px"; cascade++; }
+        // The palette fills up once a map is in: give it its room from the start so nothing lands on it.
+        if (w.key === "builder-palette") w.el.style.height = Math.round(Math.min(480, H * 0.5)) + "px";
+      }
+      w.el.classList.toggle("collapsed", w.collapsed);
+      this.apply(w);
+      if (!sv && w.def[2] && !w.el.hidden) next[w.def[2][0]] += Math.min(w.el.offsetHeight, H * 0.6) + 10;
+      this.clamp(w);
+    }
+    if (reset) this.save();
+  },
+  available(w) {
+    const lvl = Server.on ? (Server.me?.level ?? 4) : 4;
+    if (w.el.classList.contains("build-only-win") && lvl < 2) return false;
+    if (w.el.classList.contains("world-only-win") && lvl < 3) return false;
+    if (w.el.classList.contains("admin-only-win") && lvl < 4) return false;
+    return w.auto || !w.sec.hidden;
+  },
+  apply(w) { w.el.hidden = !(w.open && this.available(w) && !w.sec.hidden); },
+  show(w, on) {
+    if (on && w.sec.hidden && w.auto) { toast(w.def[4] || "Nothing to show here yet."); return; }
+    w.open = on; this.apply(w);
+    if (on) { this.front(w); this.clamp(w); }
+    this.save(); this.renderMenu();
+    if (!on) view.focus();
+  },
+  fold(w) { w.collapsed = !w.collapsed; w.el.classList.toggle("collapsed", w.collapsed); this.clamp(w); this.save(); },
+  front(w) {
+    if (w.el.style.zIndex == this.z) return;
+    for (const o of this.wins.values()) o.el.classList.remove("front");
+    w.el.style.zIndex = ++this.z; w.el.classList.add("front");
+  },
+  clamp(w) {
+    if (w.el.hidden) return;
+    const L = this.layer.getBoundingClientRect(), r = w.el.getBoundingClientRect();
+    if (!L.width) return;
+    let x = r.left - L.left, y = r.top - L.top;
+    x = Math.min(Math.max(x, 40 - r.width), L.width - 60);  // keep at least the title bar in reach
+    y = Math.min(Math.max(y, 0), L.height - 36);
+    w.el.style.left = Math.round(x) + "px"; w.el.style.top = Math.round(y) + "px";
+  },
+  dragging(w) {
+    let start = null;
+    w.bar.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || e.target.closest("button, input, select")) return;
+      const r = w.el.getBoundingClientRect(), L = this.layer.getBoundingClientRect();
+      start = { px: e.clientX, py: e.clientY, x: r.left - L.left, y: r.top - L.top, w: r.width, h: r.height, L };
+      w.bar.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    w.bar.addEventListener("pointermove", e => {
+      if (!start) return;
+      let x = start.x + e.clientX - start.px, y = start.y + e.clientY - start.py;
+      // Snap to the edges of the view and of other windows.
+      const snap = 10, edgesX = [0, start.L.width - start.w], edgesY = [0, start.L.height - start.h];
+      for (const o of this.wins.values()) {
+        if (o === w || o.el.hidden) continue;
+        const r = o.el.getBoundingClientRect(), ox = r.left - start.L.left, oy = r.top - start.L.top;
+        edgesX.push(ox, ox + r.width, ox - start.w, ox + r.width - start.w);
+        edgesY.push(oy, oy + r.height, oy - start.h, oy + r.height - start.h, oy + r.height + 8);
+      }
+      for (const ex of edgesX) if (Math.abs(x - ex) < snap) { x = ex; break; }
+      for (const ey of edgesY) if (Math.abs(y - ey) < snap) { y = ey; break; }
+      w.el.style.left = Math.round(x) + "px"; w.el.style.top = Math.round(y) + "px";
+    });
+    const end = () => { if (!start) return; start = null; this.clamp(w); this.save(); };
+    w.bar.addEventListener("pointerup", end); w.bar.addEventListener("pointercancel", end);
+  },
+  saveSoon() { clearTimeout(this.t); this.t = setTimeout(() => this.save(), 300); },
+  save() {
+    const out = {};
+    for (const w of this.wins.values()) {
+      const st = w.el.style;
+      out[w.key] = { open: w.open, c: w.collapsed, x: parseInt(st.left) || 0, y: parseInt(st.top) || 0, w: parseInt(st.width) || 0, h: w.collapsed ? (this.saved[w.key]?.h || 0) : (parseInt(st.height) || 0) };
+    }
+    this.saved = out;
+    try { localStorage.setItem(this.storeKey, JSON.stringify(out)); } catch { }
+  },
+  // ---- the top menu
+  renderMenu() {
+    const bar = $("menubar"), openMenu = bar.querySelector('[aria-expanded="true"]')?.dataset.menu;
+    bar.innerHTML = "";
+    const groups = {};
+    for (const w of this.wins.values()) (groups[w.def[0]] ||= []).push(w);
+    const add = (name, items) => {
+      const m = document.createElement("div"); m.className = "menu";
+      const b = Object.assign(document.createElement("button"), { textContent: name });
+      b.dataset.menu = name; b.setAttribute("aria-haspopup", "true"); b.setAttribute("aria-expanded", "false");
+      const pop = document.createElement("div"); pop.className = "menu-pop"; pop.hidden = true; pop.setAttribute("role", "menu");
+      for (const it of items) {
+        if (it === "-") { pop.append(document.createElement("hr")); continue; }
+        const ib = document.createElement("button"); ib.setAttribute("role", "menuitemcheckbox");
+        ib.innerHTML = `<span class="tick">${it.on ? "✓" : ""}</span><span>${escapeHtml(it.label)}</span>${it.hint ? `<span class="hint">${escapeHtml(it.hint)}</span>` : ""}`;
+        ib.setAttribute("aria-checked", String(!!it.on));
+        ib.onclick = () => { this.closeMenus(); it.run(); };
+        pop.append(ib);
+      }
+      b.onclick = () => { const open = pop.hidden; this.closeMenus(); pop.hidden = !open; b.setAttribute("aria-expanded", String(open)); };
+      b.onmouseenter = () => { if (bar.querySelector('[aria-expanded="true"]') && pop.hidden) b.onclick(); };
+      m.append(b, pop); bar.append(m);
+      if (openMenu === name) { pop.hidden = false; b.setAttribute("aria-expanded", "true"); }
+    };
+    for (const g of ["World", "Build", "Houses", "Server", "Windows"]) {
+      const list = (groups[g] || []).filter(w => this.available(w) || w.auto && !(w.el.classList.contains("build-only-win") && Server.on && Server.me?.level < 2));
+      const items = list.map(w => ({ label: w.def[1], on: !w.el.hidden, run: () => this.show(w, w.el.hidden) }));
+      if (g === "World") items.push("-", { label: "Minimap", hint: "M", on: Minimap.on, run: () => { if (loaded) Minimap.toggle(); else toast("Load a map first."); this.renderMenu(); } });
+      if (items.length) add(g, items);
+    }
+    add("Layout", [
+      { label: "Open all windows", run: () => { for (const w of this.wins.values()) if (!w.auto || !w.sec.hidden) { w.open = true; this.apply(w); this.clamp(w); } this.save(); this.renderMenu(); } },
+      { label: "Close all windows", run: () => { for (const w of this.wins.values()) { w.open = false; this.apply(w); } this.save(); this.renderMenu(); view.focus(); } },
+      { label: "Fold all", run: () => { for (const w of this.wins.values()) { w.collapsed = true; w.el.classList.add("collapsed"); } this.save(); } },
+      { label: "Unfold all", run: () => { for (const w of this.wins.values()) { w.collapsed = false; w.el.classList.remove("collapsed"); this.clamp(w); } this.save(); } },
+      "-",
+      { label: "Reset to the standard layout", run: () => { this.layout(true); this.renderMenu(); toast("Windows are back in their standard places."); } },
+    ]);
+  },
+  closeMenus() {
+    for (const p of document.querySelectorAll("#menubar .menu-pop")) p.hidden = true;
+    for (const b of document.querySelectorAll("#menubar .menu > button")) b.setAttribute("aria-expanded", "false");
+  },
+};
+WIN.init();
 </script>
 </body>
 </html>
