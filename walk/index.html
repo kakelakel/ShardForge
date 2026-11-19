@@ -1187,7 +1187,7 @@ async function openUop(file) {
 const F = { IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, FOLIAGE: 1 << 17, ROOF: 1 << 28 };
 
 // Builder categories: a two-level tree from tiledata names and flags (first matching rule wins).
-const FL = { WEAPON: 1 << 1, WALL: 1 << 4, IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, WINDOW: 1 << 12,
+const FL = { BACKGROUND: 1 << 0, WEAPON: 1 << 1, WALL: 1 << 4, IMPASSABLE: 1 << 6, WET: 1 << 7, SURFACE: 1 << 9, BRIDGE: 1 << 10, WINDOW: 1 << 12,
   FOLIAGE: 1 << 17, CONTAINER: 1 << 21, WEARABLE: 1 << 22, LIGHT: 1 << 23, ANIMATION: 1 << 24, ARMOR: 1 << 27, ROOF: 1 << 28,
   DOOR: 1 << 29, STAIRBACK: 1 << 30, STAIRRIGHT: 1 << 31 };
 const has = (f, bit) => (f & bit) !== 0;
@@ -1505,6 +1505,11 @@ function landAvg(x, y) {
 }
 function tdHeight(id) { return id < TD.st.height.length ? TD.st.height[id] : 0; }
 function tdFlags(id) { return id < TD.st.flags.length ? TD.st.flags[id] : 0; }
+/** The client's order for things on one tile: by z, background pieces (tree trunks, back walls) a step back,
+ *  anything with height a step forward; ties keep the order they were placed in. So leaves (height 2) go over
+ *  their trunk (background, height 20), and a chair goes over the floor under it. */
+function drawDepth(s) { return s.z - (tdFlags(s.id) & FL.BACKGROUND ? 1 : 0) + (tdHeight(s.id) > 0 ? 1 : 0); }
+const byDrawDepth = (a, b) => drawDepth(a) - drawDepth(b);
 function surfacesAt(x, y) {
   const out = [];
   const land = landAt(x, y);
@@ -1653,7 +1658,7 @@ function draw() {
       drawLand(x, y, sx, sy, Z);
       const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
       const list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
-      if (list.length) list.slice().sort((a, b) => a.z - b.z || tdHeight(a.id) - tdHeight(b.id)).forEach(s => {
+      if (list.length) list.slice().sort(byDrawDepth).forEach(s => {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
         drawStatic(s, sx, sy, Z);
       });
@@ -1661,7 +1666,7 @@ function draw() {
       if (here) for (const p of here) drawFigure(sx, sy, Z, p.z, p.dir, p.color, "#f3e6cc", p.name);
       if (dx === 0 && dy === 0) {
         drawPlayer(sx, sy, Z);
-        list.filter(s => s.z > P.z).sort((a, b) => a.z - b.z).forEach(s => drawStatic(s, sx, sy, Z));
+        list.filter(s => s.z > P.z).sort(byDrawDepth).forEach(s => drawStatic(s, sx, sy, Z));
       }
     }
   }
@@ -1957,7 +1962,7 @@ function addStatic(x, y, id, z) {
   M.dirty.add(key);
 }
 function removeTop(x, y) {
-  const top = staticsAt(x, y).sort((a, b) => b.z - a.z || tdHeight(b.id) - tdHeight(a.id))[0];
+  const top = staticsAt(x, y).sort((a, b) => byDrawDepth(b, a))[0];
   if (!top) return false;
   const key = keyOf(x, y), list = touchBlock(key);
   list.splice(list.indexOf(top), 1); M.dirty.add(key);

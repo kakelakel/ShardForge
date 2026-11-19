@@ -1,3 +1,11 @@
+## ShardForge 0.5.2
+
+- **Trees look right in Walk**: leaves are drawn over their trunks and branches, the way the client draws them
+  (Walk now orders things on a tile the client's way, which also settles other "behind/in front" oddities).
+
+Also in 0.5.x: use ShardForge from another PC on your network (Admin → Server → *Who can connect*), and no
+more holes in Walk's ground and buildings. Updating: press **Update** in the Manager.
+
 ## ShardForge 0.5.1
 
 - **Use it from another PC**: Admin → Server → *Who can connect* → *Other computers on my network too*, then
