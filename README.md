@@ -44,6 +44,11 @@ haven't kept up with modern clients. This project tries to fill that gap.
 - **Ask Claude**: describe a change ("a snowy range in the north with a river to the sea") and Claude turns it
   into edit operations (island, mountain, ellipse, polygon, path, patches, density, smooth, beaches, fill).
   Every change can be undone.
+- **Underground**: start a **New map** as Underground for a dungeon facet (a black void), then drag rectangles
+  with the Underground tool (U) to carve a winding cave, a great cavern, mine tunnels, a crypt of rooms and
+  corridors, or a lair of tunnels around a great hall. Paint Cave floor, Dungeon floor or Void to reshape them. The
+  build makes them the way the client's own dungeons are made: rock walls rising from cave floor, stone dungeon
+  walls around built floors, stalagmites, webs and bones. Each area is listed with its way in, for teleporters.
 - **Settlements**: the Town tool (T) founds a settlement where you click, or press and drag out to size it (`[` `]`
   resize); a circle under the cursor shows it. Size can be Auto (hamlet, village, town or city from the radius).
   The Settlements panel sets its name, size, radius, style (rustic, fishing,
@@ -108,6 +113,8 @@ size, Ctrl+Z / Ctrl+Y, right-drag or space-drag to pan, wheel to zoom.
   reads the ground, graves, camps and towns around the spot and how far it is from safety. **Fill an area**
   spreads spawners over a forest or a desert, each suggesting its own creatures; a list shows them all. **ServUO package** downloads the map files, the items and the
   import script; see [docs/SERVUO.md](docs/SERVUO.md) for getting it all onto a ServUO shard.
+- **Teleporters between maps**: link a cave mouth on the overworld to a way in on the dungeon facet, with the way
+  back placed for you; **Follow it** takes you through.
 - **Library**: save a design, or anything you built and selected, under a name. On a Walk server it's shared:
   everyone sees it at once and can place it again and again; saved designs stay editable. Offline it lives in the
   browser. Export and import it as a file to move it between servers.

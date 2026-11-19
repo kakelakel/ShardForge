@@ -133,6 +133,8 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
   aside.left, aside.right { border: 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.under-list { display: grid; gap: 3px; }
+.under-list button { text-align: left; }
 .town-form input[type=text] { width: 100%; }
 .town-form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
 .town-form .grid2 select { width: 100%; }
@@ -224,6 +226,19 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <button id="btnPopulate" title="Found cities, towns, villages and hamlets on good sites, join them with roads and add camps, ruins and shrines">Populate world</button>
         <button id="btnClearObj" title="Remove all plots, props and place names (Undo brings them back)">Clear</button>
       </div>
+    </section>
+    <section>
+      <h2>Underground</h2>
+      <div class="field">
+        <div class="grid2">
+          <div><label for="underStyle">Kind</label><select id="underStyle"></select></div>
+          <div><label for="underZ">Floor height</label><input type="number" id="underZ" value="0" min="-60" max="60"></div>
+        </div>
+        <label for="underName">Name</label>
+        <input id="underName" type="text" placeholder="Random, e.g. Whispering Grotto" maxlength="40" autocomplete="off">
+      </div>
+      <p class="note">Pick the <b>Underground</b> tool (U) and drag a rectangle over the void: it carves the cave, mine or crypt there. Rock walls rise around cave floor and stone walls around dungeon floor when it's built; paint <b>Cave floor</b>, <b>Dungeon floor</b> or <b>Void</b> to reshape it by hand. Start a <b>New map</b> as <b>Underground</b> for a dungeon facet.</p>
+      <div id="underList" class="under-list"></div>
     </section>
     <section class="field">
       <label for="brushSize">Brush size <output id="brushSizeOut">12</output></label>
@@ -324,7 +339,9 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <option value="island">A generated island</option>
         <option value="ocean">Open ocean</option>
         <option value="grass">Flat grassland</option>
+        <option value="void">Underground: an empty void for dungeons and caves</option>
       </select>
+      <p class="note">For a dungeon facet: a facet of its own that holds every cave, mine and crypt, reached by teleporters from the overworld. Players never see the difference.</p>
     </div>
     <div class="row">
       <button value="cancel">Cancel</button>
@@ -342,6 +359,10 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
 // shows exactly what gets built.
 // ---------------------------------------------------------------------------
 const TREES = [[0x0CCD,0x0CCE],[0x0CD0,0x0CD1],[0x0CD3,0x0CD4],[0x0CDA,0x0CDB],[0x0CDD,0x0CDE],[0x0CE0,0x0CE1],[0x0CE3,0x0CE4],[0x0CE6,0x0CE7],[0x0CD6],[0x0CD8]];
+// Underground decorations, all from the client's own dungeons.
+const STALAGMITES = [[0x08E0],[0x08E1],[0x08E4],[0x08E5],[0x08E7],[0x08E9],[0x08EA],[0x08E2],[0x08E3],[0x08E6],[0x08E8]];
+const CAVE_LITTER = [[0x1363],[0x1364],[0x1365],[0x1366],[0x1367],[0x0EE3],[0x0EE4],[0x0EE5],[0x0EE6],[0x0D16],[0x0ECA],[0x0ECB],[0x0ECC],[0x0ECD]];
+const DUNGEON_LITTER = [[0x0EE3],[0x0EE4],[0x0EE5],[0x0EE6],[0x0ECA],[0x0ECB],[0x0ECC],[0x0ECD],[0x0ECE],[0x0ECF],[0x0ED0],[0x1B09],[0x1B0A]];
 const GRASSES = [[0x0CAF],[0x0CB0],[0x0CB5],[0x0CB6],[0x0CAC],[0x0CAD]];
 const FLOWERS = [[0x0D2F],[0x0D2D],[0x0D2B],[0x0D29],[0x0C85],[0x0C84]];
 const FERNS = [[0x0CA3],[0x0CA2],[0x0CA4],[0x0CA1],[0x0CA0],[0x0C9F]];
@@ -367,7 +388,12 @@ const TERRAINS = [
   { key: "lava", name: "Lava", color: "#c0461d", land: [0x1F4,0x1F5,0x1F6,0x1F7], populate: [] },
   { key: "cobblestone", name: "Cobblestone road", color: "#9a9284", land: [0x3E9,0x3EA,0x3EB,0x3EC], populate: [] },
   { key: "farmland", name: "Farmland", color: "#8f6c3c", land: [0x09], populate: [] },
-  { key: "cave", name: "Cave floor", color: "#4d4239", land: [0x245,0x246,0x247,0x248], populate: [] },
+  { key: "cave", name: "Cave floor", color: "#4d4239", land: [0x245,0x246,0x247,0x248], populate: [
+      { kind: "rock", items: STALAGMITES, density: 0.012 }, { kind: "small", items: CAVE_LITTER, density: 0.02 } ] },
+  // Underground (see Underground.cs): the void becomes rock walls around cave floors and stone walls around dungeon floors.
+  { key: "void", name: "Void (underground)", color: "#070707", land: [0x244], populate: [] },
+  { key: "dungeon", name: "Dungeon floor", color: "#77716a", land: [0x43E,0x43F,0x440,0x441], populate: [
+      { kind: "small", items: DUNGEON_LITTER, density: 0.015 } ] },
 ];
 const TKEY = Object.fromEntries(TERRAINS.map((t, i) => [t.key, i]));
 const TRGB = TERRAINS.map(t => [1,3,5].map(o => parseInt(t.color.slice(o, o + 2), 16)));
@@ -420,11 +446,12 @@ function newWorld(width, height, start) {
   W.height_ = new Int8Array(width * height);
   W.density = new Uint8Array(width * height).fill(128);
   if (start === "grass") { W.terrain.fill(TKEY.grass); }
+  else if (start === "void") { W.terrain.fill(TKEY.void); }
   else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   undoStack.length = 0; redoStack.length = 0;
   W.objects = { buildings: [], statics: [], multis: [], lots: [] }; W.places = [];
   if (start === "island") applyOps(starterOps(width, height), false);
-  resetImage(); fitView(); updateStats();
+  resetImage(); fitView(); updateStats(); if (typeof renderUnderList === "function") renderUnderList();
 }
 
 function starterOps(w, h) {
@@ -1280,6 +1307,133 @@ function cityWalls(cx, cy, r, edge, rnd, occ) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Underground: caves, caverns, mines, crypts and lairs carved into the void, inside a rectangle. The build
+// raises rock walls around cave floor and stone walls around dungeon floor (Underground.cs). Each area is a
+// named place, so Walk lists it and teleporters can link to it.
+// ---------------------------------------------------------------------------
+const UNDER_STYLES = {
+  cave: "Winding cave", cavern: "Great cavern", mine: "Mine tunnels", crypt: "Crypt: rooms and corridors", lair: "Lair: tunnels to a great hall",
+};
+const UNDER_NAMES = { cave: ["Cave", "Grotto", "Hollow", "Caves"], cavern: ["Cavern", "Deeps", "Underhall"], mine: ["Mine", "Diggings", "Shafts"], crypt: ["Crypt", "Catacombs", "Tomb", "Vaults"], lair: ["Lair", "Den", "Pit", "Nest"] };
+const UNDER_ADJ = ["Black", "Shadow", "Whispering", "Hollow", "Grim", "Old", "Deep", "Weeping", "Ashen", "Bleak", "Cold", "Forgotten", "Iron", "Bone", "Dread", "Silent"];
+OPS.underground = o => {
+  const x0 = Math.max(1, Math.round(o.x)), y0 = Math.max(1, Math.round(o.y));
+  const w = Math.min(W.width - 2 - x0, Math.round(o.w)), h = Math.min(W.height - 2 - y0, Math.round(o.h));
+  if (w < 12 || h < 12) throw new Error("An underground area needs at least 12×12 tiles.");
+  const style = UNDER_STYLES[o.style] ? o.style : "cave", rnd = mulberry(o.seed ?? ((Math.random() * 1e9) | 0));
+  const floorKey = style === "crypt" ? "dungeon" : "cave", F = TKEY[floorKey], V = TKEY.void, z0 = o.z ?? 0;
+  const open = new Uint8Array(w * h), at = (x, y) => x >= 0 && y >= 0 && x < w && y < h ? open[x + y * w] : 0;
+  const dig = (cx, cy, r) => { for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) if (x >= 2 && y >= 2 && x < w - 2 && y < h - 2 && (x - cx) ** 2 + (y - cy) ** 2 <= r * r + 0.5) open[x + y * w] = 1; };
+  const box = (x, y, bw, bh) => { for (let j = y; j < y + bh; j++) for (let i = x; i < x + bw; i++) if (i >= 2 && j >= 2 && i < w - 2 && j < h - 2) open[i + j * w] = 1; };
+  // A wandering tunnel from a to b: meanders, widens now and then.
+  const tunnel = (ax, ay, bx, by, r0, wobble) => {
+    let x = ax, y = ay, a = Math.atan2(by - ay, bx - ax), steps = 0;
+    while (Math.hypot(bx - x, by - y) > 1.5 && steps++ < 4000) {
+      const want = Math.atan2(by - y, bx - x);
+      a += (want - a) * 0.25 + (rnd() - 0.5) * wobble;
+      x += Math.cos(a); y += Math.sin(a);
+      dig(x, y, r0 + (rnd() < 0.08 ? 1 + rnd() * 1.5 : rnd() * 0.6));
+    }
+  };
+  // Cellular smoothing: rough noise settles into cave shapes.
+  const settle = (rounds, birth = 5, survive = 4) => {
+    for (let r = 0; r < rounds; r++) {
+      const next = new Uint8Array(open);
+      for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+        let n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) n += at(x + dx, y + dy);
+        next[x + y * w] = open[x + y * w] ? (n >= survive ? 1 : 0) : (n >= birth ? 1 : 0);
+      }
+      open.set(next);
+    }
+  };
+  // Keep the biggest connected part: every area is one walkable whole.
+  const keepLargest = () => {
+    const seen = new Int32Array(w * h).fill(-1); let best = -1, bestN = 0, id = 0;
+    for (let s = 0; s < w * h; s++) {
+      if (!open[s] || seen[s] >= 0) continue;
+      let n = 0; const st = [s]; seen[s] = id;
+      while (st.length) { const c = st.pop(); n++; const cx = c % w, cy = (c / w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy, k = nx + ny * w; if (nx >= 0 && ny >= 0 && nx < w && ny < h && open[k] && seen[k] < 0) { seen[k] = id; st.push(k); } } }
+      if (n > bestN) { bestN = n; best = id; } id++;
+    }
+    for (let k = 0; k < w * h; k++) if (open[k] && seen[k] !== best) open[k] = 0;
+  };
+  const cx = w / 2, cy = h / 2;
+  if (style === "cave" || style === "cavern") {
+    // Rough fill inside a soft blob, then settle.
+    const fill = style === "cavern" ? 0.56 : 0.47;
+    for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+      const d = Math.hypot((x - cx) / (w / 2), (y - cy) / (h / 2));
+      open[x + y * w] = rnd() < fill * Math.max(0, Math.min(1.25, 1.35 - d * d * 1.1)) ? 1 : 0;
+    }
+    settle(style === "cavern" ? 5 : 4);
+    // A few tunnels tie the pockets together so most of it survives.
+    const pts = Array.from({ length: Math.max(3, Math.round(w * h / 900)) }, () => [4 + rnd() * (w - 8), 4 + rnd() * (h - 8)]);
+    for (let i = 1; i < pts.length; i++) tunnel(...pts[i - 1], ...pts[i], style === "cavern" ? 2.2 : 1.3, 0.9);
+    settle(1);
+  } else if (style === "mine") {
+    // Straight-ish shafts with side galleries and small chambers.
+    let x = 4, y = cy, horizontal = w >= h;
+    if (!horizontal) { x = cx; y = 4; }
+    const main = horizontal ? [w - 5, cy + (rnd() - 0.5) * h * 0.3] : [cx + (rnd() - 0.5) * w * 0.3, h - 5];
+    tunnel(x, y, ...main, 1.1, 0.25);
+    for (let k = 0; k < Math.max(3, Math.round((w + h) / 18)); k++) {
+      const t = rnd(), sx = horizontal ? 4 + t * (w - 8) : cx, sy = horizontal ? cy : 4 + t * (h - 8);
+      const ex = horizontal ? sx + (rnd() - 0.5) * 20 : (rnd() < 0.5 ? 4 + rnd() * 6 : w - 5 - rnd() * 6);
+      const ey = horizontal ? (rnd() < 0.5 ? 4 + rnd() * 6 : h - 5 - rnd() * 6) : sy + (rnd() - 0.5) * 20;
+      tunnel(sx, sy, Math.max(4, Math.min(w - 5, ex)), Math.max(4, Math.min(h - 5, ey)), 0.9, 0.3);
+      if (rnd() < 0.6) dig(Math.max(5, Math.min(w - 6, ex)), Math.max(5, Math.min(h - 6, ey)), 2 + rnd() * 2);
+    }
+  } else if (style === "crypt") {
+    // Rooms laid out on a loose grid, joined by corridors three wide; a few loops.
+    const rooms = [], cell = 18;
+    for (let gy = 0; gy + cell <= h; gy += cell) for (let gx = 0; gx + cell <= w; gx += cell) {
+      if (rnd() < 0.18) continue;
+      const rw = 6 + Math.floor(rnd() * (cell - 10)), rh = 6 + Math.floor(rnd() * (cell - 10));
+      const rx = gx + 2 + Math.floor(rnd() * (cell - rw - 3)), ry = gy + 2 + Math.floor(rnd() * (cell - rh - 3));
+      rooms.push([rx, ry, rw, rh]); box(rx, ry, rw, rh);
+    }
+    const mid = r => [r[0] + (r[2] >> 1), r[1] + (r[3] >> 1)];
+    rooms.sort((a, b) => (a[1] + a[0] * 0.5) - (b[1] + b[0] * 0.5));
+    const hall = (a, b) => {
+      const [ax, ay] = mid(a), [bx, by] = mid(b);
+      if (rnd() < 0.5) { box(Math.min(ax, bx), ay - 1, Math.abs(bx - ax) + 1, 3); box(bx - 1, Math.min(ay, by), 3, Math.abs(by - ay) + 1); }
+      else { box(ax - 1, Math.min(ay, by), 3, Math.abs(by - ay) + 1); box(Math.min(ax, bx), by - 1, Math.abs(bx - ax) + 1, 3); }
+    };
+    for (let i = 1; i < rooms.length; i++) {
+      let best = 0, bd = Infinity; for (let j = 0; j < i; j++) { const d = Math.hypot(mid(rooms[i])[0] - mid(rooms[j])[0], mid(rooms[i])[1] - mid(rooms[j])[1]); if (d < bd) { bd = d; best = j; } }
+      hall(rooms[i], rooms[best]);
+      if (rnd() < 0.2 && i > 2) hall(rooms[i], rooms[Math.floor(rnd() * i)]);
+    }
+    if (!rooms.length) box(4, 4, w - 8, h - 8);
+  } else if (style === "lair") {
+    const hall = [cx + (rnd() - 0.5) * w * 0.2, cy + (rnd() - 0.5) * h * 0.2], R = Math.min(w, h) * 0.22;
+    for (let a = 0; a < Math.PI * 2; a += 0.15) dig(hall[0] + Math.cos(a) * R * (0.75 + rnd() * 0.3), hall[1] + Math.sin(a) * R * (0.75 + rnd() * 0.3), R * 0.45);
+    dig(hall[0], hall[1], R * 0.8);
+    const arms = 3 + Math.floor(rnd() * 3);
+    for (let k = 0; k < arms; k++) {
+      const a = (k / arms) * Math.PI * 2 + rnd() * 0.8, ex = Math.max(4, Math.min(w - 5, hall[0] + Math.cos(a) * w * 0.45)), ey = Math.max(4, Math.min(h - 5, hall[1] + Math.sin(a) * h * 0.45));
+      tunnel(...hall, ex, ey, 1.4, 0.8); dig(ex, ey, 2.5 + rnd() * 2);
+    }
+    settle(1, 6, 3);
+  }
+  keepLargest();
+  // Write it: floor, gently uneven (caves) or level (crypts); the rest of the rectangle stays as it was.
+  let n = 0, entry = null, entryD = Infinity;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!open[x + y * w]) continue;
+    const i = (x0 + x) + (y0 + y) * W.width;
+    W.terrain[i] = F; n++;
+    W.height_[i] = floorKey === "dungeon" ? z0 : z0 + Math.round((vnoise((x0 + x) / 9, (y0 + y) / 9, 77) - 0.5) * 4);
+    const d = Math.min(x, y, w - 1 - x, h - 1 - y); // nearest the area's edge: where the way in goes
+    if (d < entryD) { entryD = d; entry = [x0 + x, y0 + y]; }
+  }
+  if (!n) throw new Error("Nothing was carved: try a bigger area.");
+  const name = o.name || `${pickOf(UNDER_ADJ, rnd)} ${pickOf(UNDER_NAMES[style], rnd)}`;
+  W.places.push({ name, kind: "dungeon", style, x: entry[0], y: entry[1], radius: Math.max(w, h) >> 1, area: [x0, y0, w, h] });
+  return { name, tiles: n, entry };
+};
 OPS.lot = o => {
   ensureObjects();
   const l = { x: Math.round(o.x), y: Math.round(o.y), w: Math.max(3, Math.round(o.w ?? 8)), h: Math.max(3, Math.round(o.h ?? 8)), face: ["N", "S", "E", "W"].includes(o.face) ? o.face : "S", kind: LOT_COLORS[o.kind] ? o.kind : "home" };
@@ -1575,11 +1729,22 @@ function resetImage() {
 function fullRedraw() { repaint(0, 0, W.width - 1, W.height - 1); updateStats(); }
 
 function repaint(x0, y0, x1, y1) {
+  x0 -= 2; y0 -= 2; x1 += 2; y1 += 2; // walls preview from neighbours
   x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W.width - 1, x1); y1 = Math.min(W.height - 1, y1);
   const px = imgData.data, N = W.width, shade = $("showShade").checked, plants = $("showPlants").checked;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = x + y * N, t = W.terrain[i], c = TRGB[t];
+    const i = x + y * N, t = W.terrain[i];
+    let c = TRGB[t];
     let f = 1;
+    // Void next to open ground previews as the rock wall (or dungeon wall) the build will raise there.
+    if (t === TKEY.void) {
+      let wall = 0;
+      for (let dy = -2; dy <= 2 && !wall; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= N || ny >= W.height) continue;
+        const o = W.terrain[nx + ny * N]; if (o !== TKEY.void) { wall = o === TKEY.dungeon ? (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 2 : 0) : 1; if (wall) break; }
+      }
+      if (wall) c = wall === 2 ? [150, 146, 138] : [92, 78, 62];
+    }
     if (t === TKEY.water) {
       f = 0.92 + hrand(x, y, 3, 2) * 0.08;
     } else {
@@ -1625,6 +1790,13 @@ function draw() {
       for (let x = sx; x <= cam.x + r.width / cam.z; x += 8) { const X = Math.round((x - cam.x) * cam.z) + .5; vctx.moveTo(X, 0); vctx.lineTo(X, r.height); }
       for (let y = sy; y <= cam.y + r.height / cam.z; y += 8) { const Y = Math.round((y - cam.y) * cam.z) + .5; vctx.moveTo(0, Y); vctx.lineTo(r.width, Y); }
       vctx.stroke();
+    }
+    if (underDrag || (hover && !panning && tool === "under")) {
+      const d = underDrag ?? { x: Math.floor(hover.wx), y: Math.floor(hover.wy), ex: Math.floor(hover.wx), ey: Math.floor(hover.wy) };
+      const x = Math.min(d.x, d.ex), y = Math.min(d.y, d.ey), w = Math.abs(d.ex - d.x) + 1, h = Math.abs(d.ey - d.y) + 1;
+      vctx.strokeStyle = w >= 12 && h >= 12 ? "#d6aa4c" : "#e07a5f"; vctx.lineWidth = 1.5; vctx.setLineDash([6, 5]);
+      vctx.strokeRect((x - cam.x) * cam.z, (y - cam.y) * cam.z, w * cam.z, h * cam.z); vctx.setLineDash([]);
+      if (underDrag) { vctx.font = "600 12px system-ui, sans-serif"; vctx.fillStyle = "#e8c98a"; vctx.fillText(`${w}×${h} · ${UNDER_STYLES[$("underStyle").value]}`, (x - cam.x) * cam.z + 4, (y - cam.y) * cam.z - 6); }
     }
     if (hover && !panning && tool === "town") {
       const c = townDrag ?? hover;
@@ -1706,6 +1878,10 @@ function drawObjects(r) {
   vctx.textAlign = "start"; vctx.textBaseline = "alphabetic";
 }
 
+function centerOn(x, y) {
+  const r = view.getBoundingClientRect();
+  cam.z = Math.max(cam.z, 2); cam.x = x - r.width / cam.z / 2; cam.y = y - r.height / cam.z / 2; draw();
+}
 function fitView() {
   const r = view.getBoundingClientRect();
   cam.z = Math.min(r.width / W.width, r.height / W.height) * 0.95 || 0.5;
@@ -1728,11 +1904,18 @@ const TOOLS = [
   { id: "thin", label: "Clear plants", key: "C" }, { id: "thick", label: "More plants", key: "M" },
   { id: "pick", label: "Pick", key: "I" },
   { id: "town", label: "Town", key: "T" },
+  { id: "under", label: "Underground", key: "U" },
 ];
 let tool = "paint", paintT = TKEY.grass;
 const brush = { size: 12, strength: 0.4 };
 
+function renderUnderList() {
+  const list = (W.places || []).filter(p => p.kind === "dungeon");
+  $("underList").innerHTML = list.length ? `<p class="note" style="margin:6px 0 2px">Areas on this map:</p>` + list.map((p, i) => `<button data-u="${i}" title="Go there">${escapeHtml(p.name)} <span class="note">${escapeHtml(UNDER_STYLES[p.style] || "")} · way in ${p.x}, ${p.y}</span></button>`).join("") : "";
+  $("underList").querySelectorAll("button").forEach(b => b.onclick = () => { const p = list[+b.dataset.u]; centerOn(p.x, p.y); });
+}
 function buildUi() {
+  $("underStyle").innerHTML = Object.entries(UNDER_STYLES).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join("");
   $("tools").innerHTML = TOOLS.map(t => `<button data-tool="${t.id}" aria-pressed="${t.id === tool}">${t.label}<kbd>${t.key}</kbd></button>`).join("");
   $("tools").onclick = e => { const b = e.target.closest("button"); if (b) setTool(b.dataset.tool); };
   $("palette").innerHTML = TERRAINS.map((t, i) =>
@@ -1807,6 +1990,7 @@ view.addEventListener("pointerdown", e => {
   if (x < 0 || y < 0 || x >= W.width || y >= W.height) return;
   if (tool === "pick" || e.altKey) { paintT = W.terrain[x + y * W.width]; syncPalette(); setTool("paint"); return; }
   if (tool === "fill") { floodFill(x, y); return; }
+  if (tool === "under") { underDrag = { x, y, ex: x, ey: y }; return; }
   if (tool === "town") {
     if (W.terrain[x + y * W.width] === TKEY.water) { addMsg("claude", "Towns need land: click on solid ground.", "error"); return; }
     townDrag = { x, y, wx: p.wx, wy: p.wy, dragged: false };
@@ -1819,14 +2003,29 @@ view.addEventListener("pointermove", e => {
   const p = toWorld(e); hover = p;
   if (panning) { cam.x = panStart.cx - (p.sx - panStart.sx) / cam.z; cam.y = panStart.cy - (p.sy - panStart.sy) / cam.z; }
   else if (painting) stamp(p.wx, p.wy);
+  else if (underDrag) { underDrag.ex = Math.max(0, Math.min(W.width - 1, Math.floor(p.wx))); underDrag.ey = Math.max(0, Math.min(W.height - 1, Math.floor(p.wy))); }
   else if (townDrag) {
     const d = Math.hypot(p.wx - townDrag.wx, p.wy - townDrag.wy);
     if (d >= 4) { townDrag.dragged = true; setTownRadius(d); }
   }
   status(p); draw();
 });
-let townDrag = null;
+let townDrag = null, underDrag = null;
 const endStroke = () => {
+  if (underDrag) {
+    const d = underDrag; underDrag = null;
+    const x = Math.min(d.x, d.ex), y = Math.min(d.y, d.ey), w = Math.abs(d.ex - d.x) + 1, h = Math.abs(d.ey - d.y) + 1;
+    if (w < 12 || h < 12) addMsg("claude", "Drag a rectangle of at least 12×12 tiles for an underground area.", "error");
+    else {
+      const op = { op: "underground", x, y, w, h, style: $("underStyle").value, z: +$("underZ").value || 0, seed: (Math.random() * 1e9) | 0 };
+      if ($("underName").value.trim()) op.name = $("underName").value.trim();
+      const r = applyOps([op]);
+      if (r[0]?.ok) { const pl = W.places[W.places.length - 1]; addMsg("claude", `Carved <b>${escapeHtml(pl.name)}</b> (${UNDER_STYLES[pl.style].toLowerCase()}, ${w}×${h}). Its way in is at ${pl.x}, ${pl.y}: link it from the overworld with a teleporter in Walk.`); $("underName").value = ""; }
+      else addMsg("claude", "Couldn't carve that: " + (r[0]?.why || "?"), "error");
+      fullRedraw(); renderUnderList();
+    }
+    draw();
+  }
   if (townDrag) { const t = townDrag; townDrag = null; foundTown(townOptions(t.x, t.y)); }
   if (painting) { commitEdit(); if (strokeDirty) updateStats(); } painting = false; panning = false; strokeDirty = null; view.style.cursor = "crosshair"; };
 view.addEventListener("pointerup", endStroke);
@@ -2001,7 +2200,7 @@ function loadWorld(m) {
   W.places = m.places ?? [];
   $("projName").value = m.name || "Untitled";
   undoStack.length = 0; redoStack.length = 0; syncUndo();
-  resetImage(); fitView(); updateStats();
+  resetImage(); fitView(); updateStats(); if (typeof renderUnderList === "function") renderUnderList();
 }
 
 let downloads = null;
@@ -2080,6 +2279,7 @@ Ops (JSON objects, applied in order):
 - {"op":"patches","terrain","within"?:[keys],"coverage":0-1,"scale"?:tiles (patch size),"region"?:{"x","y","w","h"}} natural patches, e.g. forest over grass.
 - {"op":"density","cx","cy","rx","ry","value":0-2} vegetation multiplier: 0 clears trees (towns, fields), 2 is dense.
 - {"op":"smooth","passes"?:2,"region"?:{"x","y","w","h"}} softens altitude.
+- {"op":"underground","x","y","w","h","style":"cave"|"cavern"|"mine"|"crypt"|"lair","name"?,"z"?:0,"seed"?:int} carves a dungeon area into the void (terrain "void"); the build raises rock walls around cave floor and stone walls around "dungeon" floor. Underground maps start as all void; keep areas apart with void between them.
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:

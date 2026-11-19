@@ -161,6 +161,8 @@ public sealed class ItemStore(Db db)
                 r["dx"] = Int(o, "dx", 0, 65535); r["dy"] = Int(o, "dy", 0, 65535); r["dz"] = Int(o, "dz", -128, 127);
                 string dm = Str(o, "dmap", 20, false);
                 r["dmap"] = dm.Length == 0 ? ServUOMap(map) : Ident(dm) ? dm : throw new ItemException("A map name has letters only.");
+                string dmid = Str(o, "dmapId", 64, false);
+                if (dmid.Length > 0) r["dmapId"] = dmid.All(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_') ? dmid : throw new ItemException("Bad destination map id.");
                 break;
             case "spawn":
                 // "Orc:4, OrcishMage:1", or plain names sharing the total count.

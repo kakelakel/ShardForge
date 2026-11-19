@@ -37,6 +37,19 @@ ShardForge designs, the library or the designer bring their doors along as serve
 5. **Give players the same client files**: the ShardForge patcher sends `client/*` to their clients. A player
    with old map files sees walls where there are none (and the other way round).
 
+## Dungeons on a facet of their own
+
+Make a **New map** in the editor and start it as **Underground**: a black void. With the **Underground** tool (U)
+drag rectangles to carve caves, great caverns, mine tunnels, crypts (rooms and corridors) and lairs; paint
+**Cave floor**, **Dungeon floor** or **Void** to reshape them. The build raises rock walls around cave floor and
+stone walls around dungeon floor, the way the client's own dungeons are made. Build it on a facet slot you don't
+use for anything else (Ilshenar, Malas, Tokuno or Ter Mur), and set that facet's size in `MapDefinitions.cs`.
+
+In Walk, put a **Teleporter** at the cave mouth on the overworld, choose the dungeon map under **Leads to** and one
+of its ways in, and click: it places the teleporter there and, with **Two-way** on, the one back in the dungeon.
+Both maps' packages go to the shard the same way (copy both `.sfitems`, then one `[SFImport`); players walk into a
+cave mouth and are in the dungeon, and never see that it's another facet.
+
 ## Changing things later
 
 Keep working in Walk, download a new package, then:

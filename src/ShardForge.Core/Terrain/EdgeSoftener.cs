@@ -43,6 +43,9 @@ public static class EdgeSoftener
         var report = new SoftenReport();
         var prio = keys.Select(Priority).ToArray();
         int water = keys.ToList().IndexOf("water");
+        // Underground edges become walls, not blends: void and dungeon floor are left alone, like water.
+        var fixedSet = new bool[Math.Max(k, 1)];
+        for (int i = 0; i < k; i++) fixedSet[i] = keys[i] is "water" or "void" or "dungeon";
 
         // How many of the 12 corner shapes each pair can draw (exactly or with the nearest-blend fallback).
         var cov = new int[k, k];
@@ -58,11 +61,11 @@ public static class EdgeSoftener
         for (int b = 0; b < k; b++)
         {
             bridge[a, b] = -1;
-            if (a == b || a == water || b == water || cov[a, b] >= 12) continue;
+            if (a == b || fixedSet[a] || fixedSet[b] || cov[a, b] >= 12) continue;
             int best = -1, bestCov = cov[a, b];
             for (int c = 0; c < k; c++)
             {
-                if (c == a || c == b || c == water) continue;
+                if (c == a || c == b || fixedSet[c]) continue;
                 int m = Math.Min(cov[a, c], cov[c, b]);
                 if (m > bestCov || (m == bestCov && best >= 0 && prio[c] < prio[best])) { best = c; bestCov = m; }
             }
@@ -78,7 +81,7 @@ public static class EdgeSoftener
             for (int x = 1; x < width - 1; x++)
             {
                 int i = x + y * width, t = terrain[i];
-                if (t >= k || t == water || prio[t] > 40) continue;
+                if (t >= k || fixedSet[t] || prio[t] > 40) continue;
                 tally.Clear();
                 int same = 0;
                 for (int dy = -1; dy <= 1; dy++)
@@ -91,7 +94,7 @@ public static class EdgeSoftener
                 if (same > 1) continue;
                 int top = -1;
                 for (int q = 0; q < k; q++) if (q != t && (top < 0 || tally[q] > tally[top])) top = q;
-                if (top >= 0 && top != water && tally[top] >= 6) { terrain[i] = (byte)top; report.Smoothed++; }
+                if (top >= 0 && !fixedSet[top] && tally[top] >= 6) { terrain[i] = (byte)top; report.Smoothed++; }
             }
             if (report.Smoothed == before) break;
         }
@@ -108,7 +111,7 @@ public static class EdgeSoftener
             for (int x = 0; x < width; x++)
             {
                 int i = x + y * width, t = src[i];
-                if (t >= k || t == water) continue;
+                if (t >= k || fixedSet[t]) continue;
                 near.Clear();
                 bool needs = false;
                 for (int dy = -1; dy <= 1; dy++)
@@ -117,7 +120,7 @@ public static class EdgeSoftener
                     int nx = x + dx, ny = y + dy;
                     if ((dx | dy) == 0 || nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
                     int o = src[nx + ny * width];
-                    if (o >= k || o == water) continue;
+                    if (o >= k || fixedSet[o]) continue;
                     near[o] = true; // its own terrain too: the bridge must blend with every neighbour
                     if (o == t) continue;
                     if (cov[t, o] < 12 && (prio[t] < prio[o] || (prio[t] == prio[o] && t > o))) needs = true;
@@ -127,7 +130,7 @@ public static class EdgeSoftener
                 for (int c = 0; c < k; c++)
                 {
                     if (near[c] && (firm < 0 || prio[c] > prio[firm])) firm = c;
-                    if (c == water) continue;
+                    if (fixedSet[c]) continue;
                     int m = 12;
                     for (int o = 0; o < k; o++) if (near[o] && o != c) m = Math.Min(m, cov[c, o]);
                     if (m > bestMin || (m == bestMin && best >= 0 && prio[c] < prio[best])) { best = c; bestMin = m; }

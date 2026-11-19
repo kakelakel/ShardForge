@@ -154,7 +154,7 @@ public sealed class ShardProject
     public void WriteLayout(string dir)
     {
         string path = Path.Combine(dir, LayoutFile);
-        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine"];
+        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine", "dungeon"];
         var places = (Places ?? []).Where(p => order.Contains(p.Kind))
             .OrderBy(p => Array.IndexOf(order, p.Kind)).ThenBy(p => p.Name, StringComparer.Ordinal)
             .Select(p => new LayoutPlace(p.Name, p.Kind, p.X, p.Y)).ToArray();
@@ -169,6 +169,12 @@ public sealed class ShardProject
 
     /// <summary>What the soft-edge pass changed in the last <see cref="Build"/> (null without transitions).</summary>
     [JsonIgnore] public ShardForge.Core.Terrain.SoftenReport? LastSoften { get; private set; }
+
+    /// <summary>What the underground pass made in the last <see cref="Build"/> (null when the project has no void).</summary>
+    [JsonIgnore] public ShardForge.Core.Terrain.Underground.Plan? LastUnderground { get; private set; }
+
+    /// <summary>Which dungeon wall set built dungeon floors get (see Underground.DungeonWalls).</summary>
+    [JsonPropertyName("dungeonWalls")] public int DungeonWallSet { get; set; }
 
     public Facet Build(int facetIndex, ShardForge.Core.Terrain.TransitionTable? transitions = null, ShardForge.Core.Data.MultiData? multis = null)
     {
@@ -185,6 +191,11 @@ public sealed class ShardProject
         LastSoften = transitions is null ? null
             : ShardForge.Core.Terrain.EdgeSoftener.Soften(terrain, Width, Height, Terrains.Select(t => t.Key).ToArray(), transitions);
         height = ApplyCrags(terrain, height);
+        // Underground: void, cave walls rising from the floor, dungeon walls around built floors.
+        var keys = Terrains.Select(t => t.Key).ToArray();
+        var under = ShardForge.Core.Terrain.Underground.Build(terrain, Array.ConvertAll(height, b => (sbyte)b), Width, Height, keys,
+            (x, y, k) => HRand(x, y, Seed, k), DungeonWallSet);
+        LastUnderground = under;
 
         var info = new FacetInfo(facetIndex, Name, Width, Height);
         var facet = new Facet(info);
@@ -202,6 +213,7 @@ public sealed class ShardProject
             if (transitions is not null && TransitionTile(terrain, x, y, transitions) is int edge)
                 tile = (ushort)edge;
             sbyte z = def.FixedZ is int fz ? (sbyte)fz : (sbyte)height[i];
+            if (under is not null && under.Tile[i] >= 0) { tile = (ushort)under.Tile[i]; if (under.Z[i] is sbyte uz) z = uz; }
             facet.SetLand(x, y, new LandCell(tile, z));
 
             double mult = density[i] / 128.0;
@@ -218,6 +230,9 @@ public sealed class ShardProject
             }
         }
 
+        if (under is not null)
+            foreach (var (sx, sy, id, sz) in under.Statics)
+                (blockStatics[facet.BlockIndex(sx >> 3, sy >> 3)] ??= []).Add(new StaticTile(id, (byte)(sx & 7), (byte)(sy & 7), sz, 0));
         StampObjects(facet, blockStatics, multis);
         for (int b = 0; b < blockStatics.Length; b++)
             if (blockStatics[b] is { } list) facet.Statics[b] = list.ToArray();
@@ -330,6 +345,8 @@ public sealed class ShardProject
         Span<int> c = [terrain[x + y * Width], terrain[x1 + y * Width], terrain[x + y1 * Width], terrain[x1 + y1 * Width]];
         int own = c[0];
         if (c[1] == own && c[2] == own && c[3] == own) return null;
+        // Underground edges are walls, not blends.
+        foreach (int t in c) if (Terrains[t].Key is "void" or "dungeon") return null;
 
         // The other terrain: the most common non-own corner (three-way junctions collapse onto it).
         int other = -1, otherCount = 0;

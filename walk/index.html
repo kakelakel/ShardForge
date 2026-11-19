@@ -354,7 +354,13 @@ footer b { color: var(--text); font-weight: 500; }
         <div class="row if" data-k="sign item" style="gap:6px;align-items:center"><label for="ifArt" style="margin:0">Art</label><input id="ifArt" style="width:80px" placeholder="0x0BD2"><button id="ifUsePicked" title="Use the static picked in the catalogue">Use picked</button><label for="ifHue" style="margin:0">Hue</label><input type="number" id="ifHue" min="0" max="3000" value="0" style="width:64px"></div>
         <input class="if" data-k="sign" id="ifText" placeholder="What the sign says" style="width:100%">
         <div class="if" data-k="item"><input id="ifType" list="ifTypes" placeholder="ServUO class, e.g. Forge" style="width:100%"><datalist id="ifTypes"></datalist></div>
-        <div class="row if" data-k="tele" style="gap:6px;align-items:center"><label style="margin:0">To</label><input type="number" id="ifDx" style="width:70px" aria-label="Destination x"><input type="number" id="ifDy" style="width:70px" aria-label="Destination y"><input type="number" id="ifDz" style="width:56px" aria-label="Destination z"><select id="ifDmap" aria-label="Destination facet"></select></div>
+        <div class="if" data-k="tele">
+          <div class="row" style="gap:6px;align-items:center"><label for="ifTmap" style="margin:0;white-space:nowrap">Leads to</label><select id="ifTmap" style="flex:1;min-width:0" aria-label="Destination map"></select></div>
+          <select id="ifTplace" style="width:100%;margin-top:6px" aria-label="A way in on that map" hidden></select>
+          <div class="row" style="gap:6px;align-items:center;margin-top:6px"><label style="margin:0">At</label><input type="number" id="ifDx" style="width:70px" aria-label="Destination x"><input type="number" id="ifDy" style="width:70px" aria-label="Destination y"><input type="number" id="ifDz" style="width:56px" aria-label="Destination z"><select id="ifDmap" aria-label="ServUO facet" title="The ServUO facet it leads to"></select></div>
+          <label class="check"><input type="checkbox" id="ifTwoWay" checked> Two-way: a teleporter back where it arrives</label>
+          <button id="ifFollow" hidden title="Go where this teleporter leads">Follow it</button>
+        </div>
         <div class="if spawn-ui" data-k="spawn">
           <div class="row" style="gap:6px"><button id="spSuggest" class="primary" title="Looks at the ground, graves, camps and towns around the cursor, and how far it is from safety">Suggest for here</button>
             <select id="spPack" style="flex:1;min-width:0" aria-label="Packs"></select></div>
@@ -2995,6 +3001,7 @@ const ITEMS = {
     $("itemForm").hidden = !kind;
     document.querySelectorAll("#itemForm .if").forEach(el => el.hidden = !el.dataset.k.split(" ").includes(kind));
     $("ifEditRow").hidden = !this.sel;
+    $("ifFollow").hidden = this.sel?.kind !== "tele"; $("ifTwoWay").closest("label").hidden = !!this.sel;
     $("itemHint").textContent = this.sel ? `Editing a ${{ tele: "teleporter", spawn: "spawner" }[this.sel.kind] || this.sel.kind} at ${this.sel.x}, ${this.sel.y}, z ${this.sel.z}${this.sel.by ? `, placed by ${this.sel.by}` : ""}. Change the fields and press Apply.`
       : this.tool ? ITEM_HINTS[this.tool] + (this.tool === "tele" && this.tele ? ` Now click the destination (from ${this.tele.x}, ${this.tele.y}).` : "")
       : "Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.";
@@ -3004,7 +3011,7 @@ const ITEMS = {
     if (it.kind === "sign" || it.kind === "item") { v("ifArt", it.id ? "0x" + hex(it.id) : ""); v("ifHue", it.hue || 0); }
     if (it.kind === "sign") v("ifText", it.name);
     if (it.kind === "item") v("ifType", it.type);
-    if (it.kind === "tele") { v("ifDx", it.dx); v("ifDy", it.dy); v("ifDz", it.dz); v("ifDmap", it.dmap); }
+    if (it.kind === "tele") { v("ifDx", it.dx); v("ifDy", it.dy); v("ifDz", it.dz); v("ifDmap", it.dmap); $("ifTmap").value = it.dmapId || ""; $("ifTplace").hidden = true; }
     if (it.kind === "spawn") SPAWN.fill(it);
     if (it.kind === "region") { v("ifName", it.name); $("ifGuarded").checked = !!it.guarded; }
   },
@@ -3015,7 +3022,8 @@ const ITEMS = {
     if (kind === "door") { it.type = $("ifDoor").value; it.facing = $("ifFacing").value; it.id = doorArt(it.type, it.facing); }
     if (kind === "sign") { it.id = num("ifArt", 0x0BD2); it.hue = num("ifHue", 0); it.name = $("ifText").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 120); }
     if (kind === "item") { it.type = ($("ifType").value.trim() || "Forge").replace(/[^A-Za-z0-9_]/g, ""); it.id = num("ifArt", 0); it.hue = num("ifHue", 0); }
-    if (kind === "tele") { it.dx = num("ifDx", it.dx ?? 0); it.dy = num("ifDy", it.dy ?? 0); it.dz = num("ifDz", it.dz ?? 0); it.dmap = $("ifDmap").value; }
+    if (kind === "tele") { it.dx = num("ifDx", it.dx ?? 0); it.dy = num("ifDy", it.dy ?? 0); it.dz = num("ifDz", it.dz ?? 0); it.dmap = $("ifDmap").value;
+      if (TELE.other()) it.dmapId = $("ifTmap").value; else delete it.dmapId; }
     if (kind === "spawn") { Object.assign(it, SPAWN.value()); }
     if (kind === "region") { it.name = $("ifName").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 60) || "Unnamed"; it.guarded = $("ifGuarded").checked; }
     return it;
@@ -3036,12 +3044,17 @@ const ITEMS = {
     const { x, y } = hover, t = this.tool;
     if (t === "pick") { this.sel = this.at(x, y); if (!this.sel) toast("No server item here."); this.form(); requestDraw(); return; }
     if (t === "region" || (t === "spawn" && SPAWN.area)) { this.drag = { start: { x, y }, end: { x, y } }; return; }
+    // To another map: one click, at the chosen way in. On this map: click the start, then where it leads.
+    if (t === "tele" && TELE.other()) { TELE.place(x, y, this.zAt(x, y, t)); return; }
     if (t === "tele" && !this.tele) { this.tele = { x, y, z: this.zAt(x, y, t) }; this.form(); requestDraw(); return; }
     beginTx();
     if (t === "tele") {
       const it = this.fields("tele", { uid: newUid(), ...this.tele });
-      it.dx = x; it.dy = y; it.dz = topSurface(x, y); it.dmap = $("ifDmap").value || FACET_NAMES[M.facet] || "Felucca";
-      this.put(it); this.tele = null;
+      it.dx = x; it.dy = y; it.dz = topSurface(x, y); it.dmap = FACET_NAMES[M.facet] || "Felucca"; delete it.dmapId;
+      this.put(it);
+      if ($("ifTwoWay").checked) { const back = TELE.arrival(this.tele.x, this.tele.y);
+        this.put({ uid: newUid(), kind: "tele", x, y, z: it.dz, dx: back[0], dy: back[1], dz: topSurface(...back), dmap: it.dmap }); }
+      this.tele = null;
     } else this.put(this.fields(t, { uid: newUid(), x, y, z: this.zAt(x, y, t) }));
     commitTx(); this.form();
   },
@@ -3093,8 +3106,9 @@ const ITEMS = {
       } else if (!near(it.x, it.y)) continue;
       else if (it.kind === "tele") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#6ad1e3", "rgba(106,209,227,.25)");
-        if (zoom >= 0.8 || it === this.sel) label(`→ ${it.dx}, ${it.dy}${it.dmap && it.dmap !== FACET_NAMES[M.facet] ? " " + it.dmap : ""}`, sx, t - 4, "#6ad1e3");
-        if (it === this.sel) diamond(it.dx, it.dy, it.dz, "#6ad1e3", null, 1);
+        const there = it.dmapId && it.dmapId !== Server.map?.id ? (Server.maps.find(m => m.id === it.dmapId)?.name || it.dmapId) : (it.dmap && it.dmap !== FACET_NAMES[M.facet] ? it.dmap : "");
+        if (zoom >= 0.8 || it === this.sel) label(`→ ${there ? there + " " : ""}${it.dx}, ${it.dy}`, sx, t - 4, "#6ad1e3");
+        if (it === this.sel && !there) diamond(it.dx, it.dy, it.dz, "#6ad1e3", null, 1);
       } else if (it.kind === "spawn") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#e07a5f", "rgba(224,122,95,.25)");
         if (zoom >= 0.8 || it === this.sel) label(SPAWN.summary(it.creatures), sx, t - 4, "#f0a58f");
@@ -3176,6 +3190,67 @@ $("itemShow").onchange = () => { ITEMS.show = $("itemShow").checked; requestDraw
 $("itemTowns").onclick = () => ITEMS.towns(); $("itemPackage").onclick = () => ITEMS.pack();
 view.addEventListener("mousemove", () => { if (ITEMS.tool) { ITEMS.move(); requestDraw(); } });
 window.addEventListener("mouseup", () => ITEMS.up());
+
+// ===========================================================================
+// Teleporters between maps: the overworld's cave mouth to the dungeon facet's way in, and a teleporter back.
+// Players arrive on the return teleporter's tile (arriving doesn't trigger it) and come back beside the entrance.
+// ===========================================================================
+const TELE = {
+  places: [],
+  other: () => !!$("ifTmap").value && $("ifTmap").value !== Server.map?.id,
+  fill() {
+    const maps = Server.on ? Server.maps : [];
+    $("ifTmap").innerHTML = `<option value="">This map</option>` + maps.filter(m => m.id !== Server.map?.id).map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (${FACET_NAMES[m.facet] || "facet " + m.facet})</option>`).join("");
+    $("ifTmap").closest(".row").hidden = !maps.length;
+  },
+  /** On choosing a map: its facet name, and its ways in (dungeon areas first) from its layout. */
+  async mapChanged() {
+    const id = $("ifTmap").value, m = Server.maps.find(x => x.id === id);
+    $("ifDmap").value = m ? (FACET_NAMES[m.facet] || "Felucca") : (FACET_NAMES[M.facet] || "Felucca");
+    this.places = [];
+    if (m && m.files?.["layout.json"]) {
+      try { const l = await Server.api("GET", `/api/maps/${encodeURIComponent(id)}/files/layout.json`); this.places = (l.places || []).sort((a, b) => (b.kind === "dungeon") - (a.kind === "dungeon")); } catch { this.places = []; }
+    }
+    $("ifTplace").hidden = !this.places.length;
+    $("ifTplace").innerHTML = `<option value="">Pick a way in…</option>` + this.places.map((p, i) => `<option value="${i}">${escapeHtml(p.name)}${p.kind === "dungeon" ? "" : " (" + p.kind + ")"} · ${p.x}, ${p.y}</option>`).join("");
+    if (this.places.length) { $("ifTplace").value = "0"; await this.placeChosen(); }
+    ITEMS.form(); requestDraw();
+  },
+  async placeChosen() {
+    const p = this.places[+$("ifTplace").value]; if (!p) return;
+    $("ifDx").value = p.x; $("ifDy").value = p.y;
+    try { const r = await Server.api("GET", `/api/maps/${encodeURIComponent($("ifTmap").value)}/z?x=${p.x}&y=${p.y}`); $("ifDz").value = r.z; } catch { $("ifDz").value = 0; }
+  },
+  /** A free walkable tile beside (x, y) on this map, to arrive on when coming back. */
+  arrival(x, y) {
+    for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const ax = x + dx, ay = y + dy; if (ax < 0 || ay < 0 || ax >= M.w || ay >= M.h) continue;
+      if (surfacesAt(ax, ay).length && !(ITEMS.cell.get(ax + "," + ay) || []).some(i => i.kind === "tele")) return [ax, ay];
+    }
+    return [x, y + 1];
+  },
+  /** Places a teleporter here leading to the chosen spot on the other map, and (two-way) one back there. */
+  async place(x, y, z) {
+    const id = $("ifTmap").value, dx = +$("ifDx").value, dy = +$("ifDy").value, name = Server.maps.find(m => m.id === id)?.name || id;
+    if (!$("ifDx").value || !$("ifDy").value) { toast("Pick a way in on that map, or type where it leads."); return; }
+    beginTx(); ITEMS.put(ITEMS.fields("tele", { uid: newUid(), x, y, z })); commitTx(); ITEMS.form();
+    if (!$("ifTwoWay").checked) { toast(`Teleporter to ${name}. Add one back there to return.`); return; }
+    const back = this.arrival(x, y);
+    try {
+      await Server.api("PUT", `/api/maps/${encodeURIComponent(id)}/items`, { put: [{ uid: newUid(), kind: "tele", x: dx, y: dy, z: +$("ifDz").value || 0,
+        dx: back[0], dy: back[1], dz: topSurface(...back), dmap: FACET_NAMES[M.facet] || "Felucca", dmapId: Server.map.id }] });
+      toast(`Linked both ways with ${name} (${dx}, ${dy}). The way back is on that map: remove it there if you undo this.`, 7000);
+    } catch (e) { toast("The teleporter here is placed, but the way back couldn't be: " + e.message, 7000); }
+  },
+  follow() {
+    const it = ITEMS.sel; if (it?.kind !== "tele") return;
+    if (it.dmapId && it.dmapId !== Server.map?.id) location.href = `/walk/?map=${encodeURIComponent(it.dmapId)}&x=${it.dx}&y=${it.dy}`;
+    else jump(it.dx, it.dy);
+  },
+};
+$("ifTmap").onchange = () => TELE.mapChanged();
+$("ifTplace").onchange = () => TELE.placeChosen();
+$("ifFollow").onclick = () => TELE.follow();
 
 // ===========================================================================
 // Spawners made friendly: creatures by name with counts, ready-made packs, suggestions from the ground, graves,
@@ -3840,6 +3915,7 @@ const Server = {
     for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
     applyLandBlocks(ov.land);
     ITEMS.load(await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/items`));
+    TELE.fill();
     if (this.me.level === 2) try { MINE.load(await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/mine`)); } catch { MINE.load([]); }
     { const q = new URLSearchParams(location.search); history.replaceState(null, "", "?map=" + encodeURIComponent(m.id) + (q.has("x") ? `&x=${q.get("x")}&y=${q.get("y")}` : "")); }
     $("liveSection").hidden = false;

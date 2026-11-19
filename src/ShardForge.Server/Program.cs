@@ -340,6 +340,19 @@ api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry m
     catch (BlockException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Decorator");
 
+// The ground height at a spot (for linking teleporters across maps): land, or the highest walkable static on it.
+var surfaceCache = new ConcurrentDictionary<string, (DateTime At, ShardForge.Core.Map.Facet Facet)>();
+api.MapGet("/maps/{id}/z", (string id, int x, int y, MapRegistry maps, BlockStore blocks) =>
+{
+    var m = maps.Get(id);
+    if (m is null) return Results.NotFound();
+    if (x < 0 || y < 0 || x >= m.Width || y >= m.Height) return Err(400, "Outside the map.");
+    var f = surfaceCache.TryGetValue(id, out var c) && DateTime.UtcNow - c.At < TimeSpan.FromMinutes(2) ? c.Facet : null;
+    if (f is null) { f = blocks.Merged(m); surfaceCache[id] = (DateTime.UtcNow, f); }
+    var land = f.GetLand(x, y);
+    return Results.Ok(new { z = (int)land.Z, land = (int)land.TileId, map = m.Name, facet = ItemStore.ServUOMap(m) });
+}).RequireAuthorization("Viewer");
+
 api.MapGet("/maps/{id}/mine", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks) =>
     maps.Get(id) is null ? Results.NotFound() : Results.Ok(blocks.OwnedBy(id, Current(ctx).Id))).RequireAuthorization("Decorator");
 
