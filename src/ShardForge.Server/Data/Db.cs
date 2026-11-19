@@ -79,6 +79,23 @@ public sealed class Db
               user_id INTEGER REFERENCES users(id),
               created TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_block_history ON map_block_history(map_id, rev);
+            CREATE TABLE IF NOT EXISTS map_land(
+              map_id TEXT NOT NULL,
+              block INTEGER NOT NULL,
+              data BLOB NOT NULL,
+              rev INTEGER NOT NULL,
+              user_id INTEGER REFERENCES users(id),
+              updated TEXT NOT NULL,
+              PRIMARY KEY(map_id, block));
+            CREATE TABLE IF NOT EXISTS map_land_history(
+              id INTEGER PRIMARY KEY,
+              map_id TEXT NOT NULL,
+              block INTEGER NOT NULL,
+              data BLOB NOT NULL,
+              rev INTEGER NOT NULL,
+              user_id INTEGER REFERENCES users(id),
+              created TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS ix_land_history ON map_land_history(map_id, rev);
             """;
         cmd.ExecuteNonQuery();
     }

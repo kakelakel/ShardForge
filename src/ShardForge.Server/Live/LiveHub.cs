@@ -90,8 +90,9 @@ public sealed class LiveHub(ILogger<LiveHub> log)
         _rooms.TryGetValue(change.MapId, out var room)
             ? Broadcast(room, new
             {
-                type = "blocks", rev = change.Rev, by = change.Username, userId = change.UserId,
+                type = "blocks", rev = change.Rev, by = change.Username, userId = change.UserId, cid = change.Cid,
                 blocks = change.Blocks.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)),
+                land = change.Land.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)),
             })
             : Task.CompletedTask;
 

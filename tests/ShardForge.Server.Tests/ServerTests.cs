@@ -349,4 +349,57 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(HttpStatusCode.Forbidden, (await Anon().GetAsync("/api/setup/detect")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Anon().PostAsJsonAsync("/api/setup/check", new { path = good })).StatusCode);
     }
+
+    [Fact]
+    public async Task WalkEditsSurviveRebuildingTheProject()
+    {
+        await EnsureUser("bob", "Builder");
+        var (builder, _) = await As("bob");
+        var project = ServerFixture.TinyProject("Rebuilt Isle");
+        string json = JsonSerializer.Serialize(project);
+        long id = (await (await builder.PostAsync("/api/projects", new StringContent(json, Encoding.UTF8, "application/json"))).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        string mapId = (await (await builder.PostAsJsonAsync($"/api/projects/{id}/build", new { facet = 4 })).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("mapId").GetString()!;
+        string dir = Path.Combine(fx.Root, "data", "maps", mapId);
+        var first = FacetLoader.Load(dir, 4, new FacetInfo(4, "t", 16, 16));
+
+        // In Walk: block 2 (forest) loses its first tree piece and gets a lamp; one water cell in block 0 becomes land.
+        var before = first.Statics[2];
+        Assert.NotEmpty(before);
+        var edited = before.Skip(1).Append(new StaticTile(0x0B24, 1, 1, 7, 0)).ToArray();
+        var land = new byte[192];
+        for (int c = 0; c < 64; c++) { var cell = first.GetLand(c & 7, c >> 3); BitConverter.TryWriteBytes(land.AsSpan(c * 3), cell.TileId); land[c * 3 + 2] = (byte)cell.Z; }
+        BitConverter.TryWriteBytes(land.AsSpan(0), (ushort)0x0003); land[2] = 5;
+        var save = await builder.PutAsJsonAsync($"/api/maps/{mapId}/blocks", new
+        {
+            blocks = new Dictionary<string, string> { ["2"] = Convert.ToBase64String(Maps.BlockStore.EncodeStatics(edited)) },
+            land = new Dictionary<string, string> { ["0"] = Convert.ToBase64String(land) },
+        });
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+
+        // The project changes (new seed: trees move) and is rebuilt.
+        project.Seed = 77;
+        var put = new HttpRequestMessage(HttpMethod.Put, $"/api/projects/{id}?baseRev=1") { Content = new StringContent(JsonSerializer.Serialize(project), Encoding.UTF8, "application/json") };
+        Assert.Equal(HttpStatusCode.OK, (await builder.SendAsync(put)).StatusCode);
+        var rebuild = await (await builder.PostAsJsonAsync($"/api/projects/{id}/build", new { facet = 4 })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, rebuild.GetProperty("keptEdits").GetProperty("statics").GetInt32());
+        Assert.Equal(1, rebuild.GetProperty("keptEdits").GetProperty("land").GetInt32());
+
+        var second = FacetLoader.Load(dir, 4, new FacetInfo(4, "t", 16, 16));
+        var all = await builder.GetFromJsonAsync<JsonElement>($"/api/maps/{mapId}/blocks");
+        var statics = Maps.BlockStore.DecodeStatics(Convert.FromBase64String(all.GetProperty("blocks").GetProperty("2").GetString()!));
+        // The lamp is still there, on top of the new trees (which are kept apart from the one removed piece).
+        Assert.Contains(new StaticTile(0x0B24, 1, 1, 7, 0), statics);
+        Assert.True(statics.Length >= second.Statics[2].Length - 1);
+        var landBack = Convert.FromBase64String(all.GetProperty("land").GetProperty("0").GetString()!);
+        Assert.Equal(0x0003, BitConverter.ToUInt16(landBack, 0));
+        Assert.Equal(5, (sbyte)landBack[2]);
+        // Untouched cells follow the new build.
+        Assert.Equal(second.GetLand(5, 5).TileId, BitConverter.ToUInt16(landBack, (5 * 8 + 5) * 3));
+
+        // The export carries the land edit too: a full map, not just statics.
+        var zip = await builder.GetAsync($"/api/maps/{mapId}/export");
+        using var archive = new ZipArchive(await zip.Content.ReadAsStreamAsync());
+        Assert.Contains(archive.Entries, e => e.Name == "map4LegacyMUL.uop");
+        Assert.Contains(archive.Entries, e => e.Name == "statics4.mul");
+    }
 }

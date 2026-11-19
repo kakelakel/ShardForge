@@ -276,22 +276,27 @@ api.MapGet("/maps/{id}/blocks", (string id, MapRegistry maps, BlockStore blocks)
 {
     if (maps.Get(id) is null) return Results.NotFound();
     var (rev, list) = blocks.GetAll(id);
-    return Results.Ok(new { rev, blocks = list.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)) });
+    var land = blocks.GetLand(id).Blocks;
+    return Results.Ok(new { rev, blocks = list.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)),
+        land = land.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)) });
 }).RequireAuthorization("Viewer");
 
 api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, LiveHub hub, BlocksBody body) =>
 {
     var m = maps.Get(id);
     if (m is null) return Results.NotFound();
-    if (body.Blocks is null) return Err(400, "Send { blocks: { blockIndex: base64 } }.");
+    if (body.Blocks is null && body.Land is null) return Err(400, "Send { blocks: { blockIndex: base64 }, land: { blockIndex: base64 } }.");
     var edits = new List<BlockEdit>();
+    var land = new List<BlockEdit>();
     try
     {
-        foreach (var (key, b64) in body.Blocks)
+        foreach (var (key, b64) in body.Blocks ?? [])
             edits.Add(new BlockEdit(int.Parse(key), Convert.FromBase64String(b64 ?? "")));
+        foreach (var (key, b64) in body.Land ?? [])
+            land.Add(new BlockEdit(int.Parse(key), Convert.FromBase64String(b64 ?? "")));
         var me = Current(ctx);
-        long rev = blocks.Save(m, me.Id, edits);
-        await hub.PublishBlocks(new BlockChange(id, rev, me.Id, me.Username, edits));
+        long rev = blocks.Save(m, me.Id, edits, land);
+        await hub.PublishBlocks(new BlockChange(id, rev, me.Id, me.Username, edits, land, body.Cid));
         return Results.Ok(new { rev });
     }
     catch (Exception e) when (e is FormatException or OverflowException) { return Err(400, "Block keys must be numbers and data base64."); }
@@ -301,7 +306,7 @@ api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry m
 api.MapGet("/maps/{id}/export", (string id, MapRegistry maps, BlockStore blocks) =>
 {
     var m = maps.Get(id);
-    return m is null ? Results.NotFound() : Results.File(blocks.ExportZip(m), "application/zip", $"{id}-statics.zip");
+    return m is null ? Results.NotFound() : Results.File(blocks.ExportZip(m), "application/zip", $"{id}-{(blocks.HasLandEdits(id) ? "map" : "statics")}.zip");
 }).RequireAuthorization("Builder");
 
 api.MapPost("/maps/{id}/publish", (string id, MapRegistry maps, BlockStore blocks) =>
@@ -310,10 +315,9 @@ api.MapPost("/maps/{id}/publish", (string id, MapRegistry maps, BlockStore block
     if (m is null) return Results.NotFound();
     string dir = Path.Combine(dataPath, "published", id);
     Directory.CreateDirectory(dir);
-    var (index, data) = FacetWriter.EncodeStatics(blocks.Merged(m));
-    File.WriteAllBytes(Path.Combine(dir, $"staidx{m.Facet}.mul"), index);
-    File.WriteAllBytes(Path.Combine(dir, $"statics{m.Facet}.mul"), data);
-    return Results.Ok(new { path = dir, files = new[] { $"staidx{m.Facet}.mul", $"statics{m.Facet}.mul" } });
+    var files = blocks.MergedFiles(m);
+    foreach (var (name, bytes) in files) File.WriteAllBytes(Path.Combine(dir, name), bytes);
+    return Results.Ok(new { path = dir, files = files.Select(f => f.Name).ToArray() });
 }).RequireAuthorization("Admin");
 
 app.Map("/api/live/{id}", async (string id, HttpContext ctx, MapRegistry maps, LiveHub hub) =>
@@ -371,9 +375,17 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
         if (facet is < 0 or > 5) return Err(400, "Facet must be 0-5.");
         string mapId = $"project-{id}", dir = Path.Combine(maps.BuiltMapsDir, mapId);
         var me = Current(ctx);
+        RebaseResult? kept = null;
+        int discarded = 0;
         await Task.Run(() =>
         {
             var built = project.Build(facet, TransitionTable.BuiltIn, ShardForge.Core.Data.MultiData.TryLoad(options.ClientPath));
+            // Walk edits on the previous build are kept: rebased onto the new map when the size is the same.
+            var old = maps.Get(mapId);
+            if (old is not null && old.Width == built.Width && old.Height == built.Height)
+                kept = blocks.Rebase(mapId, FacetLoader.Load(old.Dir, old.Facet, old.FacetInfo), built, me.Id);
+            else if (old is not null) discarded = blocks.Clear(mapId);
+            if (old is not null && old.Facet != facet) foreach (var f in Directory.GetFiles(dir)) if (Path.GetFileName(f).Contains(old.Facet.ToString())) File.Delete(f);
             Directory.CreateDirectory(dir);
             FacetWriter.WriteAll(built, dir, facet);
             project.WriteLayout(dir);
@@ -381,9 +393,9 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
             File.WriteAllText(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(new BuiltMapMeta(
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });
-        int discarded = blocks.Clear(mapId);
         await hub.PublishRebuilt(mapId, me.Username);
-        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded });
+        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded,
+            keptEdits = kept is null ? null : new { statics = kept.StaticBlocks, land = kept.LandBlocks, droppedStatics = kept.DroppedStatics } });
     }
     catch (ProjectException e) { return Err(400, e.Message); }
     catch (InvalidDataException e) { return Err(400, e.Message); }
@@ -455,7 +467,7 @@ record SettingsBody(string? ClientPath);
 record PasswordChange(string? Current, string? Password);
 record NewUser(string? Username, string? Password, string? Role);
 record UserPatch(string? Role, string? Password, bool? Disabled);
-record BlocksBody(Dictionary<string, string?>? Blocks);
+record BlocksBody(Dictionary<string, string?>? Blocks, Dictionary<string, string?>? Land = null, string? Cid = null);
 record BuildRequest(int? Facet);
 
 public partial class Program;

@@ -14,6 +14,9 @@ shared projects with history, and live co-building on maps.
   of the client files to take part.
 - **Shared projects**: every save is a revision with author and time. If two people save the same project,
   the second gets a choice instead of silently overwriting: load the other version, or save theirs as a copy.
+- **Rebuilding keeps Walk's work**: statics placed or removed and land edited in Walk are reapplied on top of
+  each new build of the project (what was added and removed, and the cells that were changed), so you can go back
+  to the editor, change the land and rebuild without losing your decorating.
 - **Build & walk**: the server builds a project into real map files (soft terrain edges, crags, and a layout of the project's places and building plots for Walk)
   and opens it in Walk for the whole team.
 - **Live co-building in Walk**: everyone on a map sees each other with name tags, and every static placed or
