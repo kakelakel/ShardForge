@@ -1,3 +1,11 @@
+## ShardForge 0.5.5
+
+- **Walk workspace**: the tools are windows over the world, opened from the top menu (World, Build, Houses,
+  Server). Drag them by the title, resize from the corner, double-click to fold; they snap to edges and each
+  other, and your layout is remembered. Layout → *Reset to the standard layout* puts them back.
+- **Rivers in generated worlds** run as one channel down to the sea or a lake, bending as they go, instead of a
+  trail of separate pools. Tiny "lakes" and puddles along coasts are gone. (Applies to newly generated worlds.)
+
 ## ShardForge 0.5.4
 
 - **Decorate inside buildings**: Walk hides roofs and upper floors over your head, like the game (Movement →

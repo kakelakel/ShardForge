@@ -996,6 +996,18 @@ OPS.world = o => {
   for (let k = oc - 1; k >= 0; k--) { const i = order[k]; if (down[i] >= 0) flow[down[i]] += flow[i]; }
   // Lakes: basins the flood had to fill, deep and wide enough to matter.
   for (let i = 0; i < cn; i++) if (e[i] >= sea && filled[i] - e[i] > 0.012 && moist[i] > 0.25) lake[i] = 1;
+  // Too small to be a lake (a pond of a few tiles in a dip reads as a hole in the ground): drop them, and the
+  // water just runs on through as a river.
+  {
+    const minCells = Math.max(3, Math.ceil(400 / (S * S))), mark = new Int32Array(cn).fill(-1), st = new Int32Array(cn);
+    for (let s0 = 0; s0 < cn; s0++) {
+      if (!lake[s0] || mark[s0] >= 0) continue;
+      let n = 0, t = 0; st[t++] = s0; mark[s0] = s0; const cells = [];
+      while (t) { const i = st[--t]; cells.push(i); n++; const x = i % cw, y = (i / cw) | 0;
+        for (const j of [x > 0 ? i - 1 : -1, x < cw - 1 ? i + 1 : -1, y > 0 ? i - cw : -1, y < ch - 1 ? i + cw : -1]) if (j >= 0 && lake[j] && mark[j] < 0) { mark[j] = s0; st[t++] = j; } }
+      if (n < minCells) for (const i of cells) lake[i] = 0;
+    }
+  }
 
   // Rivers and lakes sit at sea level (that's where UO water is), so the land slopes down to every river, lake
   // and shore: valleys in the hills, gorges in the mountains, low coasts. Done here so land cover follows it.
@@ -1043,15 +1055,50 @@ OPS.world = o => {
     LH[i] = clampZ(1 + Math.pow(h, 1.3) * 96);
     LD[i] = Math.max(0, Math.min(255, Math.round(128 * (0.45 + m * 0.9))));
   }
-  // Rivers: from where enough rain has gathered, down to the sea, wider as they go.
+  // Rivers: from where enough rain has gathered, down to the sea, wider as they go. Each stretch is drawn as one
+  // channel from a point to the next one downhill (not a pool per point, which left a trail of separate holes
+  // wherever the points are further apart than a small river is wide). The points wander a little off the grid,
+  // so the channel bends instead of running in grid-straight lines.
   let riverCells = 0;
+  const radius = i => Math.min(4.5, 0.6 + Math.log2(Math.max(1, flow[i] / need)) * 0.55) * Math.max(1, S * 0.6) + 0.35;
+  const node = i => { const cx = i % cw, cy = (i / cw) | 0, k = wet[i] === 2 ? S * 0.45 : 0;
+    return [cx * S + (hrand(cx, cy, seed, 81) - 0.5) * k, cy * S + (hrand(cx, cy, seed, 82) - 0.5) * k]; };
+  const wetTile = j => { if (LT[j] === T.water) return; LT[j] = T.water; LH[j] = -5; riverCells++; };
   for (let i = 0; i < cn; i++) {
     if (wet[i] !== 2) continue;
-    const x = (i % cw) * S, y = ((i / cw) | 0) * S, r = Math.min(4.5, 0.6 + Math.log2(flow[i] / need) * 0.55) * Math.max(1, S * 0.6);
-    for (let dy = -Math.ceil(r); dy <= r; dy++) for (let dx = -Math.ceil(r); dx <= r; dx++) {
-      const px = x + dx, py = y + dy; if (px < 0 || py < 0 || px >= N || py >= H || dx * dx + dy * dy > r * r) continue;
-      const j = px + py * N; if (LT[j] === T.water) continue;
-      LT[j] = T.water; LH[j] = -5; riverCells++;
+    const j = down[i];
+    const [x0, y0] = node(i), r0 = radius(i);
+    const [x1, y1] = j >= 0 ? node(j) : [x0, y0], r1 = j >= 0 && wet[j] === 2 ? radius(j) : r0;
+    const R = Math.max(r0, r1), dxs = x1 - x0, dys = y1 - y0, len2 = dxs * dxs + dys * dys || 1;
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1) - R)), maxX = Math.min(N - 1, Math.ceil(Math.max(x0, x1) + R));
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1) - R)), maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1) + R));
+    for (let py = minY; py <= maxY; py++) for (let px = minX; px <= maxX; px++) {
+      const t = Math.max(0, Math.min(1, ((px - x0) * dxs + (py - y0) * dys) / len2));
+      const qx = x0 + dxs * t - px, qy = y0 + dys * t - py, r = r0 + (r1 - r0) * t;
+      if (qx * qx + qy * qy <= r * r) wetTile(px + py * N);
+    }
+  }
+  // Puddles: water cut off from everything and only a few tiles big (coastline noise leaves them) become the
+  // land around them.
+  {
+    const comp = new Uint8Array(N * H), q2 = new Int32Array(N * H);
+    for (let s0 = 0; s0 < N * H; s0++) {
+      if (LT[s0] !== T.water || comp[s0]) continue;
+      let h = 0, t = 0, edge = false; q2[t++] = s0; comp[s0] = 1;
+      while (h < t && t < 64) { const i = q2[h++], x = i % N, y = (i / N) | 0; if (x === 0 || y === 0 || x === N - 1 || y === H - 1) edge = true;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && !comp[j] && LT[j] === T.water) { comp[j] = 1; q2[t++] = j; } }
+      if (t >= 64 || h < t || edge || t >= 30) {
+        // Big (or not fully walked): mark the rest of it so it isn't walked again from another tile.
+        while (h < t) { const i = q2[h++], x = i % N, y = (i / N) | 0;
+          for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && !comp[j] && LT[j] === T.water) { comp[j] = 1; if (t < q2.length) q2[t++] = j; } }
+        continue;
+      }
+      const tally = new Map(); let hz = 0, hn = 0;
+      for (let k = 0; k < t; k++) { const i = q2[k], x = i % N, y = (i / N) | 0;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && LT[j] !== T.water) { tally.set(LT[j], (tally.get(LT[j]) || 0) + 1); hz += LH[j]; hn++; } }
+      if (!hn) continue;
+      const land = [...tally].sort((a, b) => b[1] - a[1])[0][0], z = Math.round(hz / hn);
+      for (let k = 0; k < t; k++) { const i = q2[k]; LT[i] = land; LH[i] = z; ocean[i] = 0; LD[i] = 128; }
     }
   }
   // Beaches where low land meets the open sea in warm enough places; rocky shores elsewhere stay as they are.
