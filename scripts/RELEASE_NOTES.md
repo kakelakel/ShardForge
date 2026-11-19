@@ -1,3 +1,12 @@
+## ShardForge 0.5.1
+
+- **Use it from another PC**: Admin → Server → *Who can connect* → *Other computers on my network too*, then
+  Restart and **Firewall** in the Manager. Admin lists the addresses to open on the other PC.
+- **No more holes in Walk**: ground and buildings no longer go missing in patches when the browser drops some of
+  the many small picture requests (it now asks a few at a time and retries).
+
+Updating from 0.5.0: press **Update** in the Manager.
+
 ## ShardForge 0.5.0
 
 **New: the ShardForge Manager.** `ShardForge-Manager.bat` (Windows) or `./shardforge-manager.sh` (Linux) starts and
