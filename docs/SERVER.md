@@ -7,8 +7,19 @@ shared projects with history, and live co-building on maps.
 
 - **Accounts and user levels**
   - **Viewer**: open maps and projects, walk around, see everyone.
-  - **Builder**: also edit and save projects, place and remove statics, build maps.
-  - **Admin**: also manage users, delete projects and publish.
+  - **Decorator**: also decorate and build in Walk: statics, houses, doors, signs, working items, spawners, and
+    designs in the house library. Can remove or change only what they placed themselves.
+  - **Worldbuilder**: also remove and change anything, edit the land, place regions and teleporters, and create,
+    save and build projects in the editor.
+  - **Admin**: also every save to disk and every export (map files, ServUO packages, project downloads, the
+    activity log), publishing, deleting projects, people and settings.
+
+  The server enforces this on every request (the pages only hide what you can't use). Existing databases are
+  upgraded on start: Builders become Worldbuilders, Admins stay Admins.
+- **Activity log**: every change (statics added and removed with their exact tiles, land, server items, library
+  designs, projects), every sign-in and failed sign-in, every refused attempt and every export, per person, with
+  time, place and address. Admins filter it by person, kind, map or project, dates and text on the Admin page,
+  open any spot straight in Walk, and download it as CSV. The app never deletes from it.
 - **The editor and Walk, served to everyone.** Your client's art, tiledata and maps are streamed only to
   signed-in users, and only the parts each page needs (HTTP range requests). Nobody needs their own copy
   of the client files to take part.
@@ -22,7 +33,7 @@ shared projects with history, and live co-building on maps.
 - **Live co-building in Walk**: everyone on a map sees each other with name tags, and every static placed or
   removed appears for everyone at once. Each change is saved on the server with its author; the original map
   files on disk are never modified.
-- **Export / publish**: Builders download the merged `staidx#.mul` + `statics#.mul` as a zip; Admins publish
+- **Export / publish** (Admins only): download the merged map files or a ServUO package as a zip, or publish
   them into `data/published/<map>/`.
 
 ## Run it
@@ -113,19 +124,22 @@ All under `/api`; changes need `X-ShardForge: 1`.
 | `GET /data`, `GET /data/{file}` | Viewer | Client files (range requests) |
 | `GET /maps`, `GET /maps/{id}/files/{file}` | Viewer | Maps and their files |
 | `GET /maps/{id}/blocks` | Viewer | Shared statics edits (base64, 7 bytes per static) |
-| `PUT /maps/{id}/blocks` | Builder | Replace whole 8x8 blocks; broadcast live |
-| `GET /maps/{id}/export` | Builder | Zip of merged statics |
+| `PUT /maps/{id}/blocks` | Decorator | Replace whole 8x8 blocks; broadcast live. Decorators: only additions and their own statics; land needs Worldbuilder |
+| `GET /maps/{id}/mine` | Decorator | The statics you placed on a map |
+| `GET /maps/{id}/export` | Admin | Zip of merged map files |
 | `POST /maps/{id}/publish` | Admin | Write merged statics to `data/published/{id}/` |
 | `GET /live/{id}` (WebSocket) | Viewer | Presence, positions, edits as they happen |
-| `GET/POST /projects`, `GET/PUT /projects/{id}`, `GET /projects/{id}/history` | Viewer / Builder | Projects; `PUT` needs `?baseRev=` and returns 409 on conflict |
-| `POST /projects/{id}/build` | Builder | Build into `data/maps/project-{id}/` and offer it as a map |
+| `GET/POST /projects`, `GET/PUT /projects/{id}`, `GET /projects/{id}/history` | Viewer / Worldbuilder | Projects; `PUT` needs `?baseRev=` and returns 409 on conflict |
+| `POST /projects/{id}/build` | Worldbuilder | Build into `data/maps/project-{id}/` and offer it as a map |
 | `DELETE /projects/{id}` | Admin | Delete a project (revisions are kept in the database) |
 | `GET /maps/{id}/items` | Viewer | Server items (doors, signs, items, teleporters, spawners, regions) |
-| `PUT /maps/{id}/items` | Builder | `{ put: [...], remove: [uid...] }`; broadcast live |
-| `GET /maps/{id}/servuo` | Builder | ServUO package: map files, items, import script (see SERVUO.md) |
+| `PUT /maps/{id}/items` | Decorator | `{ put: [...], remove: [uid...] }`; broadcast live. Decorators: their own items only, no regions or teleporters |
+| `GET /maps/{id}/servuo` | Admin | ServUO package: map files, items, import script (see SERVUO.md) |
+| `GET /audit`, `GET /audit/people`, `GET /audit.csv` | Admin | Activity log: `?user=&action=&target=&since=&until=&q=&before=&limit=` |
+| `GET /permissions` | Viewer | What each level may do |
 | `GET /prefabs` | Viewer | The shared house library: `{ id, name, data, createdBy, created, updated }` |
-| `POST /prefabs`, `PUT /prefabs/{id}` | Builder | Save `{ name, data }`; `data` is `{ plan }` (editable) or `{ parts: [[id, x, y, z, hue?]] }`; broadcast live |
-| `DELETE /prefabs/{id}` | Builder (its maker) / Admin | Remove a library entry |
+| `POST /prefabs`, `PUT /prefabs/{id}` | Decorator (own) / Worldbuilder | Save `{ name, data }`; `data` is `{ plan }` (editable) or `{ parts: [[id, x, y, z, hue?]] }`; broadcast live |
+| `DELETE /prefabs/{id}` | Decorator (own) / Worldbuilder | Remove a library entry |
 
 ## Not yet
 

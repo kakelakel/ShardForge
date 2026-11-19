@@ -1,3 +1,4 @@
+using ShardForge.Server.Audit;
 using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
 using System.Net;
@@ -38,6 +39,7 @@ builder.Services.AddSingleton(new Db(dataPath));
 builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<Db>(), options.PasswordIterations));
 builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddSingleton<PrefabStore>();
+builder.Services.AddSingleton<AuditLog>();
 builder.Services.AddSingleton<ItemStore>();
 builder.Services.AddSingleton<BlockStore>();
 builder.Services.AddSingleton(new MapRegistry(options, dataPath));
@@ -72,9 +74,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 });
 builder.Services.AddAuthorization(o =>
 {
+    // Levels come from the account as it is now (loaded on every request), so a role change applies at once.
+    static bool At(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext c, Role r) => c.Resource is HttpContext h && h.Items["user"] is User u && u.Role >= r;
     o.AddPolicy("Viewer", p => p.RequireAuthenticatedUser());
-    o.AddPolicy("Builder", p => p.RequireAuthenticatedUser().RequireAssertion(c => Level(c.User) >= Role.Builder));
-    o.AddPolicy("Admin", p => p.RequireAuthenticatedUser().RequireAssertion(c => Level(c.User) >= Role.Admin));
+    o.AddPolicy("Decorator", p => p.RequireAuthenticatedUser().RequireAssertion(c => At(c, Role.Decorator)));
+    o.AddPolicy("Worldbuilder", p => p.RequireAuthenticatedUser().RequireAssertion(c => At(c, Role.Worldbuilder)));
+    o.AddPolicy("Admin", p => p.RequireAuthenticatedUser().RequireAssertion(c => At(c, Role.Admin)));
 });
 builder.Services.AddRateLimiter(o =>
 {
@@ -146,7 +151,7 @@ api.MapGet("/setup/detect", (HttpContext ctx, UserStore users) =>
 });
 api.MapPost("/setup/check", (HttpContext ctx, UserStore users, PathBody body) =>
 {
-    if (users.Count() > 0 && !(ctx.User.Identity?.IsAuthenticated == true && Level(ctx.User) >= Role.Admin)) return Err(403, "Admins only.");
+    if (users.Count() > 0 && !(ctx.Items["user"] is User cu && cu.Role >= Role.Admin)) return Err(403, "Admins only.");
     if (users.Count() == 0 && !options.AllowRemoteSetup && !IsLocal(ctx)) return Err(403, "Only from the PC the server runs on.");
     return Results.Ok(ServerSettings.Check(body.Path));
 }).RequireRateLimiting("login");
@@ -157,18 +162,19 @@ api.MapGet("/settings", (MapRegistry maps) => Results.Ok(new
     version, dataPath, urls = app.Urls.ToArray(), client = ServerSettings.Check(options.ClientPath),
     found = ServerSettings.Detect(options.ClientPath), maps = maps.All().Count,
 })).RequireAuthorization("Admin");
-api.MapPut("/settings", (ServerSettings store, SettingsBody body) =>
+api.MapPut("/settings", (HttpContext ctx, ServerSettings store, SettingsBody body, AuditLog audit) =>
 {
     if (body.ClientPath is not null)
     {
         var check = ServerSettings.Check(body.ClientPath);
         if (!check.Ok) return Err(400, check.Note);
         store.SetClientPath(check.Path);
+        audit.Write(Current(ctx), "settings.client", $"set the client folder to {check.Path}", ip: Ip(ctx));
     }
     return Results.Ok(new { client = ServerSettings.Check(options.ClientPath) });
 }).RequireAuthorization("Admin");
 
-api.MapPost("/setup", async (HttpContext ctx, UserStore users, Credentials body) =>
+api.MapPost("/setup", async (HttpContext ctx, UserStore users, Credentials body, AuditLog audit) =>
 {
     if (!options.AllowRemoteSetup && !IsLocal(ctx)) return Err(403, "Create the first admin from the PC the server runs on (open http://localhost:2595/ there).");
     ServerSettings.ClientCheck? client = null;
@@ -182,32 +188,40 @@ api.MapPost("/setup", async (HttpContext ctx, UserStore users, Credentials body)
         var u = users.Create(body.Username ?? "", body.Password ?? "", Role.Admin, onlyIfNoUsers: true);
         if (client is not null) ctx.RequestServices.GetRequiredService<ServerSettings>().SetClientPath(client.Path);
         await SignIn(ctx, u);
+        audit.Write(u, "users.setup", "set up the server and became its first admin", ip: Ip(ctx));
         return Results.Ok(Me(u));
     }
     catch (UserException e) { return Err(400, e.Message); }
 }).RequireRateLimiting("login");
 
-api.MapPost("/auth/login", async (HttpContext ctx, UserStore users, Credentials body) =>
+api.MapPost("/auth/login", async (HttpContext ctx, UserStore users, Credentials body, AuditLog audit) =>
 {
     var u = users.Verify(body.Username ?? "", body.Password ?? "");
-    if (u is null) return Err(401, "Wrong name or password.");
+    if (u is null)
+    {
+        var who = users.All().FirstOrDefault(x => string.Equals(x.Username, (body.Username ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+        audit.Write(who, "auth.failed", $"failed sign-in as \"{(body.Username ?? "").Trim()}\"", ip: Ip(ctx), username: (body.Username ?? "").Trim());
+        return Err(401, "Wrong name or password.");
+    }
     await SignIn(ctx, u);
+    audit.Write(u, "auth.login", "signed in", ip: Ip(ctx));
     return Results.Ok(Me(u));
 }).RequireRateLimiting("login");
 
-api.MapPost("/auth/logout", async (HttpContext ctx) =>
+api.MapPost("/auth/logout", async (HttpContext ctx, UserStore users, AuditLog audit) =>
 {
+    if (long.TryParse(ctx.User.FindFirstValue(ClaimTypes.NameIdentifier), out long uid) && users.Get(uid) is { } who) audit.Write(who, "auth.logout", "signed out", ip: Ip(ctx));
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Ok(new { ok = true });
 });
 
 api.MapGet("/me", (HttpContext ctx) => Results.Ok(Me(Current(ctx)))).RequireAuthorization("Viewer");
 
-api.MapPost("/me/password", async (HttpContext ctx, UserStore users, PasswordChange body) =>
+api.MapPost("/me/password", async (HttpContext ctx, UserStore users, PasswordChange body, AuditLog audit) =>
 {
     var me = Current(ctx);
     if (users.Verify(me.Username, body.Current ?? "") is null) return Err(400, "Your current password is wrong.");
-    try { var u = users.Update(me.Id, password: body.Password ?? ""); await SignIn(ctx, u); return Results.Ok(Me(u)); }
+    try { var u = users.Update(me.Id, password: body.Password ?? ""); await SignIn(ctx, u); audit.Write(u, "users.password", "changed their own password", ip: Ip(ctx)); return Results.Ok(Me(u)); }
     catch (UserException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Viewer");
 
@@ -217,29 +231,39 @@ api.MapGet("/users", (UserStore users) => Results.Ok(users.All().Where(u => !u.U
     id = u.Id, username = u.Username, role = u.Role.ToString(), disabled = u.Disabled, created = u.Created, lastLogin = u.LastLogin,
 }))).RequireAuthorization("Admin");
 
-api.MapPost("/users", (UserStore users, NewUser body) =>
+api.MapPost("/users", (HttpContext ctx, UserStore users, NewUser body, AuditLog audit) =>
 {
-    if (!Enum.TryParse<Role>(body.Role, true, out var role) || !Enum.IsDefined(role)) return Err(400, "Role must be Viewer, Builder or Admin.");
-    try { var u = users.Create(body.Username ?? "", body.Password ?? "", role); return Results.Ok(Me(u)); }
+    if (!Roles.TryParse(body.Role, out var role)) return Err(400, $"Role must be {Roles.Names}.");
+    try { var u = users.Create(body.Username ?? "", body.Password ?? "", role); audit.Write(Current(ctx), "users.create", $"created {u.Username} as {u.Role}", target: $"user:{u.Id}", ip: Ip(ctx)); return Results.Ok(Me(u)); }
     catch (UserException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Admin");
 
-api.MapPatch("/users/{id:long}", (long id, UserStore users, UserPatch body) =>
+api.MapPatch("/users/{id:long}", (long id, HttpContext ctx, UserStore users, UserPatch body, AuditLog audit) =>
 {
     Role? role = null;
     if (body.Role is not null)
     {
-        if (!Enum.TryParse<Role>(body.Role, true, out var r) || !Enum.IsDefined(r)) return Err(400, "Role must be Viewer, Builder or Admin.");
+        if (!Roles.TryParse(body.Role, out var r)) return Err(400, $"Role must be {Roles.Names}.");
         role = r;
     }
-    try { var u = users.Update(id, role, body.Password, body.Disabled); return Results.Ok(Me(u)); }
+    try
+    {
+        var before = users.Get(id);
+        var u = users.Update(id, role, body.Password, body.Disabled);
+        var what = new List<string>();
+        if (role is not null && before?.Role != role) what.Add($"made {u.Username} {u.Role} (was {before?.Role})");
+        if (body.Password is not null) what.Add($"set a new password for {u.Username}");
+        if (body.Disabled is not null && before?.Disabled != body.Disabled) what.Add($"{(body.Disabled.Value ? "disabled" : "enabled")} {u.Username}");
+        if (what.Count > 0) audit.Write(Current(ctx), "users.update", string.Join("; ", what), target: $"user:{u.Id}", ip: Ip(ctx));
+        return Results.Ok(Me(u));
+    }
     catch (UserException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Admin");
 
-api.MapDelete("/users/{id:long}", (long id, HttpContext ctx, UserStore users) =>
+api.MapDelete("/users/{id:long}", (long id, HttpContext ctx, UserStore users, AuditLog audit) =>
 {
     if (Current(ctx).Id == id) return Err(400, "You can't delete your own account.");
-    try { users.Delete(id); return Results.Ok(new { ok = true }); }
+    try { var name = users.Get(id)?.Username; users.Delete(id); audit.Write(Current(ctx), "users.delete", $"deleted {name}", target: $"user:{id}", ip: Ip(ctx)); return Results.Ok(new { ok = true }); }
     catch (UserException e) { return Err(400, e.Message); }
 }).RequireAuthorization("Admin");
 
@@ -284,7 +308,7 @@ api.MapGet("/maps/{id}/blocks", (string id, MapRegistry maps, BlockStore blocks)
         land = land.ToDictionary(b => b.Block.ToString(), b => Convert.ToBase64String(b.Data)) });
 }).RequireAuthorization("Viewer");
 
-api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, LiveHub hub, BlocksBody body) =>
+api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, LiveHub hub, BlocksBody body, AuditLog audit) =>
 {
     var m = maps.Get(id);
     if (m is null) return Results.NotFound();
@@ -298,18 +322,29 @@ api.MapPut("/maps/{id}/blocks", async (string id, HttpContext ctx, MapRegistry m
         foreach (var (key, b64) in body.Land ?? [])
             land.Add(new BlockEdit(int.Parse(key), Convert.FromBase64String(b64 ?? "")));
         var me = Current(ctx);
-        long rev = blocks.Save(m, me.Id, edits, land);
-        await hub.PublishBlocks(new BlockChange(id, rev, me.Id, me.Username, edits, land, body.Cid));
-        return Results.Ok(new { rev });
+        var res = blocks.Save(m, me, edits, land);
+        await hub.PublishBlocks(new BlockChange(id, res.Rev, me.Id, me.Username, edits, land, body.Cid));
+        if (res.Added + res.Removed > 0)
+            audit.Write(me, res.Removed == 0 ? "statics.add" : res.Added == 0 ? "statics.remove" : "statics.change",
+                $"{(res.Added > 0 ? $"added {res.Added}" : "")}{(res.Added > 0 && res.Removed > 0 ? ", " : "")}{(res.Removed > 0 ? $"removed {res.Removed}" : "")} static{(res.Added + res.Removed == 1 ? "" : "s")} on {m.Name}",
+                target: $"map:{id}", x: res.X, y: res.Y, details: new { rev = res.Rev, blocks = res.StaticBlocks, statics = res.Samples }, ip: Ip(ctx));
+        if (res.LandBlocks > 0)
+            audit.Write(me, "land.edit", $"changed the land in {res.LandBlocks} block{(res.LandBlocks == 1 ? "" : "s")} on {m.Name}", target: $"map:{id}", x: res.X, y: res.Y,
+                details: new { rev = res.Rev, blocks = land.Select(l => l.Block).Take(200) }, ip: Ip(ctx));
+        return Results.Ok(new { rev = res.Rev });
     }
+    catch (PermissionException e) { audit.Write(Current(ctx), "denied.statics", e.Message, target: $"map:{id}", ip: Ip(ctx)); return Err(403, e.Message); }
     catch (Exception e) when (e is FormatException or OverflowException) { return Err(400, "Block keys must be numbers and data base64."); }
     catch (BlockException e) { return Err(400, e.Message); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Decorator");
+
+api.MapGet("/maps/{id}/mine", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks) =>
+    maps.Get(id) is null ? Results.NotFound() : Results.Ok(blocks.OwnedBy(id, Current(ctx).Id))).RequireAuthorization("Decorator");
 
 api.MapGet("/maps/{id}/items", (string id, MapRegistry maps, ItemStore items) =>
     maps.Get(id) is null ? Results.NotFound() : Results.Ok(items.All(id))).RequireAuthorization("Viewer");
 
-api.MapPut("/maps/{id}/items", async (string id, HttpContext ctx, MapRegistry maps, ItemStore items, LiveHub hub) =>
+api.MapPut("/maps/{id}/items", async (string id, HttpContext ctx, MapRegistry maps, ItemStore items, LiveHub hub, AuditLog audit) =>
 {
     var m = maps.Get(id);
     if (m is null) return Results.NotFound();
@@ -320,29 +355,43 @@ api.MapPut("/maps/{id}/items", async (string id, HttpContext ctx, MapRegistry ma
         var remove = (body["remove"] as JsonArray ?? []).Select(n => n?.GetValue<string>() ?? "").ToList();
         if (put.Count + remove.Count > 50_000) throw new ItemException("Too many changes at once.");
         var me = Current(ctx);
-        var clean = items.Apply(m, me.Id, put, remove);
+        var (clean, changes) = items.Apply(m, me, put, remove);
         await hub.PublishItems(id, me.Username, body["cid"]?.GetValue<string>(), clean, remove);
+        if (changes.Count > 0)
+        {
+            var first = changes[0];
+            string summary = changes.Count == 1 ? $"{first.Op} a {first.What} on {m.Name}"
+                : string.Join(", ", changes.GroupBy(c => c.Op).Select(g => $"{g.Key} {g.Count()}")) + $" server items on {m.Name}";
+            audit.Write(me, "items." + (changes.All(c => c.Op == "removed") ? "remove" : changes.All(c => c.Op == "placed") ? "add" : "change"), summary,
+                target: $"map:{id}", x: first.X, y: first.Y, details: changes.Take(200), ip: Ip(ctx));
+        }
         return Results.Ok(new { ok = true, count = clean.Count });
     }
+    catch (PermissionException e) { audit.Write(Current(ctx), "denied.items", e.Message, target: $"map:{id}", ip: Ip(ctx)); return Err(403, e.Message); }
     catch (ItemException e) { return Err(400, e.Message); }
     catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException) { return Err(400, "Send { put: [...], remove: [...] } as JSON."); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Decorator");
 
-api.MapGet("/maps/{id}/servuo", (string id, MapRegistry maps, BlockStore blocks, ItemStore items) =>
+api.MapGet("/maps/{id}/servuo", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, ItemStore items, AuditLog audit) =>
 {
     var m = maps.Get(id);
-    return m is null ? Results.NotFound() : Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), items.All(id)), "application/zip", $"{id}-servuo.zip");
-}).RequireAuthorization("Builder");
+    if (m is null) return Results.NotFound();
+    var list = items.All(id);
+    audit.Write(Current(ctx), "export.servuo", $"downloaded the ServUO package of {m.Name} ({list.Count} server items)", target: $"map:{id}", ip: Ip(ctx));
+    return Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), list), "application/zip", $"{id}-servuo.zip");
+}).RequireAuthorization("Admin");
 
-api.MapGet("/servuo/ShardForgeImport.cs", () => Results.Text(ItemStore.ImportScript(), "text/plain")).RequireAuthorization("Viewer");
+api.MapGet("/servuo/ShardForgeImport.cs", () => Results.Text(ItemStore.ImportScript(), "text/plain")).RequireAuthorization("Admin");
 
-api.MapGet("/maps/{id}/export", (string id, MapRegistry maps, BlockStore blocks) =>
+api.MapGet("/maps/{id}/export", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, AuditLog audit) =>
 {
     var m = maps.Get(id);
-    return m is null ? Results.NotFound() : Results.File(blocks.ExportZip(m), "application/zip", $"{id}-{(blocks.HasLandEdits(id) ? "map" : "statics")}.zip");
-}).RequireAuthorization("Builder");
+    if (m is null) return Results.NotFound();
+    audit.Write(Current(ctx), "export.files", $"downloaded the {(blocks.HasLandEdits(id) ? "map" : "statics")} files of {m.Name}", target: $"map:{id}", ip: Ip(ctx));
+    return Results.File(blocks.ExportZip(m), "application/zip", $"{id}-{(blocks.HasLandEdits(id) ? "map" : "statics")}.zip");
+}).RequireAuthorization("Admin");
 
-api.MapPost("/maps/{id}/publish", (string id, MapRegistry maps, BlockStore blocks) =>
+api.MapPost("/maps/{id}/publish", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, AuditLog audit) =>
 {
     var m = maps.Get(id);
     if (m is null) return Results.NotFound();
@@ -350,6 +399,7 @@ api.MapPost("/maps/{id}/publish", (string id, MapRegistry maps, BlockStore block
     Directory.CreateDirectory(dir);
     var files = blocks.MergedFiles(m);
     foreach (var (name, bytes) in files) File.WriteAllBytes(Path.Combine(dir, name), bytes);
+    audit.Write(Current(ctx), "publish.map", $"published {m.Name} to {dir}", target: $"map:{id}", details: files.Select(f => f.Name), ip: Ip(ctx));
     return Results.Ok(new { path = dir, files = files.Select(f => f.Name).ToArray() });
 }).RequireAuthorization("Admin");
 
@@ -364,15 +414,16 @@ app.Map("/api/live/{id}", async (string id, HttpContext ctx, MapRegistry maps, L
 // ============================================================================ projects
 api.MapGet("/projects", (ProjectStore projects) => Results.Ok(projects.List())).RequireAuthorization("Viewer");
 
-api.MapPost("/projects", async (HttpContext ctx, ProjectStore projects) =>
+api.MapPost("/projects", async (HttpContext ctx, ProjectStore projects, AuditLog audit) =>
 {
     try
     {
         long id = projects.Create(await Body(ctx), Current(ctx).Id);
+        audit.Write(Current(ctx), "project.create", $"created project {projects.List().FirstOrDefault(p => p.Id == id)?.Name ?? id.ToString()}", target: $"project:{id}", ip: Ip(ctx));
         return Results.Ok(new { id, rev = 1 });
     }
     catch (ProjectException e) { return Err(400, e.Message); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Worldbuilder");
 
 api.MapGet("/projects/{id:long}", (long id, int? rev, HttpContext ctx, ProjectStore projects) =>
 {
@@ -382,20 +433,30 @@ api.MapGet("/projects/{id:long}", (long id, int? rev, HttpContext ctx, ProjectSt
     return Results.Bytes(p.Value.Json, "application/json");
 }).RequireAuthorization("Viewer");
 
-api.MapPut("/projects/{id:long}", async (long id, int baseRev, HttpContext ctx, ProjectStore projects) =>
+api.MapPut("/projects/{id:long}", async (long id, int baseRev, HttpContext ctx, ProjectStore projects, AuditLog audit) =>
 {
-    try { return Results.Ok(new { rev = projects.Save(id, baseRev, await Body(ctx), Current(ctx).Id) }); }
+    try
+    {
+        int rev = projects.Save(id, baseRev, await Body(ctx), Current(ctx).Id);
+        audit.Write(Current(ctx), "project.save", $"saved project {projects.List().FirstOrDefault(p => p.Id == id)?.Name ?? id.ToString()} (revision {rev})", target: $"project:{id}", details: new { rev }, ip: Ip(ctx));
+        return Results.Ok(new { rev });
+    }
     catch (ProjectConflictException e) { return Results.Json(new { error = e.Message, latest = e.Latest, by = e.By, at = e.At }, statusCode: 409); }
     catch (ProjectException e) { return Err(e.Message == "No such project." ? 404 : 400, e.Message); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Worldbuilder");
 
 api.MapGet("/projects/{id:long}/history", (long id, ProjectStore projects) => Results.Ok(projects.History(id))).RequireAuthorization("Viewer");
 
-api.MapDelete("/projects/{id:long}", (long id, ProjectStore projects) =>
-    projects.Delete(id) ? Results.Ok(new { ok = true }) : Results.NotFound()).RequireAuthorization("Admin");
+api.MapDelete("/projects/{id:long}", (long id, HttpContext ctx, ProjectStore projects, AuditLog audit) =>
+{
+    var name = projects.List().FirstOrDefault(p => p.Id == id)?.Name;
+    if (!projects.Delete(id)) return Results.NotFound();
+    audit.Write(Current(ctx), "project.delete", $"deleted project {name}", target: $"project:{id}", ip: Ip(ctx));
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization("Admin");
 
 var buildLocks = new ConcurrentDictionary<long, SemaphoreSlim>();
-api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, HttpContext ctx, ProjectStore projects, MapRegistry maps, BlockStore blocks, LiveHub hub) =>
+api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, HttpContext ctx, ProjectStore projects, MapRegistry maps, BlockStore blocks, LiveHub hub, AuditLog audit) =>
 {
     var stored = projects.Get(id);
     if (stored is null) return Results.NotFound();
@@ -427,13 +488,15 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });
         await hub.PublishRebuilt(mapId, me.Username);
+        audit.Write(me, "project.build", $"built {project.Name} (revision {stored.Value.Rev}) into the map {mapId}{(discarded > 0 ? $"; {discarded} edited blocks dropped (new size)" : "")}",
+            target: $"map:{mapId}", details: new { project = id, rev = stored.Value.Rev, facet, kept, discarded }, ip: Ip(ctx));
         return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded,
             keptEdits = kept is null ? null : new { statics = kept.StaticBlocks, land = kept.LandBlocks, droppedStatics = kept.DroppedStatics } });
     }
     catch (ProjectException e) { return Err(400, e.Message); }
     catch (InvalidDataException e) { return Err(400, e.Message); }
     finally { gate.Release(); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Worldbuilder");
 
 // ============================================================================ house designs (prefabs)
 api.MapGet("/prefabs", (PrefabStore prefabs) => Results.Ok(prefabs.All().Select(p => new
@@ -441,42 +504,69 @@ api.MapGet("/prefabs", (PrefabStore prefabs) => Results.Ok(prefabs.All().Select(
     id = p.Id, name = p.Name, data = p.Data, createdBy = p.CreatedByName, created = p.Created, updated = p.Updated,
 }))).RequireAuthorization("Viewer");
 
-api.MapPost("/prefabs", async (HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+api.MapPost("/prefabs", async (HttpContext ctx, PrefabStore prefabs, LiveHub live, AuditLog audit) =>
 {
     try
     {
         var (name, data, bytes) = await PrefabBody(ctx);
         var id = prefabs.Create(name, data, bytes, Current(ctx).Id);
         await live.PublishPrefabs(Current(ctx).Username, "saved", id, name.Trim());
+        audit.Write(Current(ctx), "library.add", $"saved \"{name.Trim()}\" to the library", target: $"prefab:{id}", ip: Ip(ctx));
         return Results.Ok(new { id });
     }
     catch (PrefabException e) { return Err(400, e.Message); }
     catch (JsonException) { return Err(400, "Send { name, data } as JSON."); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Decorator");
 
-api.MapPut("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+// Decorators change their own designs; anyone's needs a worldbuilder.
+api.MapPut("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live, AuditLog audit) =>
 {
     try
     {
+        var me = Current(ctx);
+        var old = prefabs.Get(id);
+        if (old is null) return Err(404, "No such design.");
+        if (me.Role < Role.Worldbuilder && old.CreatedBy != me.Id) return Err(403, "Decorators can only change their own designs. Save a copy under a new name instead.");
         var (name, data, bytes) = await PrefabBody(ctx);
-        prefabs.Update(id, name, data, bytes, Current(ctx).Id);
-        await live.PublishPrefabs(Current(ctx).Username, "updated", id, name.Trim());
+        prefabs.Update(id, name, data, bytes, me.Id);
+        await live.PublishPrefabs(me.Username, "updated", id, name.Trim());
+        audit.Write(me, "library.change", $"changed \"{name.Trim()}\" in the library{(old.Name != name.Trim() ? $" (was \"{old.Name}\")" : "")}", target: $"prefab:{id}", ip: Ip(ctx));
         return Results.Ok(new { id });
     }
     catch (PrefabException e) { return Err(e.Message == "No such design." ? 404 : 400, e.Message); }
     catch (JsonException) { return Err(400, "Send { name, data } as JSON."); }
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Decorator");
 
-api.MapDelete("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live) =>
+api.MapDelete("/prefabs/{id:long}", async (long id, HttpContext ctx, PrefabStore prefabs, LiveHub live, AuditLog audit) =>
 {
     var p = prefabs.Get(id);
     if (p is null) return Results.NotFound();
     var me = Current(ctx);
-    if (me.Role < Role.Admin && p.CreatedBy != me.Id) return Err(403, "Only its maker or an admin can delete a design.");
+    if (me.Role < Role.Worldbuilder && p.CreatedBy != me.Id) return Err(403, "Decorators can only delete their own designs.");
     prefabs.Delete(id);
     await live.PublishPrefabs(me.Username, "deleted", id, p.Name);
+    audit.Write(me, "library.remove", $"deleted \"{p.Name}\" from the library{(p.CreatedByName is { } by && by != me.Username ? $" (made by {by})" : "")}", target: $"prefab:{id}", ip: Ip(ctx));
     return Results.Ok(new { ok = true });
-}).RequireAuthorization("Builder");
+}).RequireAuthorization("Decorator");
+
+// ============================================================================ activity log (admin)
+api.MapGet("/audit", (long? user, string? action, string? target, string? since, string? until, string? q, long? before, int? limit, AuditLog audit) =>
+    Results.Ok(audit.Query(user, action, target, since, until, q, before, limit ?? 100))).RequireAuthorization("Admin");
+
+api.MapGet("/audit/people", (AuditLog audit) => Results.Ok(audit.People())).RequireAuthorization("Admin");
+
+api.MapGet("/audit.csv", (long? user, string? action, string? target, string? since, string? until, string? q, HttpContext ctx, AuditLog audit) =>
+{
+    var rows = audit.Query(user, action, target, since, until, q, null, 1000);
+    static string Csv(string? v) => v is null ? "" : "\"" + v.Replace("\"", "\"\"") + "\"";
+    var sb = new System.Text.StringBuilder("time,person,role,action,target,x,y,summary,ip\r\n");
+    foreach (var r in rows) sb.Append($"{r.At},{Csv(r.Username)},{r.Role},{r.Action},{Csv(r.Target)},{r.X},{r.Y},{Csv(r.Summary)},{r.Ip}\r\n");
+    audit.Write(Current(ctx), "export.audit", $"downloaded {rows.Count} activity log entries", ip: Ip(ctx));
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", "shardforge-activity.csv");
+}).RequireAuthorization("Admin");
+
+/// <summary>What each level may do, for the Admin page and the apps.</summary>
+api.MapGet("/permissions", () => Results.Ok(Permissions.Table.Select(r => new { what = r.What, least = r.Least.ToString(), note = r.Note }))).RequireAuthorization("Viewer");
 
 async Task<(string Name, JsonElement Data, int Bytes)> PrefabBody(HttpContext ctx)
 {
@@ -512,6 +602,7 @@ app.Run();
 
 // ============================================================================ helpers
 static Role Level(ClaimsPrincipal p) => Enum.TryParse<Role>(p.FindFirstValue("level"), out var r) ? r : 0;
+static string? Ip(HttpContext ctx) => ctx.Connection.RemoteIpAddress?.ToString();
 
 static async Task SignIn(HttpContext ctx, User u)
 {

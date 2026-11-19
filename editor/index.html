@@ -1846,7 +1846,7 @@ function status(p) {
 
 window.addEventListener("keydown", e => {
   // Save works from anywhere, even while typing the project name.
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (SRV.on) SRV.save(); else $("btnExport").click(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (SRV.on) SRV.save(); else if (!$("btnExport").hidden) $("btnExport").click(); return; }
   if (e.target.matches("input, textarea, select")) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
@@ -2220,8 +2220,10 @@ const SRV = {
     this.on = true;
     if (st.needsSetup) { location.href = "/setup.html"; return true; }
     try { this.me = (await this.api("GET", "/api/me")).data; } catch { return true; }
-    const canEdit = this.me.level >= 2;
+    // Worldbuilders edit, save and build projects; downloading a project file is an export, for admins.
+    const canEdit = this.me.level >= 3;
     $("btnExport").classList.remove("primary"); $("btnExport").textContent = "Download";
+    $("btnExport").hidden = this.me.level < 4;
     $("btnOpen").textContent = "Projects…";
     $("btnSave").hidden = !canEdit; $("btnBuild").hidden = !canEdit;
     const ub = $("userBox"); ub.hidden = false;
@@ -2232,7 +2234,7 @@ const SRV = {
     const q = new URLSearchParams(location.search);
     if (q.get("project")) await this.load(+q.get("project"));
     else { newWorld(1024, 1024, "island"); this.setClean(null, 0); if (!q.has("new")) this.openDialog(); }
-    if (!canEdit) addMsg("claude", "You're a Viewer on this server: you can look and try things, but not save. Ask an admin for Builder access.");
+    if (!canEdit) addMsg("claude", `You're a ${this.me.role} on this server: you can look and try things in the editor, but not save. Projects are for worldbuilders; ask an admin.`);
     return true;
   },
   markDirty() { if (this.on && !this.loading) { this.dirty = true; this.showState(); } },
@@ -2255,7 +2257,7 @@ const SRV = {
     finally { busy(); }
   },
   async save(asCopy = false) {
-    if (!this.on || this.me.level < 2) return false;
+    if (!this.on || this.me.level < 3) return false;
     busy("Saving…");
     try {
       const body = JSON.stringify(await toProject());
@@ -2292,9 +2294,9 @@ const SRV = {
       const { data } = await this.api("GET", "/api/projects");
       list.innerHTML = data.length ? data.map(p => `<button type="button" data-id="${p.id}"><b>${escapeHtml(p.name)}</b><span class="m">r${p.rev}</span>
         <span class="m">${p.width}×${p.height}</span><span class="m">${escapeHtml(p.updatedBy || "")} · ${new Date(p.updated).toLocaleString()}</span></button>`).join("")
-        : `<p class="note">No projects yet. Close this and start painting${this.me.level >= 2 ? ", then Save" : ""}.</p>`;
+        : `<p class="note">No projects yet. Close this and start painting${this.me.level >= 3 ? ", then Save" : ""}.</p>`;
       list.querySelectorAll("button[data-id]").forEach(b => b.onclick = async () => {
-        if (this.dirty && this.me.level >= 2 && b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.querySelector("b").textContent += " (unsaved changes here will be lost: click again)"; return; }
+        if (this.dirty && this.me.level >= 3 && b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.querySelector("b").textContent += " (unsaved changes here will be lost: click again)"; return; }
         dlg.close(); await this.load(+b.dataset.id);
       });
     } catch (e) { list.innerHTML = `<p class="note">${escapeHtml(e.message)}</p>`; }

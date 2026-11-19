@@ -45,7 +45,16 @@ nav a:hover, nav a[aria-current="page"] { color: var(--text); background: var(--
 .userbox { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .pill { font: 11px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .pill.Admin { color: var(--gold); border-color: #6b5524; }
-.pill.Builder { color: var(--ok); border-color: #3b5a4b; }
+.pill.Builder, .pill.Worldbuilder { color: var(--ok); border-color: #3b5a4b; }
+.pill.Decorator { color: #9cc3ee; border-color: #34506b; }
+table.levels td.lv { text-align: center; }
+table.levels .yes { color: var(--ok); font-weight: 600; }
+table.levels .no { color: var(--muted); }
+table.audit td { vertical-align: top; }
+table.audit tr.denied td { background: rgba(224,122,95,.07); }
+table.audit .ico { display: inline-block; width: 1.3em; color: var(--muted); }
+table.audit details { margin-top: 4px; } table.audit pre { max-height: 240px; overflow: auto; font-size: 11px; margin: 4px 0 0; }
+.people { margin-top: 10px; color: var(--muted); }
 
 main.page { max-width: 1120px; margin: 0 auto; padding: 24px 20px 60px; display: grid; gap: 28px; }
 h1 { font-family: var(--font-display); color: var(--gold); font-size: 24px; margin: 0; text-wrap: balance; letter-spacing: .03em; }

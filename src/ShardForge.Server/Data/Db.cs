@@ -103,6 +103,31 @@ public sealed class Db
               updated_by INTEGER REFERENCES users(id),
               updated TEXT NOT NULL,
               PRIMARY KEY(map_id, uid));
+            CREATE TABLE IF NOT EXISTS audit(
+              id INTEGER PRIMARY KEY,
+              at TEXT NOT NULL,
+              user_id INTEGER,
+              username TEXT NOT NULL,
+              role TEXT NOT NULL,
+              action TEXT NOT NULL,
+              target TEXT,
+              x INTEGER,
+              y INTEGER,
+              summary TEXT NOT NULL,
+              details TEXT,
+              ip TEXT);
+            CREATE INDEX IF NOT EXISTS ix_audit_user ON audit(user_id, id);
+            CREATE INDEX IF NOT EXISTS ix_audit_action ON audit(action, id);
+            CREATE INDEX IF NOT EXISTS ix_audit_target ON audit(target, id);
+            CREATE TABLE IF NOT EXISTS static_owner(
+              map_id TEXT NOT NULL,
+              x INTEGER NOT NULL,
+              y INTEGER NOT NULL,
+              z INTEGER NOT NULL,
+              tile INTEGER NOT NULL,
+              hue INTEGER NOT NULL,
+              user_id INTEGER NOT NULL);
+            CREATE INDEX IF NOT EXISTS ix_static_owner ON static_owner(map_id, x, y);
             CREATE TABLE IF NOT EXISTS prefabs(
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL,
@@ -113,6 +138,31 @@ public sealed class Db
               updated TEXT NOT NULL);
             """;
         cmd.ExecuteNonQuery();
+        Upgrade(c);
+    }
+
+    /// <summary>Step-by-step changes to existing databases, tracked in user_version.</summary>
+    private static void Upgrade(SqliteConnection c)
+    {
+        long version;
+        using (var v = c.CreateCommand()) { v.CommandText = "PRAGMA user_version"; version = (long)v.ExecuteScalar()!; }
+        void Run(string sql) { using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+        if (version < 1)
+        {
+            // Four levels instead of three: Builder (2) could remove things, so it becomes Worldbuilder (3); Admin 3 -> 4.
+            using var t = c.BeginTransaction();
+            using (var cmd = c.CreateCommand()) { cmd.Transaction = t; cmd.CommandText = "UPDATE users SET role = CASE role WHEN 3 THEN 4 WHEN 2 THEN 3 ELSE role END"; cmd.ExecuteNonQuery(); }
+            using (var cmd = c.CreateCommand()) { cmd.Transaction = t; cmd.CommandText = "PRAGMA user_version = 1"; cmd.ExecuteNonQuery(); }
+            t.Commit();
+        }
+        if (version < 2)
+        {
+            bool has = false;
+            using (var info = c.CreateCommand()) { info.CommandText = "SELECT COUNT(*) FROM pragma_table_info('map_items') WHERE name = 'created_by'"; has = (long)info.ExecuteScalar()! > 0; }
+            if (!has) Run("ALTER TABLE map_items ADD COLUMN created_by INTEGER REFERENCES users(id)");
+            Run("UPDATE map_items SET created_by = updated_by WHERE created_by IS NULL");
+            Run("PRAGMA user_version = 2");
+        }
     }
 
     public static string Now() => DateTime.UtcNow.ToString("O");

@@ -14,7 +14,8 @@
 <main class="page">
   <div>
     <h1>Admin</h1>
-    <p class="lead"><b>Viewers</b> can open maps and projects and walk around. <b>Builders</b> can also edit projects, place statics and build maps. <b>Admins</b> can also manage users, delete projects and publish. Changing someone's role or password signs them out everywhere.</p>
+    <p class="lead">Four levels, each including the one before: <b>Viewers</b> look around, <b>Decorators</b> decorate and build (and can undo only their own work), <b>Worldbuilders</b> also remove anything, shape the land and build projects, and <b>Admins</b> alone save to disk, export and manage people. Everything anyone does is in the <a href="#hActivity">activity log</a> below.</p>
+    <nav class="row" style="gap:8px;margin-top:6px"><a href="#hUsers">People</a><a href="#hLevels">Levels</a><a href="#hActivity">Activity</a><a href="#hServer">Server</a></nav>
   </div>
 
   <section aria-labelledby="hServer">
@@ -33,7 +34,7 @@
     <form id="addForm" class="row" style="align-items:end">
       <div class="field" style="flex:1;min-width:160px"><label for="nName">Name</label><input type="text" id="nName" required minlength="2" maxlength="32" autocomplete="off"></div>
       <div class="field" style="flex:1;min-width:160px"><label for="nPass">Starting password</label><input type="text" id="nPass" required minlength="8" autocomplete="off"></div>
-      <div class="field" style="width:150px"><label for="nRole">Role</label><select id="nRole"><option>Viewer</option><option selected>Builder</option><option>Admin</option></select></div>
+      <div class="field" style="width:150px"><label for="nRole">Role</label><select id="nRole"><option>Viewer</option><option selected>Decorator</option><option>Worldbuilder</option><option>Admin</option></select></div>
       <button class="primary" type="submit">Add user</button>
     </form>
     <div class="msg" id="msg" role="status" style="margin-top:10px"></div>
@@ -42,24 +43,63 @@
   <section aria-labelledby="hUsers">
     <h2 id="hUsers">Everyone</h2>
     <div class="tablewrap"><table>
-      <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th style="width:1%"></th></tr></thead>
+      <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Activity</th><th style="width:1%"></th></tr></thead>
       <tbody id="users"></tbody>
     </table></div>
+  </section>
+
+  <section aria-labelledby="hLevels">
+    <h2 id="hLevels">What each level may do</h2>
+    <p class="note">The server checks this on every request, whatever page or tool sends it. Changing someone's level takes effect immediately.</p>
+    <div class="tablewrap"><table class="levels">
+      <thead><tr><th>Action</th><th>Viewer</th><th>Decorator</th><th>Worldbuilder</th><th>Admin</th></tr></thead>
+      <tbody id="levels"></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="hActivity">
+    <h2 id="hActivity">Activity</h2>
+    <p class="note">Every change, sign-in, refused attempt, save and export, per person. Entries with a place open it in Walk.</p>
+    <form id="aForm" class="row" style="align-items:end;flex-wrap:wrap;gap:8px">
+      <div class="field" style="width:170px"><label for="aUser">Person</label><select id="aUser"><option value="">Everyone</option></select></div>
+      <div class="field" style="width:190px"><label for="aAction">What</label><select id="aAction">
+        <option value="">Everything</option><option value="statics">Statics</option><option value="land">Land</option><option value="items">Server items</option>
+        <option value="library">House library</option><option value="project">Projects</option><option value="export">Exports</option><option value="publish">Publishing</option>
+        <option value="denied">Refused attempts</option><option value="auth">Sign-ins</option><option value="users">People &amp; passwords</option><option value="settings">Settings</option></select></div>
+      <div class="field" style="width:150px"><label for="aMap">Map or project</label><select id="aMap"><option value="">Any</option></select></div>
+      <div class="field" style="width:150px"><label for="aSince">From</label><input type="date" id="aSince"></div>
+      <div class="field" style="width:150px"><label for="aUntil">To</label><input type="date" id="aUntil"></div>
+      <div class="field" style="flex:1;min-width:160px"><label for="aText">Search</label><input type="search" id="aText" placeholder="orc, Britain, 0x0FAE…"></div>
+      <button type="submit" class="primary">Show</button><a class="btn" id="aCsv" href="/api/audit.csv">Download CSV</a>
+    </form>
+    <div id="aPeople" class="people"></div>
+    <div class="tablewrap" style="margin-top:10px"><table class="audit">
+      <thead><tr><th style="width:150px">When</th><th>Who</th><th>What</th><th style="width:1%">Where</th></tr></thead>
+      <tbody id="audit"></tbody>
+    </table></div>
+    <div class="row" style="margin-top:8px"><button id="aMore" hidden>Older</button></div>
   </section>
 </main>
 <script src="/app.js"></script>
 <script>
 let me = null;
+const LEVELS = ["Viewer", "Decorator", "Worldbuilder", "Admin"];
+let PEOPLE = new Map(), auditLast = null;
 const msg = text => SF.msg(document.getElementById("msg"), text, text.startsWith("✓") ? "ok" : "error");
 
 async function load() {
-  const users = await SF.api("GET", "/api/users");
+  const [users, people] = await Promise.all([SF.api("GET", "/api/users"), SF.api("GET", "/api/audit/people")]);
+  PEOPLE = new Map(people.map(p => [p.userId, p]));
+  const sel = document.getElementById("aUser"), cur = sel.value;
+  sel.innerHTML = `<option value="">Everyone</option>` + users.map(u => `<option value="${u.id}">${SF.esc(u.username)} (${u.role})</option>`).join("");
+  sel.value = cur;
   document.getElementById("users").innerHTML = users.map(u => `
     <tr data-id="${u.id}">
       <td>${SF.esc(u.username)}${u.id === me.id ? ' <span class="note">(you)</span>' : ""}</td>
-      <td><select data-role aria-label="Role for ${SF.esc(u.username)}">${["Viewer", "Builder", "Admin"].map(r => `<option${r === u.role ? " selected" : ""}>${r}</option>`).join("")}</select></td>
-      <td>${u.disabled ? '<span class="pill">Disabled</span>' : '<span class="pill Builder">Active</span>'}</td>
+      <td><select data-role aria-label="Role for ${SF.esc(u.username)}">${LEVELS.map(r => `<option${r === u.role ? " selected" : ""}>${r}</option>`).join("")}</select></td>
+      <td>${u.disabled ? '<span class="pill">Disabled</span>' : '<span class="pill Worldbuilder">Active</span>'}</td>
       <td class="num">${SF.ago(u.lastLogin)}</td>
+      <td><a href="#hActivity" data-act="${u.id}">${(PEOPLE.get(u.id)?.entries ?? 0).toLocaleString()} entries</a>${PEOPLE.get(u.id) ? ` <span class="note">· ${SF.ago(PEOPLE.get(u.id).last)}</span>` : ""}</td>
       <td><div class="row" style="flex-wrap:nowrap">
         <button data-pw>New password</button>
         <button data-toggle>${u.disabled ? "Enable" : "Disable"}</button>
@@ -75,6 +115,8 @@ document.getElementById("users").addEventListener("change", async e => {
   load();
 });
 document.getElementById("users").addEventListener("click", async e => {
+  const a = e.target.closest("[data-act]");
+  if (a) { document.getElementById("aUser").value = a.dataset.act; loadAudit(); return; }
   const b = e.target.closest("button"); if (!b) return;
   const tr = b.closest("tr"), id = tr.dataset.id, name = tr.cells[0].textContent.replace(" (you)", "");
   try {
@@ -102,6 +144,47 @@ document.getElementById("addForm").onsubmit = async e => {
     e.target.reset(); load();
   } catch (err) { msg(err.message); }
 };
+async function loadLevels() {
+  const rows = await SF.api("GET", "/api/permissions");
+  document.getElementById("levels").innerHTML = rows.map(r => `<tr><td>${SF.esc(r.what)}${r.note ? ` <span class="note">(${SF.esc(r.note)})</span>` : ""}</td>${LEVELS.map(l =>
+    `<td class="lv">${LEVELS.indexOf(l) >= LEVELS.indexOf(r.least) ? '<span class="yes" aria-label="yes">✓</span>' : '<span class="no" aria-label="no">–</span>'}</td>`).join("")}</tr>`).join("");
+}
+async function loadMaps() {
+  const [maps, projects] = await Promise.all([SF.api("GET", "/api/maps"), SF.api("GET", "/api/projects")]);
+  document.getElementById("aMap").innerHTML = `<option value="">Any</option>` + maps.map(m => `<option value="map:${SF.esc(m.id)}">Map: ${SF.esc(m.name)}</option>`).join("")
+    + projects.map(p => `<option value="project:${p.id}">Project: ${SF.esc(p.name)}</option>`).join("");
+}
+const ICON = { statics: "▣", land: "⛰", items: "⚑", library: "⌂", project: "✎", export: "⇩", publish: "⇪", denied: "⛔", auth: "⚿", users: "☺", settings: "⚙" };
+function auditQuery() {
+  const v = id => document.getElementById(id).value, q = new URLSearchParams();
+  if (v("aUser")) q.set("user", v("aUser")); if (v("aAction")) q.set("action", v("aAction")); if (v("aMap")) q.set("target", v("aMap"));
+  if (v("aSince")) q.set("since", v("aSince")); if (v("aUntil")) { const d = new Date(v("aUntil")); d.setDate(d.getDate() + 1); q.set("until", d.toISOString().slice(0, 10)); }
+  if (v("aText").trim()) q.set("q", v("aText").trim());
+  return q;
+}
+async function loadAudit(more = false) {
+  const q = auditQuery(); q.set("limit", "100"); if (more && auditLast) q.set("before", auditLast);
+  document.getElementById("aCsv").href = "/api/audit.csv?" + auditQuery();
+  const rows = await SF.api("GET", "/api/audit?" + q);
+  auditLast = rows.length ? rows[rows.length - 1].id : null;
+  const html = rows.map(r => {
+    const kind = r.action.split(".")[0], map = r.target?.startsWith("map:") ? r.target.slice(4) : null;
+    const where = map && r.x != null ? `<a class="btn" href="/walk/?map=${encodeURIComponent(map)}&x=${r.x}&y=${r.y}" target="_blank" title="Open this spot in Walk">${r.x}, ${r.y}</a>` : "";
+    const details = r.details ? `<details><summary>details</summary><pre>${SF.esc(JSON.stringify(r.details, null, 1)).slice(0, 6000)}</pre></details>` : "";
+    return `<tr class="${kind === "denied" ? "denied" : ""}"><td class="num" title="${SF.esc(r.at)}">${new Date(r.at).toLocaleString()}</td>
+      <td><a href="#hActivity" data-who="${r.userId ?? ""}">${SF.esc(r.username)}</a> <span class="pill ${SF.esc(r.role)}">${SF.esc(r.role || "?")}</span></td>
+      <td><span class="ico">${ICON[kind] || "·"}</span> ${SF.esc(r.summary)}${r.ip ? ` <span class="note">from ${SF.esc(r.ip)}</span>` : ""}${details}</td><td>${where}</td></tr>`;
+  }).join("");
+  const tb = document.getElementById("audit");
+  if (more) tb.insertAdjacentHTML("beforeend", html); else tb.innerHTML = html || `<tr><td colspan="4" class="empty">Nothing matches.</td></tr>`;
+  document.getElementById("aMore").hidden = rows.length < 100;
+  const who = document.getElementById("aUser").value, p = who && PEOPLE.get(+who);
+  document.getElementById("aPeople").innerHTML = p ? `<b>${SF.esc(p.username)}</b>: ${p.entries.toLocaleString()} entries · ${p.statics} statics changes · ${p.land} land changes · ${p.items} server item changes · ${p.exports} exports · last active ${SF.ago(p.last)}` : "";
+}
+document.getElementById("aForm").onsubmit = e => { e.preventDefault(); loadAudit(); };
+for (const id of ["aUser", "aAction", "aMap", "aSince", "aUntil"]) document.getElementById(id).onchange = () => loadAudit();
+document.getElementById("aMore").onclick = () => loadAudit(true);
+document.getElementById("audit").addEventListener("click", e => { const a = e.target.closest("[data-who]"); if (a && a.dataset.who) { e.preventDefault(); document.getElementById("aUser").value = a.dataset.who; loadAudit(); } });
 async function loadServer() {
   const st = await SF.api("GET", "/api/settings");
   const client = document.getElementById("client"), note = document.getElementById("clientNote");
@@ -121,9 +204,9 @@ document.getElementById("clientForm").onsubmit = async e => {
 };
 (async () => {
   me = await SF.requireLogin(); if (!me) return;
-  if (me.level < 3) { location.href = "/"; return; }
+  if (me.level < 4) { location.href = "/"; return; }
   SF.header(me, "/admin.html");
-  load(); loadServer();
+  load(); loadServer(); loadLevels(); loadMaps(); loadAudit();
 })();
 </script>
 </body>

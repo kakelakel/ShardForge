@@ -1,5 +1,7 @@
 using System.IO.Compression;
+using Microsoft.Data.Sqlite;
 using ShardForge.Core.Map;
+using ShardForge.Server.Auth;
 using ShardForge.Server.Data;
 
 namespace ShardForge.Server.Maps;
@@ -12,6 +14,12 @@ public sealed record BlockEdit(int Block, byte[] Data);
 public sealed record BlockChange(string MapId, long Rev, long UserId, string Username, IReadOnlyList<BlockEdit> Blocks, IReadOnlyList<BlockEdit> Land, string? Cid = null);
 
 public sealed class BlockException(string message) : Exception(message);
+
+/// <summary>Not allowed at this user level (answered with 403).</summary>
+public sealed class PermissionException(string message) : Exception(message);
+
+/// <summary>What a save changed, for the activity log: statics added and removed, land blocks, and where.</summary>
+public sealed record SaveResult(long Rev, int Added, int Removed, int StaticBlocks, int LandBlocks, int? X, int? Y, List<object> Samples);
 
 /// <summary>What happened to a map's shared edits when it was rebuilt.</summary>
 public sealed record RebaseResult(int StaticBlocks, int LandBlocks, int DroppedStatics);
@@ -72,6 +80,130 @@ public sealed class BlockStore(Db db)
         Write(c, tx, map.Id, "map_land", land, rev, userId);
         tx.Commit();
         return rev;
+    }
+
+    /// <summary>
+    /// Saves with the user's level enforced: decorators may add statics, and remove or change only statics they
+    /// placed themselves; land needs a worldbuilder. Who placed what is tracked in static_owner.
+    /// </summary>
+    public SaveResult Save(MapInfo map, User user, IReadOnlyList<BlockEdit> blocks, IReadOnlyList<BlockEdit>? land = null)
+    {
+        land ??= [];
+        Validate(map, blocks, land);
+        if (land.Count > 0 && user.Role < Role.Worldbuilder)
+            throw new PermissionException("Decorators can't change the land. Ask a worldbuilder.");
+        int bh = map.FacetInfo.BlockHeight, added = 0, removed = 0, foreign = 0;
+        int? ax = null, ay = null;
+        var samples = new List<object>();
+        using var c = db.Open();
+        using var tx = c.BeginTransaction();
+        var diffs = new List<(int Block, List<StaticTile> Add, List<StaticTile> Del)>();
+        foreach (var b in blocks)
+        {
+            var before = Current(c, tx, map, b.Block);
+            var after = DecodeStatics(b.Data);
+            var del = Subtract(before, after);
+            var add = Subtract(after, before);
+            if (del.Count == 0 && add.Count == 0) continue;
+            int bx = b.Block / bh * 8, by = b.Block % bh * 8;
+            if (user.Role < Role.Worldbuilder && del.Count > 0)
+            {
+                var mine = Owned(c, tx, map.Id, bx, by, user.Id);
+                foreach (var s in del)
+                {
+                    var key = (bx + s.X, by + s.Y, (int)s.Z, (int)s.TileId, (int)s.Hue);
+                    if (mine.TryGetValue(key, out int n) && n > 0) mine[key] = n - 1; else foreign++;
+                }
+            }
+            diffs.Add((b.Block, add, del));
+            var first = add.Count > 0 ? add[0] : del[0];
+            ax ??= bx + first.X; ay ??= by + first.Y;
+        }
+        if (foreign > 0)
+            throw new PermissionException($"Decorators can only remove or change what they placed themselves: {foreign} of these statics {(foreign == 1 ? "was" : "were")} placed by someone else or belong to the map. Ask a worldbuilder.");
+        long rev = NextRev(c, tx, map.Id);
+        Write(c, tx, map.Id, "map_blocks", blocks, rev, user.Id);
+        Write(c, tx, map.Id, "map_land", land, rev, user.Id);
+        foreach (var (block, add, del) in diffs)
+        {
+            int bx = block / bh * 8, by = block % bh * 8;
+            foreach (var s in del)
+            {
+                Exec(c, tx, "DELETE FROM static_owner WHERE rowid = (SELECT rowid FROM static_owner WHERE map_id = $m AND x = $x AND y = $y AND z = $z AND tile = $t AND hue = $h ORDER BY user_id = $u DESC LIMIT 1)",
+                    map.Id, bx + s.X, by + s.Y, s.Z, s.TileId, s.Hue, user.Id);
+                if (samples.Count < 200) samples.Add(new { op = "removed", id = s.TileId, x = bx + s.X, y = by + s.Y, z = s.Z, hue = s.Hue });
+            }
+            foreach (var s in add)
+            {
+                Exec(c, tx, "INSERT INTO static_owner(map_id, x, y, z, tile, hue, user_id) VALUES ($m, $x, $y, $z, $t, $h, $u)",
+                    map.Id, bx + s.X, by + s.Y, s.Z, s.TileId, s.Hue, user.Id);
+                if (samples.Count < 200) samples.Add(new { op = "added", id = s.TileId, x = bx + s.X, y = by + s.Y, z = s.Z, hue = s.Hue });
+            }
+            added += add.Count; removed += del.Count;
+        }
+        if (ax is null && land.Count > 0) { int b0 = land[0].Block; ax = b0 / bh * 8 + 4; ay = b0 % bh * 8 + 4; }
+        tx.Commit();
+        return new SaveResult(rev, added, removed, diffs.Count, land.Count, ax, ay, samples);
+    }
+
+    private static void Exec(SqliteConnection c, SqliteTransaction tx, string sql, string map, int x, int y, int z, int tile, int hue, long user)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx; cmd.CommandText = sql;
+        cmd.Parameters.AddWithValue("$m", map); cmd.Parameters.AddWithValue("$x", x); cmd.Parameters.AddWithValue("$y", y);
+        cmd.Parameters.AddWithValue("$z", z); cmd.Parameters.AddWithValue("$t", tile); cmd.Parameters.AddWithValue("$h", hue); cmd.Parameters.AddWithValue("$u", user);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>The statics a user placed in one 8x8 block, counted.</summary>
+    private static Dictionary<(int, int, int, int, int), int> Owned(SqliteConnection c, SqliteTransaction tx, string mapId, int bx, int by, long userId)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT x, y, z, tile, hue FROM static_owner WHERE map_id = $m AND x >= $x0 AND x < $x0 + 8 AND y >= $y0 AND y < $y0 + 8 AND user_id = $u";
+        cmd.Parameters.AddWithValue("$m", mapId); cmd.Parameters.AddWithValue("$x0", bx); cmd.Parameters.AddWithValue("$y0", by); cmd.Parameters.AddWithValue("$u", userId);
+        var d = new Dictionary<(int, int, int, int, int), int>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) { var k = (r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4)); d[k] = d.GetValueOrDefault(k) + 1; }
+        return d;
+    }
+
+    /// <summary>Statics this user placed on a map (for Walk, so decorators see what they may remove).</summary>
+    public List<int[]> OwnedBy(string mapId, long userId)
+    {
+        using var c = db.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT x, y, z, tile, hue FROM static_owner WHERE map_id = $m AND user_id = $u";
+        cmd.Parameters.AddWithValue("$m", mapId); cmd.Parameters.AddWithValue("$u", userId);
+        var list = new List<int[]>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add([r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4)]);
+        return list;
+    }
+
+    /// <summary>A block as it is now: the shared edit if there is one, else the map file's.</summary>
+    private static List<StaticTile> Current(SqliteConnection c, SqliteTransaction tx, MapInfo map, int block)
+    {
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "SELECT data FROM map_blocks WHERE map_id = $m AND block = $b";
+            cmd.Parameters.AddWithValue("$m", map.Id); cmd.Parameters.AddWithValue("$b", block);
+            if (cmd.ExecuteScalar() is byte[] data) return [.. DecodeStatics(data)];
+        }
+        string? idx = MapRegistry.FindFile(map.Dir, $"staidx{map.Facet}.mul"), mul = MapRegistry.FindFile(map.Dir, $"statics{map.Facet}.mul");
+        if (idx is null || mul is null) return [];
+        using var fi = File.OpenRead(idx);
+        if ((long)block * 12 + 12 > fi.Length) return [];
+        var e = new byte[12];
+        fi.Position = (long)block * 12; fi.ReadExactly(e);
+        int off = BitConverter.ToInt32(e, 0), len = BitConverter.ToInt32(e, 4);
+        if (off < 0 || len <= 0) return [];
+        using var fm = File.OpenRead(mul);
+        if (off + (long)len > fm.Length) return [];
+        var buf = new byte[len];
+        fm.Position = off; fm.ReadExactly(buf);
+        return [.. DecodeStatics(buf)];
     }
 
     private static long NextRev(Microsoft.Data.Sqlite.SqliteConnection c, Microsoft.Data.Sqlite.SqliteTransaction tx, string mapId)

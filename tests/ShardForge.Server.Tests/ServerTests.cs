@@ -169,7 +169,9 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(6, farm.GetProperty("count").GetInt32());
         Assert.Equal("Orc:2,OrcishMage:2", items.Single(i => i.GetProperty("uid").GetString() == "p1").GetProperty("creatures").GetString());
 
-        var zip = new ZipArchive(new MemoryStream(await bob.GetByteArrayAsync($"/api/maps/{id}/servuo")));
+        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync($"/api/maps/{id}/servuo")).StatusCode); // exports are for admins
+        var (admin, _) = await As("admin");
+        var zip = new ZipArchive(new MemoryStream(await admin.GetByteArrayAsync($"/api/maps/{id}/servuo")));
         Assert.Contains(zip.Entries, e => e.FullName == "ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs");
         Assert.Contains(zip.Entries, e => e.FullName.StartsWith("client/statics"));
         string sf = new StreamReader(zip.Entries.Single(e => e.FullName.EndsWith(".sfitems")).Open()).ReadToEnd();
@@ -181,14 +183,69 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task EachLevelDoesOnlyItsOwnPartAndEverythingIsLogged()
+    {
+        await EnsureUser("deco", "Decorator");
+        await EnsureUser("wendy", "Worldbuilder");
+        var (deco, _) = await As("deco");
+        var (wendy, _) = await As("wendy");
+        var (admin, _) = await As("admin");
+        string B(params byte[][] statics) => Convert.ToBase64String(statics.SelectMany(x => x).ToArray());
+        byte[] lamp = [0x0A, 0x0B, 1, 1, 0, 0, 0], barrel = [0xAE, 0x0F, 2, 2, 0, 0, 0], crate = [0x3C, 0x0E, 5, 5, 0, 0, 0];
+        Task<HttpResponseMessage> Put(HttpClient c, int block, string data) => c.PutAsJsonAsync("/api/maps/tiny/blocks", new { blocks = new Dictionary<string, string> { [block.ToString()] = data } });
+
+        // A worldbuilder puts a crate down; a decorator adds a lamp and a barrel next to it.
+        Assert.Equal(HttpStatusCode.OK, (await Put(wendy, 3, B(crate))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Put(deco, 3, B(crate, lamp, barrel))).StatusCode);
+        // The decorator may take their own barrel away, but not the worldbuilder's crate.
+        Assert.Equal(HttpStatusCode.OK, (await Put(deco, 3, B(crate, lamp))).StatusCode);
+        var denied = await Put(deco, 3, B(lamp));
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.Contains("placed themselves", (await denied.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        // Nor change the land, nor place regions; a worldbuilder can do all of it.
+        var land = Convert.ToBase64String(new byte[192]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.PutAsJsonAsync("/api/maps/tiny/blocks", new { land = new Dictionary<string, string> { ["0"] = land } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.PutAsJsonAsync("/api/maps/tiny/items", new { put = new[] { new { uid = "rg", kind = "region", x = 0, y = 0, z = 0, w = 8, h = 8, name = "Mine" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Put(wendy, 3, B(lamp))).StatusCode);
+        // Server items: a decorator's own sign is theirs to remove, someone else's isn't.
+        Assert.Equal(HttpStatusCode.OK, (await wendy.PutAsJsonAsync("/api/maps/tiny/items", new { put = new[] { new { uid = "w-sign", kind = "sign", x = 2, y = 2, z = 0, id = 0x0BD2, name = "Wendy's" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await deco.PutAsJsonAsync("/api/maps/tiny/items", new { put = new[] { new { uid = "d-sign", kind = "sign", x = 3, y = 3, z = 0, id = 0x0BD2, name = "Deco's" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.PutAsJsonAsync("/api/maps/tiny/items", new { remove = new[] { "w-sign" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await deco.PutAsJsonAsync("/api/maps/tiny/items", new { remove = new[] { "d-sign" } })).StatusCode);
+        // Exports and projects are not for decorators; exports not for worldbuilders either.
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.GetAsync("/api/maps/tiny/export")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await wendy.GetAsync("/api/maps/tiny/servuo")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.PostAsync("/api/projects", new StringContent(JsonSerializer.Serialize(ServerFixture.TinyProject()), Encoding.UTF8, "application/json"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await wendy.GetAsync("/api/audit")).StatusCode);
+
+        // The log says who did what, and where.
+        var users = await admin.GetFromJsonAsync<JsonElement[]>("/api/users");
+        long decoId = users!.Single(u => u.GetProperty("username").GetString() == "deco").GetProperty("id").GetInt64();
+        Assert.Equal("Decorator", users!.Single(u => u.GetProperty("username").GetString() == "deco").GetProperty("role").GetString());
+        var mine = await admin.GetFromJsonAsync<JsonElement[]>($"/api/audit?user={decoId}");
+        Assert.Contains(mine!, e => e.GetProperty("action").GetString() == "statics.add" && e.GetProperty("summary").GetString()!.Contains("added 2 statics") && e.GetProperty("x").GetInt32() == 9 && e.GetProperty("y").GetInt32() == 9);
+        Assert.Contains(mine!, e => e.GetProperty("action").GetString() == "statics.remove" && e.GetProperty("summary").GetString()!.Contains("removed 1 static"));
+        Assert.Contains(mine!, e => e.GetProperty("action").GetString() == "denied.statics");
+        Assert.Contains(mine!, e => e.GetProperty("action").GetString() == "items.remove" && e.GetProperty("summary").GetString()!.Contains("Deco's"));
+        Assert.Contains(mine!, e => e.GetProperty("action").GetString() == "auth.login");
+        Assert.All(mine!, e => Assert.Equal("deco", e.GetProperty("username").GetString()));
+        var exports = await admin.GetFromJsonAsync<JsonElement[]>("/api/audit?action=export");
+        Assert.DoesNotContain(exports!, e => e.GetProperty("username").GetString() is "deco" or "wendy");
+        var people = await admin.GetFromJsonAsync<JsonElement[]>("/api/audit/people");
+        Assert.Contains(people!, p => p.GetProperty("username").GetString() == "deco" && p.GetProperty("statics").GetInt64() >= 2);
+    }
+
+    [Fact]
     public async Task TheHouseLibraryIsSharedByEveryone()
     {
         await EnsureUser("vic", "Viewer");
-        await EnsureUser("bob", "Builder");
-        await EnsureUser("ann", "Builder");
+        await EnsureUser("dora", "Decorator");
+        await EnsureUser("dan", "Decorator");
+        await EnsureUser("wes", "Worldbuilder");
         var (viewer, _) = await As("vic");
-        var (bob, _) = await As("bob");
-        var (ann, _) = await As("ann");
+        var (bob, _) = await As("dora");
+        var (ann, _) = await As("dan");
+        var (wes, _) = await As("wes");
         var plan = new { plan = new { walls = "Dark Wood Standard Walls", storeys = new[] { new[] { new[] { 0, 0 }, new[] { 1, 0 } } } } };
 
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync("/api/prefabs", new { name = "Hut", data = plan })).StatusCode);
@@ -204,13 +261,14 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         // Everyone sees both, viewers included; the plan comes back as saved.
         var all = await viewer.GetFromJsonAsync<JsonElement[]>("/api/prefabs");
         var hut = all!.Single(p => p.GetProperty("id").GetInt64() == id);
-        Assert.Equal("bob", hut.GetProperty("createdBy").GetString());
+        Assert.Equal("dora", hut.GetProperty("createdBy").GetString());
         Assert.Equal(2, hut.GetProperty("data").GetProperty("plan").GetProperty("storeys")[0].GetArrayLength());
         Assert.Contains(all!, p => p.GetProperty("name").GetString() == "Ann's well");
 
-        // Any builder can improve it; only its maker or an admin can delete it.
-        Assert.Equal(HttpStatusCode.OK, (await ann.PutAsJsonAsync($"/api/prefabs/{id}", new { name = "Bob's bigger hut", data = plan })).StatusCode);
+        // Decorators change and delete only their own; worldbuilders anyone's.
+        Assert.Equal(HttpStatusCode.Forbidden, (await ann.PutAsJsonAsync($"/api/prefabs/{id}", new { name = "Dan's hut now", data = plan })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await ann.DeleteAsync($"/api/prefabs/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await wes.PutAsJsonAsync($"/api/prefabs/{id}", new { name = "Bob's bigger hut", data = plan })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.PutAsJsonAsync("/api/prefabs/999999", new { name = "x", data = plan })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await bob.DeleteAsync($"/api/prefabs/{id}")).StatusCode);
         Assert.DoesNotContain(await viewer.GetFromJsonAsync<JsonElement[]>("/api/prefabs") ?? [], p => p.GetProperty("id").GetInt64() == id);
@@ -323,7 +381,9 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         var all = await viewer.GetFromJsonAsync<JsonElement>("/api/maps/tiny/blocks");
         Assert.Equal(Convert.ToBase64String(tree), all.GetProperty("blocks").GetProperty("1").GetString());
 
-        using var zip = new ZipArchive(new MemoryStream(await builder.GetByteArrayAsync("/api/maps/tiny/export")));
+        Assert.Equal(HttpStatusCode.Forbidden, (await builder.GetAsync("/api/maps/tiny/export")).StatusCode);
+        var (admin, _) = await As("admin");
+        using var zip = new ZipArchive(new MemoryStream(await admin.GetByteArrayAsync("/api/maps/tiny/export")));
         byte[] idx = Read(zip, "staidx7.mul"), sta = Read(zip, "statics7.mul");
         var facet = new Facet(new FacetInfo(7, "t", 16, 16));
         FacetLoader.DecodeStatics(idx, sta, facet);
@@ -474,7 +534,8 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(second.GetLand(5, 5).TileId, BitConverter.ToUInt16(landBack, (5 * 8 + 5) * 3));
 
         // The export carries the land edit too: a full map, not just statics.
-        var zip = await builder.GetAsync($"/api/maps/{mapId}/export");
+        var (exporter, _) = await As("admin");
+        var zip = await exporter.GetAsync($"/api/maps/{mapId}/export");
         using var archive = new ZipArchive(await zip.Content.ReadAsStreamAsync());
         Assert.Contains(archive.Entries, e => e.Name == "map4LegacyMUL.uop");
         Assert.Contains(archive.Entries, e => e.Name == "statics4.mul");

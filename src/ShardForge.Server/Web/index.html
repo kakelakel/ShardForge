@@ -54,7 +54,7 @@ async function loadMaps() {
   const maps = await SF.api("GET", "/api/maps");
   const el = document.getElementById("maps");
   if (!maps.length) {
-    el.innerHTML = `<div class="empty">No maps yet. ${me.level >= 3 ? `Choose your UO client folder on the <a href="/admin.html">Admin page</a> to walk the original facets, or` : "Ask an admin to set the UO client folder, or"} build a project.</div>`;
+    el.innerHTML = `<div class="empty">No maps yet. ${me.level >= 4 ? `Choose your UO client folder on the <a href="/admin.html">Admin page</a> to walk the original facets, or` : "Ask an admin to set the UO client folder, or"} build a project.</div>`;
     return;
   }
   el.innerHTML = maps.map(m => `
@@ -64,8 +64,8 @@ async function loadMaps() {
       <div class="meta">${m.rev ? `${m.rev} shared edit${m.rev === 1 ? "" : "s"}` : "no shared edits"}${m.online ? ` · <span class="online">${m.online} here now</span>` : ""}</div>
       <div class="row">
         <a class="btn primary" href="/walk/?map=${encodeURIComponent(m.id)}">Walk</a>
-        ${me.level >= 2 ? `<a class="btn" href="/api/maps/${encodeURIComponent(m.id)}/export">Export statics</a>` : ""}
-        ${me.level >= 3 ? `<button data-publish="${SF.esc(m.id)}">Publish</button>` : ""}
+        ${me.level >= 4 ? `<a class="btn" href="/api/maps/${encodeURIComponent(m.id)}/export">Export files</a><a class="btn" href="/api/maps/${encodeURIComponent(m.id)}/servuo">ServUO package</a>` : ""}
+        ${me.level >= 4 ? `<button data-publish="${SF.esc(m.id)}">Publish</button>` : ""}
       </div>
     </div>`).join("");
   el.querySelectorAll("[data-publish]").forEach(b => b.onclick = async () => {
@@ -77,7 +77,7 @@ async function loadMaps() {
 async function loadProjects() {
   const list = await SF.api("GET", "/api/projects");
   const tb = document.getElementById("projects");
-  if (!list.length) { tb.innerHTML = `<tr><td colspan="5" class="empty">No projects yet.${me.level >= 2 ? " Start one with New project." : ""}</td></tr>`; return; }
+  if (!list.length) { tb.innerHTML = `<tr><td colspan="5" class="empty">No projects yet.${me.level >= 3 ? " Start one with New project." : ""}</td></tr>`; return; }
   tb.innerHTML = list.map(p => `
     <tr>
       <td><a href="/editor/?project=${p.id}">${SF.esc(p.name)}</a></td>
@@ -85,8 +85,8 @@ async function loadProjects() {
       <td class="num">r${p.rev}</td>
       <td class="num">${SF.ago(p.updated)}${p.updatedBy ? " · " + SF.esc(p.updatedBy) : ""}</td>
       <td><div class="row" style="flex-wrap:nowrap">
-        ${me.level >= 2 ? `<button data-build="${p.id}" title="Build this project into map files the team can walk">Build &amp; walk</button>` : ""}
-        ${me.level >= 3 ? `<button class="danger" data-del="${p.id}" data-name="${SF.esc(p.name)}">Delete</button>` : ""}
+        ${me.level >= 3 ? `<button data-build="${p.id}" title="Build this project into map files the team can walk">Build &amp; walk</button>` : ""}
+        ${me.level >= 4 ? `<button class="danger" data-del="${p.id}" data-name="${SF.esc(p.name)}">Delete</button>` : ""}
       </div></td>
     </tr>`).join("");
   tb.querySelectorAll("[data-build]").forEach(b => b.onclick = async () => {
@@ -113,7 +113,7 @@ document.getElementById("pwForm").onsubmit = async e => {
 (async () => {
   me = await SF.requireLogin(); if (!me) return;
   SF.header(me, "/");
-  if (me.level < 2) document.getElementById("btnNew").hidden = true;
+  if (me.level < 3) document.getElementById("btnNew").hidden = true;
   await Promise.all([loadMaps(), loadProjects()]);
   setInterval(loadMaps, 15000);
 })();

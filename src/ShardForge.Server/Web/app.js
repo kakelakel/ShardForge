@@ -22,7 +22,7 @@ const SF = {
     return me;
   },
   header(me, current) {
-    const nav = [["/", "Dashboard"], ["/editor/", "Editor"], ["/walk/", "Walk"], ...(me.level >= 3 ? [["/admin.html", "Admin"]] : [])];
+    const nav = [["/", "Dashboard"], ["/editor/", "Editor"], ["/walk/", "Walk"], ...(me.level >= 4 ? [["/admin.html", "Admin"]] : [])];
     document.querySelector("header.top").innerHTML = `
       <a class="brand" href="/">ShardForge</a>
       <nav aria-label="Main">${nav.map(([h, t]) => `<a href="${h}"${h === current ? ' aria-current="page"' : ""}>${t}</a>`).join("")}</nav>

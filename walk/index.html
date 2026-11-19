@@ -293,12 +293,12 @@ footer b { color: var(--text); font-weight: 500; }
         <button id="houseDelete" class="danger" hidden title="Delete this saved design">Delete</button>
       </div>
       <div class="row" style="gap:6px" id="libRow">
-        <button id="libExport" title="Download the whole library as a file">Export library</button>
+        <button id="libExport" class="admin-only" title="Download the whole library as a file">Export library</button>
         <button id="libImport" title="Add houses from an exported file">Import…</button>
         <input type="file" id="libFile" accept=".json,application/json" hidden>
       </div>
-      <label class="check"><input type="checkbox" id="houseLevel" checked> Level the ground under it</label>
-      <label class="check"><input type="checkbox" id="houseClear" checked> Clear plants inside it</label>
+      <label class="check world-only"><input type="checkbox" id="houseLevel" checked> Level the ground under it</label>
+      <label class="check world-only"><input type="checkbox" id="houseClear" checked> Clear plants inside it</label>
       <p class="note" id="houseHint">Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Its doors come along as server items.</p>
     </section>
     <section aria-label="House designer" class="build-only" id="designer" hidden>
@@ -344,9 +344,9 @@ footer b { color: var(--text); font-weight: 500; }
         <button data-itool="door" title="Doors that open: click a doorway (R turns it)">Door</button>
         <button data-itool="sign" title="A sign with text players can read">Sign</button>
         <button data-itool="item" title="A working item: forge, anvil, moongate…">Item</button>
-        <button data-itool="tele" title="Click where it stands, then where it takes you">Teleporter</button>
+        <button data-itool="tele" class="world-only" title="Click where it stands, then where it takes you">Teleporter</button>
         <button data-itool="spawn" title="Creatures that come back after they die">Spawner</button>
-        <button data-itool="region" title="Drag out a named area, guarded or not">Region</button>
+        <button data-itool="region" class="world-only" title="Drag out a named area, guarded or not">Region</button>
         <button data-itool="pick" title="Click a server item to change or delete it">Edit</button>
       </div>
       <div id="itemForm" hidden>
@@ -374,14 +374,14 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <p class="note" id="itemHint">Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.</p>
       <div class="row" style="gap:6px;flex-wrap:wrap">
-        <button id="itemTowns" hidden title="A guarded region for every town on this map's layout">Regions for the towns</button>
-        <button id="itemPackage" title="Map files, items and regions, with the ServUO import script">ServUO package (.zip)</button>
+        <button id="itemTowns" class="world-only" hidden title="A guarded region for every town on this map's layout">Regions for the towns</button>
+        <button id="itemPackage" class="admin-only" title="Map files, items and regions, with the ServUO import script">ServUO package (.zip)</button>
       </div>
       <details id="spAll" class="sp-all"><summary>Spawners on this map <span id="spAllCount" class="note"></span></summary>
         <input id="spAllFind" placeholder="Filter: orc, graveyard…" style="width:100%;margin:6px 0"><div id="spAllList"></div></details>
       <label class="check"><input type="checkbox" id="itemShow" checked> Show server items</label>
     </section>
-    <section aria-label="Land" class="build-only">
+    <section aria-label="Land" class="build-only world-only">
       <h2>Land</h2>
       <div class="modes land-tools">
         <button data-land="" aria-pressed="true" title="Clicks place statics (Esc)">Off</button>
@@ -404,7 +404,7 @@ footer b { color: var(--text); font-weight: 500; }
     <section aria-label="Your edits" class="build-only">
       <h2>Your edits</h2>
       <p class="note" id="editCount">No edits yet.</p>
-      <div class="row" style="margin-top:8px"><button id="btnUndo" disabled>Undo</button><button id="btnExport" disabled>Export statics (.zip)</button></div>
+      <div class="row" style="margin-top:8px"><button id="btnUndo" disabled>Undo</button><button id="btnExport" class="admin-only" disabled>Export statics (.zip)</button></div>
       <p class="note">The zip holds <span class="kbd">staidx#.mul</span> and <span class="kbd">statics#.mul</span> for this facet. Copy them next to the map files.</p>
     </section>
   </aside>
@@ -1916,6 +1916,7 @@ function touchBlock(key) {
   return list;
 }
 function commitTx() {
+  if (Server.on && Server.me?.level === 2 && !MINE.allows()) return;
   const changed = tx ? [...tx.keys()] : [], landChanged = ltx ? [...ltx.keys()] : [];
   const step = [...(tx || [])].map(([key, before]) => ({ key, before })).concat([...(ltx || [])].map(([lkey, lbefore]) => ({ lkey, lbefore })))
     .concat([...(itx || [])].map(([iuid, ibefore]) => ({ iuid, ibefore })));
@@ -2533,7 +2534,7 @@ function selectHouse(e) {
   $("houseHint").textContent = !e ? "Pick a house, then click the map to place it. Over a plot it fits, it snaps into the plot with its door toward the road. Its doors come along as server items."
     : `${e.name}: click the map to place it (Esc to stop). Over a plot it fits, it snaps in${e.kind === "recipe" ? " and turns its door to the road" : ""}.`;
   $("houseEdit").hidden = !e || e.kind === "multi" || (e.kind === "saved" && !e.plan);
-  $("houseDelete").hidden = !e || e.kind !== "saved";
+  $("houseDelete").hidden = !e || e.kind !== "saved" || !mayChange(e);
   requestDraw();
 }
 document.querySelectorAll(".house-tabs button").forEach(b => b.onclick = () => { HOUSE.tab = b.dataset.tab; HOUSE.shown = 60; renderHouses(); });
@@ -2642,7 +2643,9 @@ async function libraryDelete(e) {
   } catch (err) { toast("Couldn't delete: " + err.message); return; }
   selectHouse(null); await loadMine(); renderHouses(); toast(`Deleted “${e.name}”.`);
 }
-const existingByName = name => HOUSE.mine.find(e => e.name.toLowerCase() === (name || "").trim().toLowerCase()) || null;
+// Decorators replace only their own designs; a name taken by someone else's saves as a new design.
+const existingByName = name => HOUSE.mine.find(e => e.name.toLowerCase() === (name || "").trim().toLowerCase() && (!Server.on || Server.me.level >= 3 || e.by === Server.me.username)) || null;
+const mayChange = e => !Server.on || Server.me.level >= 3 || e?.by === Server.me.username;
 function exportLibrary() {
   const items = HOUSE.mine.map(e => ({ name: e.name, data: e.plan ? { plan: e.plan } : { parts: e.parts } }));
   if (!items.length) { toast("The library is empty."); return; }
@@ -2669,7 +2672,7 @@ $("libExport").onclick = exportLibrary;
 $("libImport").onclick = () => $("libFile").click();
 $("libFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importLibrary(f); };
 $("houseDelete").onclick = () => libraryDelete(HOUSE.sel);
-$("houseEdit").onclick = () => { const e = HOUSE.sel; if (!e) return; if (e.kind === "recipe") designOpen(recipePlan(e.recipe, "S"), e.name + " (my copy)", null); else if (e.plan) designOpen(e.plan, e.name, e.id); };
+$("houseEdit").onclick = () => { const e = HOUSE.sel; if (!e) return; if (e.kind === "recipe") designOpen(recipePlan(e.recipe, "S"), e.name + " (my copy)", null); else if (e.plan) designOpen(e.plan, mayChange(e) ? e.name : e.name + " (my copy)", mayChange(e) ? e.id : null); };
 
 /** Saves the selected statics as a library piece: positions relative to their north-west corner and lowest z. */
 async function saveSelection() {
@@ -2959,7 +2962,11 @@ const ITEMS = {
   },
   drop(uid) { const old = this.map.get(uid); if (!old) return; this.index(old, false); this.map.delete(uid); if (this.sel?.uid === uid) this.sel = null; },
   /** Changes through the open transaction, so they undo and reach the server with the rest of the step. */
-  put(it) { if (itx && !itx.has(it.uid)) itx.set(it.uid, this.map.has(it.uid) ? { ...this.map.get(it.uid) } : null); this.set(it); },
+  put(it) {
+    if (itx && !itx.has(it.uid)) itx.set(it.uid, this.map.has(it.uid) ? { ...this.map.get(it.uid) } : null);
+    if (!it.by && Server.on) it = { ...it, by: this.map.get(it.uid)?.by || Server.me?.username };
+    this.set(it);
+  },
   remove(uid) { if (!this.map.has(uid)) return; if (itx && !itx.has(uid)) itx.set(uid, { ...this.map.get(uid) }); this.drop(uid); },
   async push(uids) {
     this.count();
@@ -2967,7 +2974,7 @@ const ITEMS = {
     const put = [], remove = [];
     for (const u of new Set(uids)) { const it = this.map.get(u); if (it) put.push(it); else remove.push(u); }
     try { await Server.api("PUT", `/api/maps/${encodeURIComponent(Server.map.id)}/items`, { put, remove, cid: Server.cid }); }
-    catch (e) { toast("Couldn't save the server items: " + e.message, 6000); }
+    catch (e) { toast((e.status === 403 ? "Not allowed: " : "Couldn't save the server items: ") + e.message, 7000); if (e.status === 403) Server.resync(); }
   },
   count() {
     SPAWN.listAll();
@@ -2988,7 +2995,7 @@ const ITEMS = {
     $("itemForm").hidden = !kind;
     document.querySelectorAll("#itemForm .if").forEach(el => el.hidden = !el.dataset.k.split(" ").includes(kind));
     $("ifEditRow").hidden = !this.sel;
-    $("itemHint").textContent = this.sel ? `Editing a ${{ tele: "teleporter", spawn: "spawner" }[this.sel.kind] || this.sel.kind} at ${this.sel.x}, ${this.sel.y}, z ${this.sel.z}. Change the fields and press Apply.`
+    $("itemHint").textContent = this.sel ? `Editing a ${{ tele: "teleporter", spawn: "spawner" }[this.sel.kind] || this.sel.kind} at ${this.sel.x}, ${this.sel.y}, z ${this.sel.z}${this.sel.by ? `, placed by ${this.sel.by}` : ""}. Change the fields and press Apply.`
       : this.tool ? ITEM_HINTS[this.tool] + (this.tool === "tele" && this.tele ? ` Now click the destination (from ${this.tele.x}, ${this.tele.y}).` : "")
       : "Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.";
     const it = this.sel; if (!it) return;
@@ -3400,6 +3407,43 @@ $("spAllFind").oninput = () => SPAWN.listAll();
 SPAWN.render();
 
 // ===========================================================================
+// Decorators may remove or change only what they placed. MINE holds their own statics (from the server, plus
+// this session's); a step that would take away anything else is undone at once, before it reaches the server
+// (which checks too).
+// ===========================================================================
+const MINE = {
+  set: new Map(),
+  key: (x, y, z, id, hue) => `${x},${y},${z},${id},${hue || 0}`,
+  load(list) { this.set.clear(); for (const [x, y, z, id, hue] of list) { const k = this.key(x, y, z, id, hue); this.set.set(k, (this.set.get(k) || 0) + 1); } },
+  /** Checks the open step: statics removed must be the decorator's own; land, regions and others' items are off limits. */
+  allows() {
+    const bad = []; const plus = [], minus = [];
+    for (const [key, before] of tx || []) {
+      const after = M.blocks.get(key) || [], bx = Math.floor(key / M.bh) * 8, by = (key % M.bh) * 8;
+      const count = new Map(); for (const s of after) { const k = this.key(bx + s.x, by + s.y, s.z, s.id, s.hue); count.set(k, (count.get(k) || 0) + 1); }
+      const was = new Map(); for (const s of before) { const k = this.key(bx + s.x, by + s.y, s.z, s.id, s.hue); was.set(k, (was.get(k) || 0) + 1); }
+      for (const [k, n] of was) { const gone = n - (count.get(k) || 0); for (let i = 0; i < gone; i++) minus.push(k); }
+      for (const [k, n] of count) { const added = n - (was.get(k) || 0); for (let i = 0; i < added; i++) plus.push(k); }
+    }
+    const left = new Map(this.set);
+    for (const k of minus) { const n = left.get(k) || 0; if (n > 0) left.set(k, n - 1); else bad.push(k); }
+    const land = ltx && ltx.size > 0;
+    const items = [...(itx || [])].filter(([uid, before]) => { const now = ITEMS.map.get(uid), it = before || now;
+      return (before && before.by && before.by !== Server.me.username) || ["region", "tele"].includes(it?.kind); });
+    if (!bad.length && !land && !items.length) { for (const k of plus) left.set(k, (left.get(k) || 0) + 1); this.set = left; return true; }
+    // Not allowed: put everything in this step back as it was.
+    for (const [key, before] of tx || []) M.blocks.set(key, before);
+    for (const [lkey, lbefore] of ltx || []) { M.land.set(lbefore, lkey * 196 + 4); M.landDirty.add(lkey); }
+    for (const [uid, before] of itx || []) { if (before) ITEMS.set(before); else ITEMS.drop(uid); }
+    tx = null; ltx = null; itx = null; ITEMS.form(); syncEdits(); requestDraw();
+    toast(land ? "Decorators can't change the land. Ask a worldbuilder."
+      : items.length ? "Decorators can change and remove only their own server items, and can't place regions or teleporters."
+      : `Decorators can remove or change only what they placed themselves (${bad.length} piece${bad.length === 1 ? "" : "s"} here ${bad.length === 1 ? "isn't" : "aren't"} yours). Ask a worldbuilder.`, 6000);
+    return false;
+  },
+};
+
+// ===========================================================================
 // Minimap: the whole map's land in the client's radar colours, with you, your team and the view.
 // ===========================================================================
 const Minimap = {
@@ -3688,7 +3732,7 @@ $("btnLoad").onclick = async () => {
     if (lf) try { M.layout = JSON.parse(new TextDecoder().decode(await readBytes(lf, 0, lf.size))); } catch { M.layout = null; }
     let places = M.layout ? (M.layout.places || []).map(p => [p.name, p.x, p.y, p.kind]) : srv?.source === "built" ? [] : (PLACES[M.facet] || []);
     $("plotsRow").hidden = !(M.layout?.lots?.length);
-    $("itemTowns").hidden = !(M.layout?.places || []).some(p => PLACE_RADIUS[p.kind]);
+    $("itemTowns").hidden = $("itemTowns").classList.contains("gated") || !(M.layout?.places || []).some(p => PLACE_RADIUS[p.kind]);
     $("plotCount").textContent = M.layout?.lots?.length ? `${M.layout.lots.length.toLocaleString()} plots` : "";
     const groups = {};
     for (const p of places) (groups[p[3] || ""] ??= []).push(p);
@@ -3697,7 +3741,10 @@ $("btnLoad").onclick = async () => {
       k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines" })[k] || k)}">${ps.map(opt).join("")}</optgroup>` : ps.map(opt).join("")).join("");
     const start = places[0] || ["", M.w >> 1, M.h >> 1];
     const land = nearestWalkable(start[1], start[2]) || nearestWalkable(M.w >> 1, M.h >> 1);
-    jump(...(land || [start[1], start[2]]));
+    // A link from the activity log (?x=&y=) opens that spot, from above.
+    const q = new URLSearchParams(location.search);
+    if (q.has("x") && q.has("y") && !window.__jumped) { window.__jumped = true; jump(+q.get("x"), +q.get("y")); setMode("fly"); }
+    else jump(...(land || [start[1], start[2]]));
     toast(srv ? `${M.name} loaded. Everyone here sees you and your edits live.` : `${M.name} loaded${dir ? " from " + dir.split("/").pop() : ""}. Use the arrow keys to walk.`);
     buildCatalog(); renderTree(); setView(B.view); renderDetails();
     Minimap.load().catch(() => {});
@@ -3769,7 +3816,10 @@ const Server = {
     $("pickDirBtn").hidden = $("pickFilesBtn").hidden = true;
     const ub = $("userBox"); ub.hidden = false;
     ub.innerHTML = `<a href="/">Dashboard</a><span>${escapeHtml(this.me.username)}</span><span class="pill">${this.me.role}</span>`;
+    // Decorators decorate and build; worldbuilders also shape land, regions and teleporters; exports are for admins.
     if (this.me.level < 2) document.querySelectorAll(".build-only").forEach(el => el.hidden = true);
+    if (this.me.level < 3) { document.querySelectorAll(".world-only").forEach(el => { el.hidden = true; el.classList.add("gated"); }); $("houseLevel").checked = $("houseClear").checked = false; }
+    if (this.me.level < 4) document.querySelectorAll(".admin-only").forEach(el => { el.hidden = true; el.classList.add("gated"); });
     $("welcome").querySelector(".card").innerHTML = `<h1>Walk your shard together</h1>
       <p>Choose a map at the top and press <b>Load map</b>. Everyone on the same map sees each other, and every static placed or removed appears for everyone at once.</p>
       <p class="kbd">Signed in as ${escapeHtml(this.me.username)} (${this.me.role}).${this.me.level < 2 ? " Viewers can look around; ask an admin for Builder access to edit." : ""}</p>`;
@@ -3790,7 +3840,8 @@ const Server = {
     for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
     applyLandBlocks(ov.land);
     ITEMS.load(await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/items`));
-    history.replaceState(null, "", "?map=" + encodeURIComponent(m.id));
+    if (this.me.level === 2) try { MINE.load(await this.api("GET", `/api/maps/${encodeURIComponent(m.id)}/mine`)); } catch { MINE.load([]); }
+    { const q = new URLSearchParams(location.search); history.replaceState(null, "", "?map=" + encodeURIComponent(m.id) + (q.has("x") ? `&x=${q.get("x")}&y=${q.get("y")}` : "")); }
     $("liveSection").hidden = false;
     this.connect();
   },
@@ -3856,7 +3907,19 @@ const Server = {
     for (const k of new Set(keys)) blocks[k] = encodeBlock(M.blocks.get(k) || []);
     for (const k of new Set(landKeys)) land[k] = b64(M.land.subarray(k * 196 + 4, k * 196 + 196));
     try { const r = await this.api("PUT", `/api/maps/${encodeURIComponent(this.map.id)}/blocks`, { blocks, land, cid: this.cid }); this.rev = Math.max(this.rev, r.rev); syncEdits(); }
-    catch (e) { toast("Couldn't save that to the server: " + e.message, 6000); }
+    catch (e) { toast((e.status === 403 ? "Not allowed: " : "Couldn't save that to the server: ") + e.message, 7000); if (e.status === 403) this.resync(); }
+  },
+  /** Back to what the server has, after it refused a change. */
+  async resync() {
+    try {
+      const ov = await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/blocks`);
+      for (const k of [...M.blocks.keys()]) if (!(k in ov.blocks)) M.blocks.delete(k);
+      for (const [k, b64] of Object.entries(ov.blocks)) M.blocks.set(+k, decodeBlock(b64));
+      applyLandBlocks(ov.land);
+      ITEMS.load(await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/items`));
+      if (this.me.level === 2) MINE.load(await this.api("GET", `/api/maps/${encodeURIComponent(this.map.id)}/mine`));
+      undoStack.pop(); syncEdits(); requestDraw();
+    } catch { /* the next change or reconnect catches up */ }
   },
   note(text) {
     this.activity = [text, ...this.activity].slice(0, 4);

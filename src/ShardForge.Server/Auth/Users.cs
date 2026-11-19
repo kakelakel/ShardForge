@@ -7,12 +7,27 @@ namespace ShardForge.Server.Auth;
 /// <summary>User levels. Higher includes everything below.</summary>
 public enum Role
 {
-    /// <summary>Can look around: open maps and projects, walk, see others.</summary>
+    /// <summary>Looks around: opens maps and projects, walks, sees the others.</summary>
     Viewer = 1,
-    /// <summary>Can change things: edit projects, place statics, build maps.</summary>
-    Builder = 2,
-    /// <summary>Can manage users, delete projects and publish.</summary>
-    Admin = 3,
+    /// <summary>Decorates and builds: places statics, houses, doors, signs, items and spawners, saves designs to the
+    /// library. Can remove or change only what they placed themselves.</summary>
+    Decorator = 2,
+    /// <summary>Shapes the world: also removes and changes anything, edits land, regions and teleporters, edits and
+    /// builds projects.</summary>
+    Worldbuilder = 3,
+    /// <summary>Everything, plus all saves to disk and exports, users, settings and the activity log.</summary>
+    Admin = 4,
+}
+
+public static class Roles
+{
+    /// <summary>A role by name; the old "Builder" means Worldbuilder (it could remove things).</summary>
+    public static bool TryParse(string? name, out Role role)
+    {
+        if (string.Equals(name, "Builder", StringComparison.OrdinalIgnoreCase)) { role = Role.Worldbuilder; return true; }
+        return Enum.TryParse(name, true, out role) && Enum.IsDefined(role) && !int.TryParse(name, out _);
+    }
+    public const string Names = "Viewer, Decorator, Worldbuilder or Admin";
 }
 
 public sealed record User(long Id, string Username, Role Role, bool Disabled, string SecurityStamp, string Created, string? LastLogin);
@@ -128,7 +143,7 @@ public sealed class UserStore(Db db, int iterations)
     {
         using var c = db.Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM users WHERE role = 3 AND disabled = 0";
+        cmd.CommandText = $"SELECT COUNT(*) FROM users WHERE role = {(int)Role.Admin} AND disabled = 0";
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 

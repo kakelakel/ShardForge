@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ShardForge.Server.Auth;
 using ShardForge.Server.Data;
 
 namespace ShardForge.Server.Maps;
@@ -36,29 +37,62 @@ public sealed class ItemStore(Db db)
         return list;
     }
 
-    /// <summary>Adds or replaces items and removes others, all at once. Returns the cleaned items.</summary>
-    public List<JsonObject> Apply(MapInfo map, long userId, IEnumerable<JsonObject> put, IEnumerable<string> remove)
+    /// <summary>What a change did, for the activity log.</summary>
+    public sealed record ItemChange(string Op, string Kind, int X, int Y, string What);
+
+    /// <summary>Kinds that shape the world rather than decorate it.</summary>
+    public static readonly string[] WorldKinds = ["region", "tele"];
+
+    /// <summary>
+    /// Adds or replaces items and removes others, all at once, with the user's level enforced: decorators place
+    /// doors, signs, items and spawners and may change or remove only their own; regions and teleporters, and
+    /// anyone else's items, need a worldbuilder. Returns the cleaned items and what changed.
+    /// </summary>
+    public (List<JsonObject> Put, List<ItemChange> Changes) Apply(MapInfo map, User user, IEnumerable<JsonObject> put, IEnumerable<string> remove)
     {
         var clean = put.Select(o => Validate(o, map)).ToList();
-        var gone = remove.Where(u => !string.IsNullOrEmpty(u) && u.Length <= 64).ToList();
+        var gone = remove.Where(u => !string.IsNullOrEmpty(u) && u.Length <= 64).Distinct().ToList();
+        bool world = user.Role >= Role.Worldbuilder;
         using var c = db.Open();
         using var t = c.BeginTransaction();
+        (JsonObject Data, long? By)? Existing(string uid)
+        {
+            using var q = c.CreateCommand();
+            q.Transaction = t;
+            q.CommandText = "SELECT data, created_by FROM map_items WHERE map_id = $m AND uid = $u";
+            q.Parameters.AddWithValue("$m", map.Id); q.Parameters.AddWithValue("$u", uid);
+            using var r = q.ExecuteReader();
+            return r.Read() && JsonNode.Parse(r.GetString(0)) is JsonObject o ? (o, r.IsDBNull(1) ? null : r.GetInt64(1)) : null;
+        }
+        var changes = new List<ItemChange>();
         foreach (var o in clean)
         {
+            string uid = (string)o["uid"]!, kind = (string)o["kind"]!;
+            var old = Existing(uid);
+            if (!world && WorldKinds.Contains(kind)) throw new PermissionException($"Only worldbuilders can place or change {(kind == "tele" ? "teleporters" : "regions")}.");
+            if (!world && old is { } e && e.By != user.Id) throw new PermissionException("Decorators can only change what they placed themselves. Ask a worldbuilder.");
+            o["by"] = old?.Data["by"]?.DeepClone() ?? user.Username;
             using var cmd = c.CreateCommand();
             cmd.Transaction = t;
-            cmd.CommandText = "INSERT INTO map_items(map_id, uid, data, updated_by, updated) VALUES ($m, $u, $d, $by, $t) ON CONFLICT(map_id, uid) DO UPDATE SET data = $d, updated_by = $by, updated = $t";
-            cmd.Parameters.AddWithValue("$m", map.Id); cmd.Parameters.AddWithValue("$u", (string)o["uid"]!);
-            cmd.Parameters.AddWithValue("$d", o.ToJsonString()); cmd.Parameters.AddWithValue("$by", userId); cmd.Parameters.AddWithValue("$t", Db.Now());
+            cmd.CommandText = "INSERT INTO map_items(map_id, uid, data, updated_by, updated, created_by) VALUES ($m, $u, $d, $by, $t, $by) ON CONFLICT(map_id, uid) DO UPDATE SET data = $d, updated_by = $by, updated = $t";
+            cmd.Parameters.AddWithValue("$m", map.Id); cmd.Parameters.AddWithValue("$u", uid);
+            cmd.Parameters.AddWithValue("$d", o.ToJsonString()); cmd.Parameters.AddWithValue("$by", user.Id); cmd.Parameters.AddWithValue("$t", Db.Now());
             cmd.ExecuteNonQuery();
+            changes.Add(new ItemChange(old is null ? "placed" : "changed", kind, (int)o["x"]!, (int)o["y"]!, Describe(o)));
         }
         foreach (var u in gone)
         {
+            var old = Existing(u);
+            if (old is null) continue;
+            if (!world && (old.Value.By != user.Id || WorldKinds.Contains(old.Value.Data["kind"]?.ToString())))
+                throw new PermissionException("Decorators can only remove what they placed themselves. Ask a worldbuilder.");
             using var cmd = c.CreateCommand();
             cmd.Transaction = t;
             cmd.CommandText = "DELETE FROM map_items WHERE map_id = $m AND uid = $u";
             cmd.Parameters.AddWithValue("$m", map.Id); cmd.Parameters.AddWithValue("$u", u);
             cmd.ExecuteNonQuery();
+            var d = old.Value.Data;
+            changes.Add(new ItemChange("removed", d["kind"]?.ToString() ?? "?", N(d, "x"), N(d, "y"), Describe(d)));
         }
         using (var n = c.CreateCommand())
         {
@@ -68,8 +102,23 @@ public sealed class ItemStore(Db db)
             if ((long)n.ExecuteScalar()! > MaxItems) throw new ItemException($"A map can hold up to {MaxItems:N0} items.");
         }
         t.Commit();
-        return clean;
+        return (clean, changes);
     }
+
+    private static int N(JsonObject o, string k) => o[k] is null ? 0 : (int)double.Parse(o[k]!.ToJsonString(), CultureInfo.InvariantCulture);
+    private static string S(JsonObject o, string k) => o[k] is JsonValue v && v.TryGetValue<string>(out var s) ? s : "";
+
+    /// <summary>A short human description: "door (DarkWoodDoor)", "spawner: Orc:4,OrcishMage:1", "region Britain (guarded)".</summary>
+    public static string Describe(JsonObject o) => S(o, "kind") switch
+    {
+        "door" => $"door ({S(o, "type")})",
+        "sign" => $"sign \"{S(o, "name")}\"",
+        "item" => $"item {S(o, "type")}",
+        "tele" => $"teleporter to {N(o, "dx")}, {N(o, "dy")} {S(o, "dmap")}",
+        "spawn" => $"spawner: {S(o, "creatures")}",
+        "region" => $"region {S(o, "name")}{(o["guarded"]?.ToJsonString() == "true" ? " (guarded)" : "")} {N(o, "w")}x{N(o, "h")}",
+        _ => S(o, "kind"),
+    };
 
     private static string Str(JsonObject o, string k, int max, bool required = true)
     {
