@@ -48,6 +48,14 @@
     <p class="note" id="serverInfo"></p>
   </section>
 
+  <section aria-labelledby="hAi">
+    <h2 id="hAi">AI assistants</h2>
+    <p class="note" style="max-width:820px">The editor's <b>Ask</b> panel and Walk's <b>Ask AI</b> window send requests through this server. Keys stay here (in <span class="mono">data/ai.json</span>) and are never sent to a browser. Every request is logged in Activity. ChatGPT and Claude are billed by OpenAI and Anthropic per use (an API key, not a ChatGPT or Claude subscription); Ollama runs a model on your own machine for free.</p>
+    <div id="aiList" style="display:grid;gap:12px;max-width:820px"></div>
+    <div class="row" style="margin-top:10px;align-items:center;gap:8px"><label for="aiLimit" class="note" style="margin:0">Requests per person per day (0 = no limit)</label><input type="number" id="aiLimit" min="0" max="100000" style="width:100px"><button id="aiLimitSave">Save</button></div>
+    <div class="msg" id="aiMsg" role="status" style="margin-top:6px"></div>
+  </section>
+
   <section aria-labelledby="hAdd">
     <h2 id="hAdd">Add someone</h2>
     <form id="addForm" class="row" style="align-items:end">
@@ -245,6 +253,51 @@ document.querySelectorAll('input[name="net"]').forEach(r => r.onchange = async (
   try { await SF.api("PUT", "/api/settings", { network: on }); SF.msg(document.getElementById("netMsg"), on ? "✓ Saved: other computers on your network can connect after a restart." : "✓ Saved: only this PC after a restart.", "ok"); loadServer(); }
   catch (err) { SF.msg(document.getElementById("netMsg"), err.message, "error"); }
 });
+// ---- AI assistants
+const AI_HELP = {
+  openai: 'Get a key at <span class="mono">platform.openai.com</span> → API keys. The address can point at any service that speaks the OpenAI API (Azure OpenAI, OpenRouter, LM Studio).',
+  anthropic: 'Get a key at <span class="mono">console.anthropic.com</span> → API keys.',
+  ollama: 'Install Ollama on this PC (or another on your network), run <span class="mono">ollama pull llama3.1</span> (or another model), and turn it on here. No key needed.',
+};
+function aiMsg(t, kind) { SF.msg(document.getElementById("aiMsg"), t, kind); }
+async function loadAi() {
+  let st; try { st = await SF.api("GET", "/api/ai/settings"); } catch (e) { aiMsg(e.message, "error"); return; }
+  document.getElementById("aiLimit").value = st.dailyLimit;
+  document.getElementById("aiList").innerHTML = st.providers.map(p => `
+    <div class="card" style="padding:12px 14px;border:1px solid var(--line);border-radius:10px" data-id="${p.id}">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <label class="check" style="margin:0"><input type="checkbox" class="aiOn" ${p.enabled ? "checked" : ""}> <b>${SF.esc(p.name)}</b></label>
+        <span class="pill">${p.ready ? "ready" : p.enabled ? "needs a key" : "off"}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:${p.id === "ollama" ? "1fr 1fr" : "1.3fr 1fr 1fr"};gap:8px;margin-top:8px">
+        ${p.id === "ollama" ? "" : `<input type="password" class="aiKey" placeholder="${p.keySet ? "Key set (" + SF.esc(p.keyHint) + "); type to replace" : "API key"}" autocomplete="off" spellcheck="false">`}
+        <input type="text" class="aiModel" value="${SF.esc(p.model)}" placeholder="${SF.esc(p.defaultModel)}" aria-label="Model" spellcheck="false">
+        <input type="text" class="aiUrl" value="${SF.esc(p.url)}" placeholder="${SF.esc(p.defaultUrl)}" aria-label="Address" spellcheck="false">
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px"><button class="primary aiSave">Save</button><button class="aiTest">Test</button>${p.keySet ? '<button class="aiForget">Remove key</button>' : ""}</div>
+      <p class="note" style="margin:6px 0 0">${AI_HELP[p.id]}</p>
+    </div>`).join("");
+  for (const card of document.querySelectorAll("#aiList [data-id]")) {
+    const id = card.dataset.id, q = c => card.querySelector(c);
+    const save = async (extra = {}) => {
+      const body = { provider: id, enabled: q(".aiOn").checked, model: q(".aiModel").value, url: q(".aiUrl").value, ...extra };
+      if (q(".aiKey") && q(".aiKey").value.trim()) body.key = q(".aiKey").value.trim();
+      await SF.api("PUT", "/api/ai/settings", body);
+    };
+    q(".aiSave").onclick = async () => { try { await save(); aiMsg("✓ Saved.", "ok"); loadAi(); } catch (e) { aiMsg(e.message, "error"); } };
+    q(".aiOn").onchange = q(".aiSave").onclick;
+    q(".aiForget") && (q(".aiForget").onclick = async () => { try { await save({ key: "-" }); aiMsg("✓ Key removed.", "ok"); loadAi(); } catch (e) { aiMsg(e.message, "error"); } });
+    q(".aiTest").onclick = async () => {
+      aiMsg("Asking… (this can take a few seconds)");
+      try { await save(); const r = await SF.api("POST", "/api/ai/test", { provider: id }); aiMsg(r.ok ? `✓ It answered (${r.model}, ${(r.ms / 1000).toFixed(1)} s).` : `It answered, but oddly: ${r.text}`, r.ok ? "ok" : "error"); loadAi(); }
+      catch (e) { aiMsg(e.message, "error"); }
+    };
+  }
+}
+document.getElementById("aiLimitSave").onclick = async () => {
+  try { await SF.api("PUT", "/api/ai/settings", { provider: "openai", dailyLimit: +document.getElementById("aiLimit").value || 0 }); aiMsg("✓ Saved.", "ok"); }
+  catch (e) { aiMsg(e.message, "error"); }
+};
 async function loadServer() {
   const st = await SF.api("GET", "/api/settings");
   showNetwork(st.network);
@@ -267,7 +320,7 @@ document.getElementById("clientForm").onsubmit = async e => {
   me = await SF.requireLogin(); if (!me) return;
   if (me.level < 4) { location.href = "/"; return; }
   SF.header(me, "/admin.html");
-  load(); loadServer(); loadLevels(); loadMaps(); loadAudit(); loadBackups();
+  load(); loadServer(); loadLevels(); loadMaps(); loadAudit(); loadBackups(); loadAi();
 })();
 </script>
 </body>

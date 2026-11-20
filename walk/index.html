@@ -85,6 +85,12 @@ aside { display: none; }
 .win.collapsed { height: auto !important; min-height: 0; resize: horizontal; }
 .win.collapsed .win-body { display: none; }
 .win.collapsed .win-title { border-bottom: 0; border-radius: 10px; }
+.ai-log { max-height: 260px; overflow-y: auto; display: grid; gap: 6px; font-size: 13px; }
+.ai-log .m { padding: 6px 8px; border-radius: 8px; background: var(--panel-2); }
+.ai-log .m.me { background: #2a2516; }
+.ai-log .m.err { border: 1px solid var(--danger); }
+.ai-log .who { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.ai-log ol { margin: 4px 0 0 18px; padding: 0; color: var(--muted); font-size: 12px; }
 #stage { position: relative; min-width: 0; min-height: 0; background: #07090a; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
 #minimap { position: absolute; left: 12px; bottom: 12px; z-index: 3; width: 230px; border: 1px solid rgba(214,170,76,.6); border-radius: 4px;
@@ -447,6 +453,18 @@ footer b { color: var(--text); font-weight: 500; }
       </div>
       <label class="check" style="margin-top:6px"><input type="checkbox" id="landFollow" checked> Statics on the ground move with it</label>
       <p class="note" id="landHint">Pick a tool to edit the ground under the brush. Every stroke is one undo step.</p>
+    </section>
+    <section aria-label="Ask AI" class="build-only" id="aiSection">
+      <h2 id="aiTitle">Ask AI</h2>
+      <div id="aiLog" class="ai-log" aria-live="polite"><p class="note">Describe what you want here and the AI does it around you, with the same tools you have: "furnish this house as a tavern", "a market square with stalls and lamps", "put an orc camp with a spawner on the hill east of me". Undo takes it back.</p></div>
+      <div class="row" style="gap:6px;align-items:center;margin-top:6px">
+        <label for="aiArea" class="note" style="margin:0">Where</label>
+        <select id="aiArea" style="flex:1"><option value="plot">The plot I'm on (or 12 tiles round me)</option><option value="12">12 tiles round me</option><option value="20">20 tiles round me</option><option value="32">32 tiles round me</option></select>
+        <select id="aiPick" aria-label="Which assistant" hidden></select>
+      </div>
+      <textarea id="aiPrompt" rows="3" style="width:100%;margin-top:6px;resize:vertical" placeholder="Furnish this house as a cosy tavern with a bar, tables and a fireplace."></textarea>
+      <div class="row" style="gap:6px;margin-top:6px"><button id="aiAsk" class="primary">Ask</button><button id="aiStop" hidden>Stop</button></div>
+      <p class="note" id="aiNote"></p>
     </section>
     <section aria-label="Your edits" class="build-only">
       <h2>Your edits</h2>
@@ -2699,7 +2717,7 @@ function placeShape(name, m, cx, cy, base, plot) {
   const x0 = cx + m.minX, y0 = cy + m.minY, x1 = cx + m.maxX, y1 = cy + m.maxY;
   if (x0 < 0 || y0 < 0 || x1 >= M.w || y1 >= M.h) { toast("The house would stick out of the map here."); return; }
   if (m.parts.length > 20000) { toast("That's too big to place at once."); return; }
-  beginTx();
+  const own = !tx; if (own) beginTx(); // inside an open step (an AI plan) it becomes part of that step
   if ($("houseLevel").checked) {
     // Level the footprint to the centre's height, easing one tile around it.
     const follow = LAND.follow; LAND.follow = true;
@@ -2717,6 +2735,7 @@ function placeShape(name, m, cx, cy, base, plot) {
     }
   for (const q of m.parts) { addStatic(cx + q.x, cy + q.y, q.id, base + q.z); if (q.hue) { const l = touchBlock(keyOf(cx + q.x, cy + q.y)); l[l.length - 1].hue = q.hue; } }
   for (const it of m.items || []) ITEMS.put({ ...it, uid: newUid(), x: cx + it.x, y: cy + it.y, z: base + it.z });
+  if (!own) return true;
   commitTx();
   toast(`Placed ${name} (${m.parts.length} pieces).${plot ? " Snapped into the plot." : ""}`);
 }
@@ -4035,6 +4054,7 @@ const Server = {
     if (this.me.level < 2) document.querySelectorAll(".build-only").forEach(el => el.hidden = true);
     if (this.me.level < 3) { document.querySelectorAll(".world-only").forEach(el => { el.hidden = true; el.classList.add("gated"); }); $("houseLevel").checked = $("houseClear").checked = false; }
     if (this.me.level < 4) document.querySelectorAll(".admin-only").forEach(el => { el.hidden = true; el.classList.add("gated"); });
+    WALK_AI.init();
     $("welcome").querySelector(".card").innerHTML = `<h1>Walk your shard together</h1>
       <p>Choose a map at the top and press <b>Load map</b>. Everyone on the same map sees each other, and every static placed or removed appears for everyone at once.</p>
       <p class="kbd">Signed in as ${escapeHtml(this.me.username)} (${this.me.role}).${this.me.level < 2 ? " Viewers can look around; ask an admin for Builder access to edit." : ""}</p>`;
@@ -4180,6 +4200,7 @@ const WIN = {
     "designer": ["Houses", "House designer", ["left", 3], true, "Opens when you start or edit a design in Houses → Designs."],
     "itemsSection": ["Server", "Server items", null],
     "your-edits": ["Server", "Your edits", null],
+    "aiSection": ["Build", "Ask AI", null],
   },
   init() {
     try { this.saved = JSON.parse(localStorage.getItem(this.storeKey) || "{}") || {}; } catch { this.saved = {}; }
@@ -4367,6 +4388,173 @@ const WIN = {
     for (const b of document.querySelectorAll("#menubar .menu > button")) b.setAttribute("aria-expanded", "false");
   },
 };
+// ===========================================================================
+// Ask AI: an assistant (ChatGPT, Claude or a local model, whichever the server has) decorates and builds around
+// you. It gets a description of the area (ground, what stands where, the plot), the catalogue of statics by name
+// and id, the house designs, and answers with a plan in the same steps you'd take: place, fill, line, remove,
+// house, spawn, sign, item. The plan runs as one step, so Undo takes it all back and everyone sees it live.
+// ===========================================================================
+const WALK_AI = {
+  providers: [], pick: null, abort: null, vocab: null,
+  name() { return this.providers.find(p => p.id === this.pick)?.name || "AI"; },
+  async init() {
+    if (!Server.on) { $("aiNote").textContent = "The AI works when Walk runs on ShardForge Server."; $("aiAsk").disabled = true; return; }
+    try { this.providers = (await Server.api("GET", "/api/ai")).providers || []; } catch { this.providers = []; }
+    if (!this.providers.length) { $("aiAsk").disabled = true; $("aiNote").textContent = "No AI assistant is set up. An admin can add ChatGPT, Claude or a local model on the Admin page."; return; }
+    let saved = null; try { saved = localStorage.getItem("sf.ai.pick"); } catch { }
+    this.pick = this.providers.some(p => p.id === saved) ? saved : this.providers[0].id;
+    $("aiPick").innerHTML = this.providers.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+    $("aiPick").value = this.pick; $("aiPick").hidden = this.providers.length < 2;
+    $("aiPick").onchange = () => { this.pick = $("aiPick").value; try { localStorage.setItem("sf.ai.pick", this.pick); } catch { } this.label(); };
+    this.label();
+  },
+  label() { $("aiAsk").textContent = "Ask " + this.name(); $("aiNote").textContent = `Ctrl+Enter sends. ${this.name()} builds with your tools; Undo takes it back.`; },
+  say(who, html, cls = "") { const d = document.createElement("div"); d.className = "m " + cls; d.innerHTML = `<div class="who">${escapeHtml(who)}</div>${html}`; $("aiLog").appendChild(d); $("aiLog").scrollTop = 1e9; return d; },
+  /** The area the request is about. */
+  area() {
+    const v = $("aiArea").value, plot = v === "plot" ? plotAt(P.x, P.y) : null;
+    if (plot) return { x0: plot.x - 2, y0: plot.y - 2, x1: plot.x + plot.w + 1, y1: plot.y + plot.h + 1, plot };
+    const r = v === "plot" ? 12 : +v;
+    return { x0: Math.max(0, P.x - r), y0: Math.max(0, P.y - r), x1: Math.min(M.w - 1, P.x + r), y1: Math.min(M.h - 1, P.y + r), plot: null };
+  },
+  /** What stands where: every tile that has something, and the ground in runs. */
+  describe(A) {
+    const lines = [], name = id => (TD.st.name[id] || "?").trim(), lname = id => (TD.land.name[id & 0x3FFF] || "?").trim();
+    lines.push(`Map: ${M.name} (${M.w}x${M.h}). You stand at ${P.x},${P.y}, z ${P.z}.`);
+    lines.push(`Area: x ${A.x0}-${A.x1}, y ${A.y0}-${A.y1} (north is smaller y, east is larger x).`);
+    if (A.plot) lines.push(`Building plot: x ${A.plot.x}-${A.plot.x + A.plot.w - 1}, y ${A.plot.y}-${A.plot.y + A.plot.h - 1}, a ${A.plot.kind} plot whose front faces ${A.plot.face} (the road).`);
+    const ground = new Map();
+    for (let y = A.y0; y <= A.y1; y++) for (let x = A.x0; x <= A.x1; x++) { const l = landAt(x, y), k = lname(l.id) + (l.id === 2 ? "" : ""); ground.set(k, (ground.get(k) || 0) + 1); }
+    lines.push("Ground: " + [...ground].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `${k} ${n}`).join(", ") + ".");
+    lines.push("Heights (land z, row by row from the north-west):");
+    for (let y = A.y0; y <= A.y1; y++) { const row = []; for (let x = A.x0; x <= A.x1; x++) row.push(landAt(x, y).z); lines.push(`y ${y}: ${row.join(" ")}`); }
+    lines.push("Statics (x,y: name 0xID z...):");
+    let n = 0;
+    for (let y = A.y0; y <= A.y1 && n < 900; y++) for (let x = A.x0; x <= A.x1 && n < 900; x++) {
+      const st = staticsAt(x, y); if (!st.length) continue;
+      lines.push(`${x},${y}: ` + st.slice().sort((a, b) => a.z - b.z).map(s => `${name(s.id)} 0x${hex(s.id)} z${s.z}`).join("; ")); n++;
+    }
+    if (n >= 900) lines.push("(more statics not listed)");
+    const items = [...ITEMS.map.values()].filter(i => i.x >= A.x0 && i.x <= A.x1 && i.y >= A.y0 && i.y <= A.y1);
+    if (items.length) lines.push("Server items: " + items.slice(0, 60).map(i => `${i.kind}${i.type ? " " + i.type : ""}${i.creatures ? " " + i.creatures : ""}${i.name ? ' "' + i.name + '"' : ""} at ${i.x},${i.y}`).join("; "));
+    return lines.join("\n");
+  },
+  /** The catalogue by name: each kind of thing once, with its ids (facings and colours are the ids in a row). */
+  vocabulary() {
+    if (this.vocab) return this.vocab;
+    const out = [];
+    for (const [group, subs] of B.catalog.tree) {
+      if (["Ships & siege", "Other"].includes(group)) continue;
+      for (const [sub, ids] of subs) {
+        const byName = new Map();
+        for (const id of ids) { const n = (TD.st.name[id] || "").trim(); if (!n) continue; if (!byName.has(n)) byName.set(n, []); byName.get(n).push(id); }
+        const parts = [...byName].slice(0, 14).map(([n, l]) => `${n} ${l.slice(0, 6).map(i => "0x" + hex(i)).join("/")}`);
+        if (parts.length) out.push(`${group} / ${sub}: ${parts.join("; ")}`);
+      }
+    }
+    return this.vocab = out.join("\n");
+  },
+  houses() {
+    const list = (HOUSE.designs || []).map(e => e.name).concat((HOUSE.mine || []).map(e => e.name));
+    return [...new Set(list)].slice(0, 160).join("; ");
+  },
+  prompt(req, A) {
+    return `You are the decorating and building assistant inside ShardForge Walk, a live map editor for an Ultima Online shard.
+Do what the person asks in the area described below, the way a skilled Ultima Online decorator would: furniture against walls and facing into the room, rugs and tables centred, lamps and candles where people sit, nothing floating or buried, nothing blocking doors or paths. Use statics from the catalogue by their ids (several ids after a name are its facings or colours: pick the one that faces the right way; in UO, "east" pieces face east and are placed against a west wall, "south" pieces face south and are placed against a north wall).
+
+Steps you can use (coordinates are map tiles; z is optional: leave it out to stand things on whatever surface is there):
+- {"op":"place","id":"0x0B4F","x":10,"y":20,"z"?:0} one static.
+- {"op":"fill","id":"0x0519"|"ids":["0x0519","0x051A"],"x0","y0","x1","y1","z"?,"chance"?:1} a rectangle (floors, carpets, crops; chance below 1 scatters).
+- {"op":"line","id","x0","y0","x1","y1","z"?} a straight line (fences, walls, rows).
+- {"op":"remove","x","y","id"?} removes that static (or the top one) from a tile.
+- {"op":"house","design":"<a name from the house designs>","x","y"} places a whole building centred there (levels the ground, clears plants).
+- {"op":"spawn","creatures":"Orc:3,OrcishMage:1","x","y","range"?:5} a ServUO spawner (ServUO class names).
+- {"op":"sign","text":"The Rusty Anchor","x","y","id"?:"0x0BD2"} a sign that shows its text in game.
+- {"op":"item","type":"Forge","x","y","id"?} a working ServUO item (Forge, Anvil, Loom, SpinningWheel, Oven, ...).
+Stay inside the area. Up to 1500 statics.
+
+${this.describe(A)}
+
+House designs: ${this.houses()}
+
+Catalogue (group / kind: name ids):
+${this.vocabulary()}
+
+Request: ${req}
+
+Reply with only a JSON object: {"summary": "one or two sentences on what you did", "ops": [ ... ]}`;
+  },
+  async ask(req) {
+    if (!loaded) { toast("Load a map first."); return; }
+    const A = this.area(), me = this.say("You", escapeHtml(req), "me"), pending = this.say(this.name(), "Thinking… (this can take a little while)");
+    $("aiAsk").disabled = true; $("aiStop").hidden = false; this.abort = new AbortController();
+    try {
+      const r = await fetch("/api/ai/ask", { method: "POST", credentials: "same-origin", signal: this.abort.signal,
+        headers: { "X-ShardForge": "1", "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: this.pick, prompt: this.prompt(req, A), request: req, where: "Walk at " + P.x + "," + P.y + " on " + M.name }) });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || `the server answered ${r.status}`);
+      const t = data.text, a = t.indexOf("{"), b = t.lastIndexOf("}");
+      if (a < 0 || b <= a) throw new Error("the answer had no plan in it");
+      const plan = JSON.parse(t.slice(a, b + 1));
+      if (!Array.isArray(plan.ops) || !plan.ops.length) throw new Error("the plan had no steps");
+      const done = this.run(plan.ops, A);
+      pending.innerHTML = `<div class="who">${escapeHtml(this.name())}</div>${escapeHtml(plan.summary || "Done.")}<ol>${done.map(d => `<li>${escapeHtml(d.what)}${d.ok ? "" : ` <span style="color:var(--danger)">skipped: ${escapeHtml(d.why)}</span>`}</li>`).join("")}</ol>${done.some(d => d.ok) ? '<div class="note">Undo (Ctrl+Z) takes it all back.</div>' : ""}`;
+    } catch (e) {
+      pending.classList.add("err");
+      pending.innerHTML = `<div class="who">${escapeHtml(this.name())}</div>${this.abort?.signal.aborted ? "Stopped." : "That didn't work: " + escapeHtml(e.message || String(e)) + ". Nothing changed."}`;
+    } finally { $("aiAsk").disabled = false; $("aiStop").hidden = true; this.abort = null; }
+  },
+  /** Runs a plan as one step. Returns what each step did. */
+  run(ops, A) {
+    const num = v => typeof v === "string" ? parseInt(v, v.startsWith("0x") ? 16 : 10) : Math.round(+v);
+    const inside = (x, y) => x >= A.x0 - 2 && y >= A.y0 - 2 && x <= A.x1 + 2 && y <= A.y1 + 2 && x >= 0 && y >= 0 && x < M.w && y < M.h;
+    const zFor = (o, x, y) => o.z !== undefined && o.z !== null && o.z !== "" ? num(o.z) : visibleTop(x, y);
+    const out = []; let statics = 0;
+    const id1 = o => { const id = num(o.id); if (!validId(id)) throw new Error("no such static " + o.id); return id; };
+    beginTx();
+    for (const o of ops.slice(0, 600)) {
+      const what = `${o.op} ${Object.entries(o).filter(([k]) => k !== "op").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ")}`.slice(0, 140);
+      try {
+        if (o.op === "place") {
+          const x = num(o.x), y = num(o.y); if (!inside(x, y)) throw new Error("outside the area");
+          addStatic(x, y, id1(o), zFor(o, x, y)); statics++;
+        } else if (o.op === "fill" || o.op === "line") {
+          const ids = (o.ids || [o.id]).map(v => num(v)).filter(validId); if (!ids.length) throw new Error("no such static");
+          const x0 = num(o.x0), y0 = num(o.y0), x1 = num(o.x1), y1 = num(o.y1);
+          const cells = [];
+          if (o.op === "fill") for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) cells.push([x, y]);
+          else { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)); for (let i = 0; i <= n; i++) cells.push([Math.round(x0 + (x1 - x0) * i / Math.max(1, n)), Math.round(y0 + (y1 - y0) * i / Math.max(1, n))]); }
+          const chance = o.chance === undefined ? 1 : +o.chance;
+          for (const [x, y] of cells) { if (!inside(x, y)) throw new Error("outside the area"); if (statics > 1500) throw new Error("too many statics"); if (Math.random() > chance) continue; addStatic(x, y, ids[(x * 7 + y * 13) % ids.length], zFor(o, x, y)); statics++; }
+        } else if (o.op === "remove") {
+          const x = num(o.x), y = num(o.y); if (!inside(x, y)) throw new Error("outside the area");
+          if (o.id !== undefined) { const id = num(o.id), key = keyOf(x, y), list = touchBlock(key), s0 = list.find(s => s.id === id && (s.x === (x & 7) && s.y === (y & 7))); if (!s0) throw new Error("not there"); list.splice(list.indexOf(s0), 1); M.dirty.add(key); }
+          else if (!removeTop(x, y)) throw new Error("nothing there");
+        } else if (o.op === "house") {
+          const want = String(o.design || "").toLowerCase(), all = (HOUSE.designs || []).concat(HOUSE.mine || []);
+          const e = all.find(h => h.name.toLowerCase() === want) || all.find(h => h.name.toLowerCase().includes(want)); if (!e) throw new Error("no design called " + o.design);
+          const x = num(o.x), y = num(o.y); if (!inside(x, y)) throw new Error("outside the area");
+          const m = entryShape(e, A.plot?.face || "S"); if (!m) throw new Error("couldn't build that design");
+          if (placeShape(e.name, m, x, y, landAt(x, y).z, null) !== true) throw new Error("it doesn't fit here");
+        } else if (["spawn", "sign", "item"].includes(o.op)) {
+          const x = num(o.x), y = num(o.y); if (!inside(x, y)) throw new Error("outside the area");
+          const it = { uid: newUid(), kind: o.op, x, y, z: zFor(o, x, y) };
+          if (o.op === "spawn") { const list = String(o.creatures || "").split(",").map(c => c.trim()).filter(Boolean); if (!list.length) throw new Error("no creatures"); it.creatures = list.join(","); it.count = list.reduce((a, c) => a + (+(c.split(":")[1]) || 1), 0); it.range = Math.max(0, Math.min(40, num(o.range ?? 5))); it.min = 5; it.max = 10; }
+          if (o.op === "sign") { it.id = o.id ? num(o.id) : 0x0BD2; it.hue = 0; it.name = String(o.text || "").slice(0, 120); }
+          if (o.op === "item") { it.type = String(o.type || "").replace(/[^A-Za-z0-9_]/g, ""); if (!it.type) throw new Error("no item type"); it.id = o.id ? num(o.id) : 0; it.hue = 0; }
+          ITEMS.put(it);
+        } else throw new Error("unknown step");
+        out.push({ what, ok: true });
+      } catch (e) { out.push({ what, ok: false, why: e.message }); }
+    }
+    commitTx();
+    return out;
+  },
+};
+$("aiAsk").onclick = () => { const q = $("aiPrompt").value.trim(); if (q) WALK_AI.ask(q); };
+$("aiPrompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("aiAsk").click(); });
+$("aiStop").onclick = () => WALK_AI.abort?.abort();
 WIN.init();
 </script>
 </body>

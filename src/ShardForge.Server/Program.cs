@@ -1,4 +1,5 @@
 using ShardForge.Server.Audit;
+using ShardForge.Server.Ai;
 using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
 using System.Net;
@@ -58,6 +59,7 @@ builder.Services.AddSingleton<ItemStore>();
 builder.Services.AddSingleton<BlockStore>();
 builder.Services.AddSingleton(new MapRegistry(options, dataPath));
 builder.Services.AddSingleton<LiveHub>();
+builder.Services.AddSingleton(sp => new AiService(dataPath, sp.GetRequiredService<ILogger<AiService>>()));
 
 var keys = builder.Services.AddDataProtection().SetApplicationName("ShardForge").PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys")));
 if (OperatingSystem.IsWindows()) keys.ProtectKeysWithDpapi();
@@ -555,6 +557,54 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
     finally { gate.Release(); }
 }).RequireAuthorization("Worldbuilder");
 
+// ============================================================================ AI assistants
+// Which assistants are ready (no keys): for the editor's and Walk's pickers.
+api.MapGet("/ai", (AiService ai) => Results.Ok(ai.Public())).RequireAuthorization("Viewer");
+api.MapGet("/ai/settings", (AiService ai) => Results.Ok(ai.ForAdmin())).RequireAuthorization("Admin");
+api.MapPut("/ai/settings", (HttpContext ctx, AiService ai, AiSettingsBody body, AuditLog audit) =>
+{
+    try
+    {
+        ai.Update(body.Provider ?? "", body.Enabled, body.Key, body.Model, body.Url, body.DailyLimit);
+        var what = new List<string>();
+        if (body.Enabled is bool e) what.Add(e ? "turned on" : "turned off");
+        if (!string.IsNullOrEmpty(body.Key)) what.Add(body.Key.Trim() == "-" ? "removed the key" : "set a new key");
+        if (body.Model is not null) what.Add("model " + (ai.Get(body.Provider!)?.Model ?? ""));
+        if (body.Url is not null) what.Add("address " + (string.IsNullOrWhiteSpace(body.Url) ? "default" : body.Url.Trim()));
+        if (body.DailyLimit is int d) what.Add($"daily limit {d}");
+        audit.Write(Current(ctx), "ai.settings", $"{AiService.Defaults.GetValueOrDefault(body.Provider ?? "").Name ?? "AI"}: {string.Join(", ", what)}", ip: Ip(ctx));
+        return Results.Ok(ai.ForAdmin());
+    }
+    catch (AiException e) { return Err(e.Status, e.Message); }
+}).RequireAuthorization("Admin");
+// One request: the page sends the whole prompt and gets the assistant's text back. Decorators and up (Walk); what
+// the plan does is still checked by the server like any other edit.
+api.MapPost("/ai/ask", async (HttpContext ctx, AiService ai, AiAskBody body, AuditLog audit) =>
+{
+    var me = Current(ctx);
+    if (string.IsNullOrWhiteSpace(body.Prompt) || body.Prompt.Length > 400_000) return Err(400, "Send the prompt (up to 400,000 characters).");
+    try
+    {
+        int n = ai.Charge(me.Id);
+        var a = await ai.Ask(body.Provider ?? "", body.System ?? "You turn requests into JSON plans for a map editor. Reply with JSON only.", body.Prompt, ctx.RequestAborted);
+        string req = (body.Request ?? "").Trim();
+        audit.Write(me, "ai.ask", $"asked {AiService.Defaults[a.Provider].Name} ({a.Model}) in {body.Where ?? "the editor"}: \"{(req.Length > 160 ? req[..160] + "…" : req)}\"",
+            details: new { provider = a.Provider, model = a.Model, ms = a.Ms, promptChars = body.Prompt.Length, answerChars = a.Text.Length, today = n }, ip: Ip(ctx));
+        return Results.Ok(new { text = a.Text, provider = a.Provider, model = a.Model, ms = a.Ms });
+    }
+    catch (AiException e) { return Err(e.Status, e.Message); }
+}).RequireAuthorization("Decorator");
+// Admin: a quick check that a provider answers.
+api.MapPost("/ai/test", async (HttpContext ctx, AiService ai, AiAskBody body) =>
+{
+    try
+    {
+        var a = await ai.Ask(body.Provider ?? "", "Reply with JSON only.", "Reply with exactly this JSON and nothing else: {\"ok\": true}", ctx.RequestAborted);
+        return Results.Ok(new { ok = a.Text.Contains("ok"), model = a.Model, ms = a.Ms, text = a.Text.Length > 200 ? a.Text[..200] : a.Text });
+    }
+    catch (AiException e) { return Err(e.Status, e.Message); }
+}).RequireAuthorization("Admin");
+
 // ============================================================================ house designs (prefabs)
 api.MapGet("/prefabs", (PrefabStore prefabs) => Results.Ok(prefabs.All().Select(p => new
 {
@@ -757,6 +807,8 @@ static int GuessFacet(int w, int h) => (w, h) switch
 record Credentials(string? Username, string? Password, string? ClientPath = null);
 record PathBody(string? Path);
 record SettingsBody(string? ClientPath, bool? Network = null);
+record AiSettingsBody(string? Provider, bool? Enabled = null, string? Key = null, string? Model = null, string? Url = null, int? DailyLimit = null);
+record AiAskBody(string? Provider, string? Prompt, string? System = null, string? Request = null, string? Where = null);
 record PasswordChange(string? Current, string? Password);
 record NewUser(string? Username, string? Password, string? Role);
 record UserPatch(string? Role, string? Password, bool? Disabled);

@@ -1,3 +1,15 @@
+## ShardForge 0.6.0
+
+**AI assistants: ChatGPT, Claude or a local model, in the editor and in Walk.**
+- Admin → **AI assistants**: paste an OpenAI key (ChatGPT), an Anthropic key (Claude), or point at Ollama for a
+  free local model, and press **Test**. Keys stay on the server (`data/ai.json`) and never reach a browser.
+- **Editor**: the Ask panel now works on your server, with a picker when more than one assistant is on.
+- **Walk**: a new **Ask AI** window (Build menu). "Furnish this house as a tavern", "a market square with stalls
+  and lamps", "an orc camp with a spawner on the hill": the assistant sees the area round you (or your plot), the
+  catalogue and the house designs, and builds with your tools. One step: Undo takes it all back; everyone sees it
+  live.
+- Every request is logged in Activity; a daily limit per person (default 200). See docs/AI.md.
+
 ## ShardForge 0.5.10
 
 **Five more bridges**, eleven in all:

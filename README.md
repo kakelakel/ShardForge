@@ -40,6 +40,10 @@ on Linux. It starts and stops ShardForge without a console window, shows its log
 releases: checks the download against the release's checksums, stops the server, keeps your data and settings,
 starts it again, and can roll back. See [docs/MANAGER.md](docs/MANAGER.md).
 
+**AI assistants.** ChatGPT, Claude or a local model (Ollama) can shape the map in the editor and decorate and build
+round you in Walk, from a plain request. The server holds the API keys; every request is logged. See
+[docs/AI.md](docs/AI.md).
+
 ## Editor
 
 `editor/index.html` is a single-page world editor (open it in a browser, or use the hosted copy on claude.ai):

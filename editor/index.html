@@ -271,7 +271,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
 
   <aside class="right" aria-label="Claude assistant">
     <div class="assistant">
-      <h2>Ask Claude</h2>
+      <h2 id="askTitle">Ask Claude</h2>
       <div id="log" aria-live="polite">
         <div class="msg"><div class="who">Claude</div>
           Describe what you want and I'll shape the map: a whole continent, a mountain range, a river to the sea, a clearing for a town. I change the map with the same tools you have, and every change can be undone.
@@ -281,6 +281,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
       <label for="prompt" class="note">Your request</label>
       <textarea id="prompt" placeholder="Raise a snowy mountain range along the east coast, with a river running from it to the southern bay."></textarea>
       <div class="row">
+        <select id="aiPick" aria-label="Which assistant" hidden style="max-width:150px"></select>
         <button id="btnAsk" class="primary">Ask Claude</button>
         <button id="btnStop" hidden>Stop</button>
       </div>
@@ -3181,6 +3182,39 @@ async function loadLocal() {
 // Claude
 // ---------------------------------------------------------------------------
 let sample = null, aiAbort = null;
+// AI through ShardForge Server: ChatGPT, Claude or a local model, whichever the admin set up (keys stay on the
+// server). Inside the Claude app the page uses Claude directly instead.
+const AI = { providers: [], pick: null };
+function aiName() { return AI.providers.find(p => p.id === AI.pick)?.name || "Claude"; }
+function aiChose() {
+  const n = aiName();
+  $("askTitle").textContent = "Ask " + (AI.providers.length > 1 ? "AI" : n); $("btnAsk").textContent = "Ask " + n;
+  try { localStorage.setItem("sf.ai.pick", AI.pick || ""); } catch { }
+}
+async function serverAi() {
+  try { AI.providers = (await SRV.api("GET", "/api/ai")).data.providers || []; } catch { AI.providers = []; }
+  if (!AI.providers.length) {
+    $("btnAsk").disabled = true; $("askTitle").textContent = "Ask AI"; $("btnAsk").textContent = "Ask AI";
+    $("aiNote").textContent = "No AI assistant is set up on this server. An admin can add ChatGPT, Claude or a local model (Ollama) on the Admin page; painting and generating work without one.";
+    return;
+  }
+  let saved = null; try { saved = localStorage.getItem("sf.ai.pick"); } catch { }
+  AI.pick = AI.providers.some(p => p.id === saved) ? saved : AI.providers[0].id;
+  $("aiPick").innerHTML = AI.providers.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  $("aiPick").value = AI.pick; $("aiPick").hidden = AI.providers.length < 2;
+  $("aiPick").onchange = () => { AI.pick = $("aiPick").value; aiChose(); };
+  sample = async (prompt, opts = {}) => {
+    const r = await fetch("/api/ai/ask", { method: "POST", credentials: "same-origin", signal: opts.signal,
+      headers: { "X-ShardForge": "1", "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: AI.pick, prompt, request: opts.request || "", where: "the editor" }) });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `the server answered ${r.status}`);
+    return { text: data.text };
+  };
+  aiChose();
+  $("btnAsk").disabled = !(SRV.me?.level >= 3);
+  $("aiNote").textContent = SRV.me?.level >= 3 ? `Ctrl+Enter sends. ${aiName()} edits the map with the same tools you have.` : "Worldbuilders can ask the AI to shape the map.";
+}
 const OP_DOC = `
 Coordinates are tiles: x grows east (right), y grows south (down), origin top-left.
 Altitude z is UO's: -128..127. Water sits at z -5. Lowland 0-10, hills 15-40, mountains 50-100, peaks up to 120.
@@ -3236,7 +3270,7 @@ ${ov.text}`;
 function addMsg(who, html, cls = "") {
   const d = document.createElement("div");
   d.className = `msg ${who === "user" ? "user" : ""} ${cls}`;
-  d.innerHTML = `<div class="who">${who === "user" ? "You" : "Claude"}</div>${html}`;
+  d.innerHTML = `<div class="who">${who === "user" ? "You" : escapeHtml(aiName())}</div>${html}`;
   $("log").appendChild(d); $("log").scrollTop = $("log").scrollHeight;
   return d;
 }
@@ -3249,7 +3283,7 @@ function busy(text) { const b = $("busy"); b.textContent = text || ""; b.style.d
 
 function extractJson(text) {
   const a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a < 0 || b <= a) throw new Error("Claude's reply had no JSON plan.");
+  if (a < 0 || b <= a) throw new Error(`${aiName()}'s reply had no JSON plan.`);
   return JSON.parse(text.slice(a, b + 1));
 }
 
@@ -3271,7 +3305,7 @@ User request: ${request}
 Reply with only a JSON object: {"summary": "one or two sentences on what you did, in plain words", "ops": [ ... ]}`;
   try {
     const res = await sample(prompt, {
-      signal: aiAbort.signal, modelTier: "complex", cache: false,
+      signal: aiAbort.signal, modelTier: "complex", cache: false, request,
       onText: ({ text }) => { pending.lastChild.textContent = text.length > 400 ? "Planning the map… (" + text.length + " characters)" : "Planning the map…"; },
     });
     const plan = extractJson(res.text);
@@ -3281,15 +3315,15 @@ Reply with only a JSON object: {"summary": "one or two sentences on what you did
     const done = applyOps(plan.ops);
     fullRedraw(); busy();
     const failed = done.filter(d => !d.ok);
-    pending.innerHTML = `<div class="who">Claude</div>${escapeHtml(plan.summary || "Done.")}
+    pending.innerHTML = `<div class="who">${escapeHtml(aiName())}</div>${escapeHtml(plan.summary || "Done.")}
       <ol>${done.map(d => `<li>${describeOp(d.o)}${d.ok ? "" : ` <span style="color:var(--danger)">skipped: ${escapeHtml(d.why)}</span>`}</li>`).join("")}</ol>
       ${failed.length ? "" : `<div class="note" style="margin-top:6px">Undo reverts all of it.</div>`}`;
   } catch (e) {
     busy();
-    if (aiAbort.signal.aborted) { pending.innerHTML = `<div class="who">Claude</div>Stopped.`; }
-    else if (e?.code === "not_granted") { pending.innerHTML = `<div class="who">Claude</div>The assistant wasn't allowed to run, so nothing changed.`; pending.classList.add("error"); }
-    else if (e?.code === "rate_limited") { pending.innerHTML = `<div class="who">Claude</div>Too many requests right now. Wait a minute and try again.`; pending.classList.add("error"); }
-    else { pending.innerHTML = `<div class="who">Claude</div>That didn't work: ${escapeHtml(e?.message || String(e))}. Nothing on the map changed.`; pending.classList.add("error"); }
+    if (aiAbort.signal.aborted) { pending.innerHTML = `<div class="who">${escapeHtml(aiName())}</div>Stopped.`; }
+    else if (e?.code === "not_granted") { pending.innerHTML = `<div class="who">${escapeHtml(aiName())}</div>The assistant wasn't allowed to run, so nothing changed.`; pending.classList.add("error"); }
+    else if (e?.code === "rate_limited") { pending.innerHTML = `<div class="who">${escapeHtml(aiName())}</div>Too many requests right now. Wait a minute and try again.`; pending.classList.add("error"); }
+    else { pending.innerHTML = `<div class="who">${escapeHtml(aiName())}</div>That didn't work: ${escapeHtml(e?.message || String(e))}. Nothing on the map changed.`; pending.classList.add("error"); }
   } finally {
     $("btnAsk").disabled = false; $("btnStop").hidden = true; aiAbort = null;
   }
@@ -3431,7 +3465,7 @@ buildUi(); syncUndo();
 $("btnAsk").disabled = true;
 $("aiNote").textContent = "Connecting to Claude…";
 (async () => {
-  if (await SRV.start()) return;
+  if (await SRV.start()) { serverAi(); return; }
   const saved = await loadLocal();
   try {
     if (saved?.kind === "world" && saved.heights) loadWorld({ ...saved, terrain: saved.terrain.slice(), heights: saved.heights.slice(), density: saved.density.slice() });
@@ -3441,6 +3475,7 @@ $("aiNote").textContent = "Connecting to Claude…";
 })();
 if (window.claude?.use) {
   claude.use("sample").then(s => {
+    if (SRV.on) return;
     sample = s;
     $("btnAsk").disabled = !s;
     $("aiNote").textContent = s ? "Ctrl+Enter sends. Claude edits the map with the same tools you have." : "Claude isn't available in this view, but painting and export still work.";
