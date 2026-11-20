@@ -1,7 +1,7 @@
 <Project>
   <!-- One version for the whole package: server, editor, Walk, CLI and patcher. -->
   <PropertyGroup>
-    <Version>0.5.5</Version>
+    <Version>0.5.6</Version>
     <Authors>ShardForge contributors</Authors>
     <Product>ShardForge</Product>
   </PropertyGroup>

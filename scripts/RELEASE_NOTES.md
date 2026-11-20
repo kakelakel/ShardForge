@@ -1,3 +1,15 @@
+## ShardForge 0.5.6
+
+Generated worlds, round two:
+- **Deltas**: big rivers fan out into several channels over low land built out into the sea, with sandbars.
+- **Lakes drain**: every lake spills over into a river that runs on to the sea; hollows inland fill up into
+  lakes instead of becoming landlocked seas.
+- **Rivers bend** smoothly (no more ruler-straight stretches across flat land) and always reach the coast.
+- **Roads** between towns follow valleys and cross ranges at passes, go round lakes, and cross rivers where
+  they're narrow on **wooden bridges** you can walk over (plank decks like the client's own, level with the banks).
+
+Regenerate a world (or make a new one) to get these.
+
 ## ShardForge 0.5.5
 
 - **Walk workspace**: the tools are windows over the world, opened from the top menu (World, Build, Houses,

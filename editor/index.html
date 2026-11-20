@@ -355,7 +355,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <div><label for="wSeed">Seed</label><input id="wSeed" placeholder="random" inputmode="numeric"></div>
       </div>
       <label class="check"><input type="checkbox" id="wTowns" checked> Found towns, villages and roads in good places</label>
-      <p class="note">Plates give the land its shape and push up mountain ranges where they meet; wind from the west brings rain to the coasts and leaves dry land behind the mountains; rivers run down to the sea. The same seed and settings give the same world.</p>
+      <p class="note">Plates give the land its shape and push up mountain ranges where they meet; wind from the west brings rain to the coasts and leaves dry land behind the mountains; rivers run down to the sea, big ones through deltas, and every lake spills out through a river. Roads between towns follow the valleys and cross rivers on bridges. The same seed and settings give the same world.</p>
     </div>
     <div class="row">
       <button value="cancel">Cancel</button>
@@ -977,9 +977,18 @@ OPS.world = o => {
   const heap = { k: new Float32Array(cn), v: new Int32Array(cn), n: 0,
     push(key, val) { let j = this.n++; while (j > 0) { const p = (j - 1) >> 1; if (this.k[p] <= key) break; this.k[j] = this.k[p]; this.v[j] = this.v[p]; j = p; } this.k[j] = key; this.v[j] = val; },
     pop() { const r = this.v[0], key = this.k[--this.n], val = this.v[this.n]; let j = 0; for (;;) { let c = 2 * j + 1; if (c >= this.n) break; if (c + 1 < this.n && this.k[c + 1] < this.k[c]) c++; if (this.k[c] >= key) break; this.k[j] = this.k[c]; this.v[j] = this.v[c]; j = c; } this.k[j] = key; this.v[j] = val; return r; } };
+  // The open sea is what's below sea level and joined to the edge of the map; hollows below sea level inside the
+  // land are basins that fill up into lakes and spill over toward the sea like any other.
+  const openSea = new Uint8Array(cn);
+  {
+    const st = [];
+    for (let i = 0; i < cn; i++) { const x = i % cw, y = (i / cw) | 0; if (e[i] < sea && (x === 0 || y === 0 || x === cw - 1 || y === ch - 1)) { openSea[i] = 1; st.push(i); } }
+    while (st.length) { const i = st.pop(), x = i % cw, y = (i / cw) | 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < cw - 1 ? i + 1 : -1, y > 0 ? i - cw : -1, y < ch - 1 ? i + cw : -1]) if (j >= 0 && !openSea[j] && e[j] < sea) { openSea[j] = 1; st.push(j); } }
+  }
   for (let i = 0; i < cn; i++) {
     const x = i % cw, y = (i / cw) | 0;
-    if (e[i] < sea || x === 0 || y === 0 || x === cw - 1 || y === ch - 1) { filled[i] = Math.max(e[i], sea); seen[i] = 1; heap.push(filled[i], i); }
+    if (openSea[i] || x === 0 || y === 0 || x === cw - 1 || y === ch - 1) { filled[i] = Math.max(e[i], sea); seen[i] = 1; heap.push(filled[i], i); }
   }
   let oc = 0;
   while (heap.n) {
@@ -995,7 +1004,7 @@ OPS.world = o => {
   for (let i = 0; i < cn; i++) flow[i] = e[i] >= sea ? 0.2 + moist[i] : 0;
   for (let k = oc - 1; k >= 0; k--) { const i = order[k]; if (down[i] >= 0) flow[down[i]] += flow[i]; }
   // Lakes: basins the flood had to fill, deep and wide enough to matter.
-  for (let i = 0; i < cn; i++) if (e[i] >= sea && filled[i] - e[i] > 0.012 && moist[i] > 0.25) lake[i] = 1;
+  for (let i = 0; i < cn; i++) if ((e[i] >= sea && filled[i] - e[i] > 0.012 && moist[i] > 0.25) || (e[i] < sea && !openSea[i])) lake[i] = 1;
   // Too small to be a lake (a pond of a few tiles in a dip reads as a hole in the ground): drop them, and the
   // water just runs on through as a river.
   {
@@ -1009,11 +1018,23 @@ OPS.world = o => {
     }
   }
 
+  // Every lake has an outlet: from where it spills over, a river runs on down to the sea (or into another river),
+  // even when the lake's own catchment is too small to make one.
+  const outlet = new Uint8Array(cn);
+  for (let c = 0; c < cn; c++) {
+    if (!lake[c]) continue;
+    let j = down[c];
+    if (j < 0 || lake[j]) continue;
+    while (j >= 0 && !openSea[j] && !lake[j] && !outlet[j]) { outlet[j] = 1; j = down[j]; }
+  }
   // Rivers and lakes sit at sea level (that's where UO water is), so the land slopes down to every river, lake
   // and shore: valleys in the hills, gorges in the mountains, low coasts. Done here so land cover follows it.
   const need = (cn / 1e6) * 900 / Math.max(0.2, rivers), wet = new Uint8Array(cn), cd = new Float32Array(cn).fill(1e9), cq = new Int32Array(cn);
   let ch0 = 0, ct0 = 0;
-  for (let i = 0; i < cn; i++) if (e[i] < sea || lake[i] || flow[i] >= need) { wet[i] = flow[i] >= need && e[i] >= sea && !lake[i] ? 2 : 1; cd[i] = 0; cq[ct0++] = i; }
+  for (let i = 0; i < cn; i++) {
+    if (outlet[i]) flow[i] = Math.max(flow[i], need);
+    if (e[i] < sea || lake[i] || flow[i] >= need) { wet[i] = flow[i] >= need && e[i] >= sea && !lake[i] ? 2 : 1; cd[i] = 0; cq[ct0++] = i; }
+  }
   while (ch0 < ct0) {
     const i = cq[ch0++], x = i % cw, y = (i / cw) | 0;
     for (const [dx, dy, dd] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.41], [-1, -1, 1.41], [1, -1, 1.41], [-1, 1, 1.41]]) {
@@ -1061,8 +1082,11 @@ OPS.world = o => {
   // so the channel bends instead of running in grid-straight lines.
   let riverCells = 0;
   const radius = i => Math.min(4.5, 0.6 + Math.log2(Math.max(1, flow[i] / need)) * 0.55) * Math.max(1, S * 0.6) + 0.35;
-  const node = i => { const cx = i % cw, cy = (i / cw) | 0, k = wet[i] === 2 ? S * 0.45 : 0;
-    return [cx * S + (hrand(cx, cy, seed, 81) - 0.5) * k, cy * S + (hrand(cx, cy, seed, 82) - 0.5) * k]; };
+  // The points wander with a smooth noise field (not each on its own), so a stretch the flood laid out straight
+  // across a flat swings gently from side to side like a lowland river.
+  const node = i => { const cx = i % cw, cy = (i / cw) | 0, k = wet[i] === 2 ? S * 1.5 : 0;
+    return [cx * S + (fbm(cx / 7, cy / 7, seed + 83, 3) - 0.5) * 2 * k + (hrand(cx, cy, seed, 81) - 0.5) * S * 0.3,
+            cy * S + (fbm(cx / 7, cy / 7, seed + 84, 3) - 0.5) * 2 * k + (hrand(cx, cy, seed, 82) - 0.5) * S * 0.3]; };
   const wetTile = j => { if (LT[j] === T.water) return; LT[j] = T.water; LH[j] = -5; riverCells++; };
   for (let i = 0; i < cn; i++) {
     if (wet[i] !== 2) continue;
@@ -1076,6 +1100,122 @@ OPS.world = o => {
       const t = Math.max(0, Math.min(1, ((px - x0) * dxs + (py - y0) * dys) / len2));
       const qx = x0 + dxs * t - px, qy = y0 + dys * t - py, r = r0 + (r1 - r0) * t;
       if (qx * qx + qy * qy <= r * r) wetTile(px + py * N);
+    }
+  }
+  // Deltas: where a big river reaches the sea over low land it splits into a fan of channels with sandbars and
+  // low marsh between them.
+  let deltas = 0; W.deltaSpots = [];
+  {
+    const upBest = new Int32Array(cn).fill(-1);
+    for (let i = 0; i < cn; i++) { const j = down[i]; if (wet[i] === 2 && j >= 0 && (upBest[j] < 0 || flow[i] > flow[upBest[j]])) upBest[j] = i; }
+    const chan = (ax, ay, bx, by, cx2, cy2, r, wob = 0) => { // a curved channel (quadratic curve a -> b with control c)
+      const len = Math.hypot(bx - ax, by - ay) + Math.hypot(cx2 - ax, cy2 - ay), n = Math.max(4, Math.ceil(len / 2));
+      const ux0 = (bx - ax) / (Math.hypot(bx - ax, by - ay) || 1), uy0 = (by - ay) / (Math.hypot(bx - ax, by - ay) || 1);
+      for (let k = 0; k <= n; k++) {
+        const t = k / n, u = 1 - t, w = wob ? (vnoise(k * 2 / n * 3 + ax * 0.01, ay * 0.01, seed + 102) - 0.5) * 2 * wob * Math.sin(Math.PI * t) : 0;
+        const px = u * u * ax + 2 * u * t * cx2 + t * t * bx - uy0 * w, py = u * u * ay + 2 * u * t * cy2 + t * t * by + ux0 * w;
+        const rr = r * (0.7 + 0.5 * t);
+        for (let dy = -Math.ceil(rr); dy <= rr; dy++) for (let dx = -Math.ceil(rr); dx <= rr; dx++) {
+          const X = Math.round(px + dx), Y = Math.round(py + dy); if (X < 0 || Y < 0 || X >= N || Y >= H || dx * dx + dy * dy > rr * rr) continue;
+          const j = X + Y * N; if (LT[j] !== T.water && LH[j] <= 6) { LT[j] = T.water; LH[j] = -5; riverCells++; }
+        }
+      }
+    };
+    const used = [];
+    const stamp = (X, Y, fn) => { if (X >= 0 && Y >= 0 && X < N && Y < H) fn(X + Y * N, X, Y); };
+    for (let i = 0; i < cn; i++) {
+      const j = down[i];
+      if (wet[i] !== 2 || j < 0 || !openSea[j] || flow[i] < need * 5) continue;
+      const [mx, my] = node(i), rw = radius(i);
+      // Its size follows the river: a big river builds a big fan.
+      const L = Math.max(28, Math.min(130, rw * 16));
+      if (used.some(([x, y]) => Math.hypot(x - mx, y - my) < L * 1.6)) continue; // one delta per mouth
+      // Where the fan starts: up the main stream until we're far enough from the mouth.
+      let u = i; for (let k = 0; k < 40 && upBest[u] >= 0; k++) { u = upBest[u]; const [x, y] = node(u); if (Math.hypot(x - mx, y - my) >= L * 0.55) break; }
+      const [ux, uy] = node(u), L0 = Math.hypot(mx - ux, my - uy); if (L0 < 8) continue;
+      used.push([mx, my]);
+      // Which way the open sea is from the mouth (not just the river's last stretch, which may meet the coast at
+      // an angle): the fan opens toward it.
+      let sxv = 0, syv = 0, seaN = 0;
+      for (let oy = -L; oy <= L; oy += 4) for (let ox = -L; ox <= L; ox += 4) {
+        const X = Math.round(mx + ox), Y = Math.round(my + oy), d2 = Math.hypot(ox, oy);
+        if (d2 < 3 || d2 > L || X < 0 || Y < 0 || X >= N || Y >= H || !ocean[X + Y * N]) continue;
+        sxv += ox / d2; syv += oy / d2; seaN++;
+      }
+      if (seaN < 6) { used.pop(); continue; }
+      const sl = Math.hypot(sxv, syv) || 1, rvx = (mx - ux) / L0, rvy = (my - uy) / L0;
+      let dx = sxv / sl * 0.75 + rvx * 0.25, dy = syv / sl * 0.75 + rvy * 0.25; { const l2 = Math.hypot(dx, dy) || 1; dx /= l2; dy /= l2; }
+      const px = -dy, py = dx;
+      const nb = Math.min(5, 2 + Math.floor(Math.log2(flow[i] / need) / 1.6)), reach = L * 0.42; // how far it builds out to sea
+      // 1. Land built out into the sea: a lobed fan, low and flat.
+      const fanR = L * 0.95;
+      for (let Y = Math.max(0, Math.floor(my - fanR)); Y <= Math.min(H - 1, my + fanR); Y++) for (let X = Math.max(0, Math.floor(mx - fanR)); X <= Math.min(N - 1, mx + fanR); X++) {
+        const ax = X - mx, ay = Y - my, along = ax * dx + ay * dy, across = ax * px + ay * py;
+        if (along < -L * 0.5) continue;
+        const ang = Math.atan2(across, Math.max(1e-3, along + L * 0.5)), lobes = 0.75 + 0.25 * Math.cos(ang * (nb + 0.5) * 2);
+        const lim = (reach + L * 0.5) * lobes * (0.85 + 0.3 * vnoise(X / 9, Y / 9, seed + 96));
+        if (Math.hypot(along + L * 0.5, across) > lim || Math.abs(ang) > 1.1) continue;
+        const j2 = X + Y * N;
+        if (LT[j2] === T.water && LH[j2] === -5 && ocean[j2]) { LT[j2] = vnoise(X / 6, Y / 6, seed + 97) > 0.5 ? T.sand : T.grass; LH[j2] = 1; LD[j2] = 60; ocean[j2] = 0; }
+        else if (LT[j2] !== T.water && along > -L * 0.35) { LH[j2] = Math.min(LH[j2], 2 + Math.round(vnoise(X / 7, Y / 7, seed + 98) * 2)); if (LT[j2] === T.forest || LT[j2] === T.rock) LT[j2] = T.grass; }
+      }
+      // 2. Channels through it: fanning out from the head of the delta to the sea, each bending a little.
+      const r = Math.max(0.9, rw * 0.6);
+      for (let b2 = 0; b2 < nb; b2++) {
+        const a = (b2 / (nb - 1) - 0.5) * 1.3 + (hrand(i, b2, seed, 99) - 0.5) * 0.2; // fanning ±0.65 rad around the sea
+        const ca = Math.cos(a), sa = Math.sin(a), ddx = dx * ca + px * sa, ddy = dy * ca + py * sa;
+        // From the head of the delta on the river, past the mouth, out to sea.
+        const sx0 = ux + (mx - ux) * 0.3, sy0 = uy + (my - uy) * 0.3;
+        const ex = mx + ddx * reach * 1.35, ey = my + ddy * reach * 1.35;
+        const cxm = mx + ddx * reach * 0.15 - dx * L * 0.1, cym = my + ddy * reach * 0.15 - dy * L * 0.1;
+        chan(sx0, sy0, ex, ey, cxm, cym, b2 === Math.floor(nb / 2) ? r * 1.15 : r * 0.8, r * 2.2);
+      }
+      // 3. Sandbars along the channels.
+      for (let Y = Math.max(0, Math.floor(my - fanR)); Y <= Math.min(H - 1, my + fanR); Y++) for (let X = Math.max(0, Math.floor(mx - fanR)); X <= Math.min(N - 1, mx + fanR); X++) {
+        const j2 = X + Y * N; if (LT[j2] === T.water || LH[j2] > 4) continue;
+        let nearW = false; for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0], [0, -2]]) { const xx = X + ox, yy = Y + oy; if (xx >= 0 && yy >= 0 && xx < N && yy < H && LT[xx + yy * N] === T.water) { nearW = true; break; } }
+        if (nearW && vnoise(X / 4, Y / 4, seed + 101) > 0.4) { LT[j2] = T.sand; LD[j2] = 30; }
+      }
+      deltas++; (W.deltaSpots ||= []).push([Math.round(mx), Math.round(my)]);
+    }
+  }
+  // Every river and lake reaches the sea: where a channel stops a few tiles short of the coast (the coast is
+  // finer than the river grid), dig through the last strip of land along the shortest way to open water.
+  {
+    const NH = N * H, comp = new Int32Array(NH).fill(-1), q3 = new Int32Array(NH), open = new Uint8Array(NH);
+    const comps = [];
+    for (let s0 = 0; s0 < NH; s0++) {
+      if (LT[s0] !== T.water || comp[s0] >= 0) continue;
+      let h = 0, t = 0, edge = false; q3[t++] = s0; comp[s0] = s0;
+      while (h < t) { const i = q3[h++], x = i % N, y = (i / N) | 0; if (x === 0 || y === 0 || x === N - 1 || y === H - 1) edge = true;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && comp[j] < 0 && LT[j] === T.water) { comp[j] = s0; q3[t++] = j; } }
+      if (edge) for (let k = 0; k < t; k++) open[q3[k]] = 1;
+      else if (t >= 30) comps.push(Array.from(q3.subarray(0, t)));
+    }
+    const maxD = Math.max(12, Math.round(S * 6)), dist = new Map(), par = new Map();
+    for (const cells of comps) {
+      dist.clear(); par.clear();
+      const fr = [];
+      for (const i of cells) { const x = i % N, y = (i / N) | 0;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) if (j >= 0 && LT[j] !== T.water && !dist.has(j)) { dist.set(j, 1); par.set(j, -1); fr.push(j); } }
+      let hit = -1;
+      for (let h = 0; h < fr.length && hit < 0; h++) {
+        const i = fr[h], d = dist.get(i); if (d >= maxD) continue;
+        const x = i % N, y = (i / N) | 0;
+        for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < H - 1 ? i + N : -1]) {
+          if (j < 0 || dist.has(j)) continue;
+          if (open[j]) { hit = i; break; }
+          if (LT[j] === T.water) continue; // another closed body: not where we're going
+          dist.set(j, d + 1); par.set(j, i); fr.push(j);
+        }
+      }
+      if (hit < 0) continue;
+      for (let i = hit; i >= 0; i = par.get(i)) {
+        const x = i % N, y = (i / N) | 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= N || Y >= H) continue;
+          const j = X + Y * N; if (LT[j] !== T.water) { LT[j] = T.water; LH[j] = -5; riverCells++; } open[j] = 1; }
+      }
+      for (const i of cells) open[i] = 1;
     }
   }
   // Puddles: water cut off from everything and only a few tiles big (coastline noise leaves them) become the
@@ -1115,7 +1255,7 @@ OPS.world = o => {
     const g = R.x + (R.y + y) * W.width;
     W.terrain.set(LT.subarray(y * N, y * N + N), g); W.height_.set(LH.subarray(y * N, y * N + N), g); W.density.set(LD.subarray(y * N, y * N + N), g);
   }
-  return { shape, land: landFrac, plates: P, riverCells, scale: S };
+  return { shape, land: landFrac, plates: P, riverCells, deltas, scale: S };
 };
 OPS.town = o => {
   ensureObjects();
@@ -1794,12 +1934,14 @@ OPS.clear_objects = o => {
   W.places = W.places.filter(p => !inR(p.x, p.y));
 };
 
-/** Country roads between settlements, from exit to exit: a spanning tree plus a few shortcuts, routed around water and steep ground. */
+/** Country roads between settlements, from exit to exit: a spanning tree plus a few shortcuts. They follow valleys
+ *  and cross ranges at passes (climbing is expensive, steep climbing very), go round lakes and the sea, and cross
+ *  rivers where they're narrow, on wooden bridges. */
 OPS.roads = o => {
   const towns = W.places.filter(p => ["hamlet", "village", "town", "city"].includes(p.kind));
   if (towns.length < 2) return;
   const G = 6, gw = Math.ceil(W.width / G), gh = Math.ceil(W.height / G);
-  const edges = [], inTree = new Set([0]);
+  const edges = [], inTree = new Set([0]); let bridges = 0;
   while (inTree.size < towns.length) {
     let best = null;
     for (const a of inTree) for (let b = 0; b < towns.length; b++) if (!inTree.has(b)) {
@@ -1812,9 +1954,22 @@ OPS.roads = o => {
     const near = towns.map((u, j) => ({ j, d: Math.hypot(t.x - u.x, t.y - u.y) })).filter(e => e.j !== i).sort((p, q) => p.d - q.d);
     if (near[1] && near[1].d < near[0].d * 1.6 && !edges.some(e => (e.a === i && e.b === near[1].j) || (e.b === i && e.a === near[1].j))) edges.push({ a: i, b: near[1].j, d: near[1].d });
   });
+  // How far water reaches across a tile, the narrow way: a river a bridge can span, or a lake to go round.
+  const span = new Map();
+  const waterSpan = (x, y) => {
+    const k = x + y * W.width; if (span.has(k)) return span.get(k);
+    let best = Infinity;
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+      let n = 1;
+      for (const sgn of [1, -1]) for (let s2 = 1; s2 <= 20; s2++) { const X = x + dx * s2 * sgn, Y = y + dy * s2 * sgn; if (!inMap(X, Y) || W.terrain[X + Y * W.width] !== TKEY.water) break; n++; }
+      best = Math.min(best, n * (dx && dy ? 1.41 : 1));
+    }
+    span.set(k, best); return best;
+  };
   const cost = (gx, gy) => {
     const x = Math.min(W.width - 1, gx * G + (G >> 1)), y = Math.min(W.height - 1, gy * G + (G >> 1)), t = W.terrain[x + y * W.width];
-    if (t === TKEY.water) return 400; if (t === TKEY.rock || t === TKEY.snow || t === TKEY.lava) return 25; // around lakes, not over them
+    if (t === TKEY.water) return waterSpan(x, y) <= 14 ? 9 : 400; // a bridge over a river; round lakes and the sea
+    if (t === TKEY.rock || t === TKEY.snow || t === TKEY.lava) return 25;
     return (t === TKEY.forest || t === TKEY.jungle ? 1.6 : 1) * (0.8 + fbm(gx / 9, gy / 9, W.seed + 77, 2) * 0.6); // a little noise: roads curve
   };
   const zc = (gx, gy) => W.height_[Math.min(W.width - 1, gx * G + (G >> 1)) + Math.min(W.height - 1, gy * G + (G >> 1)) * W.width];
@@ -1832,9 +1987,53 @@ OPS.roads = o => {
     const pts = [pa, ...mid, pb];
     const big = ["town", "city"].includes(A.kind) && ["town", "city"].includes(B.kind);
     OPS.path({ points: pts, width: big ? 3 : 2, terrain: "dirt", jitter: 2.5, within: keep });
-    // No bridges: where a road must cross water it stops at the banks, for you to bridge by hand.
+    bridges += bridgeRoad(pts, big ? 3 : 2, 2.5);
   }
+  return { bridges };
 };
+/** Wooden bridges where a road (as OPS.path paints it, same wobble) crosses water: a plank deck a step above the
+ *  water, as wide as the road, level with the banks. Like the client's own: planks (0x07C9) with the bridge
+ *  planks (0x07CA, 0x07CB) mixed in. Spans longer than a river crossing are left alone. */
+function bridgeRoad(pts, width, jit) {
+  const half = Math.max(0.5, width / 2) + 0.6, seed = W.seed + 31, Wd = W.width;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = half + jit + 2;
+  const [x0, y0, x1, y1] = bbox(Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad);
+  const deck = new Set();
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = x + y * Wd; if (W.terrain[i] !== TKEY.water) continue;
+    const px = x + (fbm(x / 40, y / 40, seed, 3) - 0.5) * jit * 2, py = y + (fbm(x / 40, y / 40, seed + 9, 3) - 0.5) * jit * 2;
+    let best = Infinity;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [ax, ay] = pts[k], [bx, by] = pts[k + 1], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L));
+      best = Math.min(best, Math.hypot(px - ax - t * dx, py - ay - t * dy));
+    }
+    if (best <= half) deck.add(i);
+  }
+  let made = 0;
+  const seen = new Set();
+  for (const s0 of deck) {
+    if (seen.has(s0)) continue;
+    const group = [s0]; seen.add(s0);
+    for (let h = 0; h < group.length; h++) { const i = group[h], x = i % Wd, y = (i / Wd) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const j = (x + dx) + (y + dy) * Wd; if (deck.has(j) && !seen.has(j)) { seen.add(j); group.push(j); } } }
+    // Long: not a river crossing (the road should have gone round); leave it.
+    const gx = group.map(i => i % Wd), gy = group.map(i => (i / Wd) | 0);
+    if (Math.max(Math.max(...gx) - Math.min(...gx), Math.max(...gy) - Math.min(...gy)) > 22) continue;
+    // Level with the banks: the land right next to the deck.
+    let bz = 0, bn = 0;
+    for (const i of group) { const x = i % Wd, y = (i / Wd) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (!inMap(X, Y)) continue; const j = X + Y * Wd; if (W.terrain[j] !== TKEY.water) { bz += W.height_[j]; bn++; } } }
+    if (!bn) continue;
+    const z = Math.max(-3, Math.min(60, Math.round(bz / bn) - 1));
+    for (const i of group) {
+      const x = i % Wd, y = (i / Wd) | 0, r = hrand(x, y, seed, 5);
+      addStatic0(r < 0.72 ? 0x07C9 : r < 0.86 ? 0x07CA : 0x07CB, x, y, z);
+    }
+    made++;
+  }
+  return made;
+}
 function addStatic0(id, x, y, z) { if (inMap(x, y)) W.objects.statics.push([id, x, y, z]); }
 function interp(a, b) { const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])), out = []; for (let i = 1; i <= n; i++) out.push([Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n)]); return out; }
 
@@ -1852,7 +2051,7 @@ function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       const nx = x + dx, ny = y + dy; if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
       const j = idx(nx, ny); if (closed[j]) continue;
-      const step = (dx && dy ? 1.414 : 1) * cost(nx, ny) + Math.abs(zc(nx, ny) - zc(x, y)) * 0.15;
+      const dz = Math.abs(zc(nx, ny) - zc(x, y)), step = (dx && dy ? 1.414 : 1) * cost(nx, ny) + dz * 0.15 + dz * dz * 0.012;
       if (g[i] + step < g[j]) { g[j] = g[i] + step; from[j] = i; push(g[j] + Math.hypot(nx - tx, ny - ty), j); }
     }
   }
@@ -2596,7 +2795,7 @@ Ops (JSON objects, applied in order):
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
-- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (around water; no bridges) and adds camps, ruins and shrines.
+- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
 Leave space between settlements (two radii or more). Found settlements after shaping the land. Prefer dirt for roads you paint: every terrain border must blend, and dirt blends with nearly everything.
