@@ -80,3 +80,12 @@ creating anything.
   of your new map. On a new shard just don't run them for that facet.
 - The import script was written against ServUO's public API and handles both old and new spawner styles, but it
   hasn't yet been run on a live ServUO by us: tell us what the console says the first time.
+
+
+## Generated traps and spawners
+
+The editor's underground themes (lava, acid, ice, spiders, undead) place real ServUO traps where the passages
+narrow (`FireColumnTrap`, `FlameSpurtTrap`, `GasTrap`, `MushroomTrap`, `SpikeTrap`, `SawTrap`, `StoneFaceTrap`)
+and spawners with fitting monsters in the far chambers. They travel with the project: building it puts them on
+the map as server items (their ids start with `gen-`), replacing the previous build's; anything you placed by
+hand in Walk stays. Export and `[SFImport` them like any other server items.

@@ -41,6 +41,12 @@ public sealed class ProjectObjects
     [JsonPropertyName("buildings")] public ShardForge.Core.Architecture.BuildingSpec[] Buildings { get; set; } = [];
     /// <summary>Building plots laid out by the settlement planner: levelled, cleared ground to build on by hand.</summary>
     [JsonPropertyName("lots")] public ProjectLot[] Lots { get; set; } = [];
+    /// <summary>
+    /// Server items the generator placed (traps, spawners, braziers that burn...), in the same shape Walk's server
+    /// items have ({"kind": "item", "type": "SpikeTrap", "x", "y", "z", ...}). Building the project puts them on
+    /// the map, replacing the ones the previous build put there; items placed by hand stay.
+    /// </summary>
+    [JsonPropertyName("serverItems")] public System.Text.Json.Nodes.JsonObject[] ServerItems { get; set; } = [];
 }
 
 /// <summary>A building plot: x, y is the north-west tile; <see cref="Face"/> is the side that faces its road.</summary>
@@ -172,6 +178,7 @@ public sealed class ShardProject
 
     /// <summary>What the underground pass made in the last <see cref="Build"/> (null when the project has no void).</summary>
     [JsonIgnore] public ShardForge.Core.Terrain.Underground.Plan? LastUnderground { get; private set; }
+    [JsonIgnore] public int LastRims { get; private set; }
 
     /// <summary>Which dungeon wall set built dungeon floors get (see Underground.DungeonWalls).</summary>
     [JsonPropertyName("dungeonWalls")] public int DungeonWallSet { get; set; }
@@ -229,6 +236,17 @@ public sealed class ShardProject
                 break; // at most one object per cell
             }
         }
+
+        // Lava and acid get the crusted, slimy rims the client's own dungeons have (LiquidEdges).
+        var rimKeys = Terrains.Select(t => t.Key).ToArray();
+        LastRims = 0;
+        if (rimKeys.Any(k => k is "lava" or "acid"))
+            foreach (var (rx, ry, id, rz) in ShardForge.Core.Terrain.LiquidEdges.BuiltIn.Rims(Width, Height,
+                         (x, y) => rimKeys[terrain[x + y * Width]], (x, y) => facet.GetLand(x, y).Z, (x, y, k) => HRand(x, y, Seed, k)))
+            {
+                (blockStatics[facet.BlockIndex(rx >> 3, ry >> 3)] ??= []).Add(new StaticTile(id, (byte)(rx & 7), (byte)(ry & 7), rz, 0));
+                LastRims++;
+            }
 
         if (under is not null)
             foreach (var (sx, sy, id, sz) in under.Statics)

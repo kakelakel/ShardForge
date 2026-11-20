@@ -18,6 +18,7 @@ Usage:
   shardforge patch publish <filesDir> --repo owner/name [--shard NAME] [--release TAG] [--notes TEXT] [--patcher exe] [--token T]
   shardforge iso    <mapDir> <facet> <x> <y> <radius> <out.png> [--client <clientDir>] [--size W H] [--no-statics]
   shardforge mine-transitions <clientDir> <out.json> <facet,facet,...>
+  shardforge mine-edges <clientDir> <out.json> <facet,facet,...>
   shardforge tiles  <clientDir> <facet> <name,name,...>
   shardforge uop    <file.uop>
 
@@ -38,6 +39,7 @@ try
         ["iso", var mapDir, var f, var cx, var cy, var r, var output, .. var rest] =>
             Iso(mapDir, int.Parse(f), int.Parse(cx), int.Parse(cy), int.Parse(r), output, rest),
         ["mine-transitions", var dir, var output, var facets] => MineTransitions(dir, output, facets),
+        ["mine-edges", var dir, var output, var facets] => MineEdges(dir, output, facets),
         ["tiles", var dir, var f, var filter] => TileStats(dir, int.Parse(f), filter),
         _ => Fail(Usage),
     };
@@ -212,6 +214,23 @@ static int Iso(string mapDir, int facetIndex, int cx, int cy, int radius, string
     var (iw, ih, rgb) = IsoRenderer.Render(facet, art, tiles, cx, cy, radius, statics);
     PngWriter.WriteRgb(output, iw, ih, rgb);
     Console.WriteLine($"Rendered {radius * 2 + 1} x {radius * 2 + 1} tiles around {cx},{cy} to {output} ({iw} x {ih})");
+    return 0;
+}
+
+static int MineEdges(string dir, string output, string facetList)
+{
+    var facets = facetList.Split(',').Select(f => FacetLoader.Load(dir, int.Parse(f))).ToList();
+    var tiles = TileData.Load(Path.Combine(dir, "tiledata.mul"));
+    var liquids = new Dictionary<string, (int[] Land, string Name)>
+    {
+        ["lava"] = ([0x1F4, 0x1F5, 0x1F6, 0x1F7], "lava"),
+        ["acid"] = (Enumerable.Range(0x2E0E, 0x2E5F - 0x2E0E + 1).ToArray(), "acid"),
+    };
+    var table = ShardForge.Core.Terrain.LiquidEdges.Mine(facets, tiles, liquids);
+    table.Save(output);
+    Console.WriteLine(table.Source);
+    foreach (var (k, l) in table.Liquids)
+        Console.WriteLine($"  {k}: {l.In.Count(p => p.Value.Pieces.Count > 0)} inner patterns with pieces, {l.Out.Count(p => p.Value.Pieces.Count > 0)} outer; pieces used {l.In.Values.Sum(p => p.Used) + l.Out.Values.Sum(p => p.Used)}");
     return 0;
 }
 

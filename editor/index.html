@@ -233,6 +233,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
       <div class="field">
         <div class="grid2">
           <div><label for="underStyle">Kind</label><select id="underStyle"></select></div>
+          <div><label for="underTheme">Theme</label><select id="underTheme"></select></div>
           <div><label for="underZ">Floor height</label><input type="number" id="underZ" value="0" min="-60" max="60"></div>
         </div>
         <label for="underName">Name</label>
@@ -408,10 +409,12 @@ const TERRAINS = [
   { key: "void", name: "Void (underground)", color: "#070707", land: [0x244], populate: [] },
   { key: "dungeon", name: "Dungeon floor", color: "#77716a", land: [0x43E,0x43F,0x440,0x441], populate: [
       { kind: "small", items: DUNGEON_LITTER, density: 0.015 } ] },
+  // The build lays the client's own crusted rims where lava and acid meet the floor (LiquidEdges.cs).
+  { key: "acid", name: "Acid", color: "#86b92e", land: [0x2E35,0x2E31,0x2E2C,0x2E2F,0x2E2D,0x2E2A,0x2E37,0x2E38,0x2E2E,0x2E34,0x2E2B,0x2E33], populate: [] },
 ];
 const TKEY = Object.fromEntries(TERRAINS.map((t, i) => [t.key, i]));
 const TRGB = TERRAINS.map(t => [1,3,5].map(o => parseInt(t.color.slice(o, o + 2), 16)));
-const GRID_CHARS = "WgFJsdRSLcfC"; // one char per terrain, for Claude's overview
+const GRID_CHARS = "WgFJsdRSLcfCVDA"; // one char per terrain, for Claude's overview
 
 // ---------------------------------------------------------------------------
 // Deterministic hash (identical in the C# exporter): lowbias32 over (x, y, seed, k).
@@ -464,7 +467,7 @@ function newWorld(width, height, start) {
   else if (start === "world") { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   undoStack.length = 0; redoStack.length = 0;
-  W.objects = { buildings: [], statics: [], multis: [], lots: [] }; W.places = [];
+  W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [] }; W.places = [];
   if (start === "island") applyOps(starterOps(width, height), false);
   if (start === "world") {
     const o = worldOptions(); W.seed = o.seed;
@@ -680,7 +683,7 @@ const OPS = {
 // cleared and face their road; build on them by hand in Walk. Nothing is on a grid: squares are blobs, roads
 // wander and follow the land, lanes branch at odd angles and sometimes loop back.
 // ---------------------------------------------------------------------------
-W.objects = { buildings: [], statics: [], multis: [], lots: [] };
+W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [] };
 W.places = [];
 
 const THEME_ROOF = { wood: "#9a6a3c", darkwood: "#6e4a2c", plaster: "#8a3b2a", thatch: "#c9a25a", log: "#7a5a34", fieldstone: "#4f5862",
@@ -740,7 +743,7 @@ function townName(rnd) {
   for (let i = 0; i < 50; i++) { const n = pickOf(NAME_A, rnd) + pickOf(NAME_B, rnd); if (!used.has(n)) return n; }
   return "Settlement " + (W.places.length + 1);
 }
-function ensureObjects() { W.objects.lots ??= []; W.objects.buildings ??= []; W.objects.statics ??= []; W.objects.multis ??= []; }
+function ensureObjects() { W.objects.lots ??= []; W.objects.buildings ??= []; W.objects.statics ??= []; W.objects.multis ??= []; W.objects.serverItems ??= []; }
 
 /** Cells taken: 3 water/lava, 2 roads and squares, 1 plots and fields. */
 function occupancy() {
@@ -1754,11 +1757,46 @@ const UNDER_STYLES = {
 };
 const UNDER_NAMES = { cave: ["Cave", "Grotto", "Hollow", "Caves"], cavern: ["Cavern", "Deeps", "Underhall"], mine: ["Mine", "Diggings", "Shafts"], crypt: ["Crypt", "Catacombs", "Tomb", "Vaults"], lair: ["Lair", "Den", "Pit", "Nest"] };
 const UNDER_ADJ = ["Black", "Shadow", "Whispering", "Hollow", "Grim", "Old", "Deep", "Weeping", "Ashen", "Bleak", "Cold", "Forgotten", "Iron", "Bone", "Dread", "Silent"];
+// What lives down there: each theme brings its hazards, its look, its traps and its monsters.
+const UNDER_THEMES = {
+  plain: "Plain", lava: "Lava: rivers and lakes of fire", acid: "Acid: festering pools and streams", ice: "Ice: frozen caverns",
+  spider: "Spiders: webs and nests", undead: "Undead: bones, blood and altars",
+};
+const THEME_ADJ = {
+  lava: ["Burning", "Molten", "Ashen", "Smouldering", "Infernal", "Searing", "Cinder"], acid: ["Festering", "Caustic", "Rotting", "Bilious", "Corroded", "Putrid"],
+  ice: ["Frozen", "Rime", "Glacial", "Frostbitten", "Shivering", "Winter's"], spider: ["Webbed", "Silken", "Crawling", "Weaver's", "Skittering"],
+  undead: ["Bone", "Dread", "Cursed", "Silent", "Restless", "Grave", "Hollow"],
+};
+const HAZ = {
+  lavaSpot: [0x1318, 0x1312], eruption: 0x1A47, embers: 0x0DE9, smoke: 0x3728, fireField: [0x398C, 0x3996], firePit: 0x29FD, brazier: 0x0E31, fireColumn: 0x3709,
+  poisonField: [0x3914, 0x3920], bones: [0x0ECA, 0x0ECB, 0x0ECC, 0x0ECD, 0x0ECE, 0x0ECF, 0x0ED0, 0x0ED1, 0x0ED2], bonePile: [0x1B09, 0x1B0A, 0x1B0B, 0x1B0C, 0x1B0D, 0x1B0E, 0x1B0F, 0x1B10],
+  skullPile: [0x1AD8, 0x1AD9, 0x1ADA, 0x1ADB, 0x1ADC, 0x1ADD, 0x1ADE, 0x1ADF], skull: [0x1AE0, 0x2203], blood: [0x122A, 0x122B, 0x122C, 0x122D, 0x122E], candleSkull: 0x1853,
+  webs: [0x10B8, 0x10B9, 0x10BA, 0x10BB, 0x10BC, 0x10BD, 0x10C0, 0x10C4, 0x10C8, 0x10CC, 0x10D0], smallWeb: [0x10D2, 0x10D3, 0x10D4, 0x10D5, 0x10D6, 0x10D7], cobweb: [0x0EE3, 0x0EE4, 0x0EE5, 0x0EE6], egg: 0x10D8,
+  everfrost: [0x6533, 0x6534, 0x6535, 0x6536], tallCrystal: 0x2FDD, crystal: 0x2224, brokenCrystal: [0x223A, 0x223B, 0x223C], snow: [0x17BD, 0x17BE, 0x17BF, 0x17C0],
+  icicleS: [0x4572, 0x4573, 0x4574], icicleE: [0x4575, 0x4576, 0x4577],
+};
+const PENTAGRAM = [[-1, -1, 0xFE7], [0, -1, 0xFE8], [1, -1, 0xFEB], [-1, 0, 0xFE6], [0, 0, 0xFEA], [1, 0, 0xFEE], [-1, 1, 0xFE9], [0, 1, 0xFEC], [1, 1, 0xFED]];
+const ALTAR = [[-1, -1, 0x120E], [0, -1, 0x120F], [1, -1, 0x1210], [-1, 0, 0x1215], [0, 0, 0x1216], [1, 0, 0x1211], [-1, 1, 0x1214], [0, 1, 0x1213], [1, 1, 0x1212]];
+// Monsters (ServUO class names) per theme: each spawner picks one pack.
+const THEME_SPAWNS = {
+  plain: ["Orc:3,OrcishMage:1", "GiantRat:4,Ratman:2", "Troll:1,Ettin:1", "Headless:3,Zombie:1"],
+  lava: ["LavaLizard:3,LavaSnake:2", "FireElemental:2,Imp:2", "HellHound:3", "FireGargoyle:1,Efreet:1", "LavaLizard:2,FireElemental:1"],
+  acid: ["AcidElemental:2,Slime:3", "Bogling:3,BogThing:1", "PoisonElemental:1,Slime:2", "Slime:5"],
+  ice: ["FrostTroll:2,IceElemental:1", "IceSnake:3,FrostSpider:2", "SnowElemental:2,FrostOoze:3", "IceFiend:1,FrostTroll:1"],
+  spider: ["GiantSpider:4", "DreadSpider:1,GiantSpider:2", "GiantBlackWidow:2,FrostSpider:1", "GiantSpider:3,DreadSpider:1"],
+  undead: ["Skeleton:4,Zombie:2", "Ghoul:2,Mummy:1", "SkeletalMage:2,BoneKnight:1", "Lich:1,Wraith:2", "Spectre:2,Shade:1"],
+};
+// Real traps (ServUO classes); the id is only what Walk shows for them.
+const THEME_TRAPS = {
+  plain: [["SpikeTrap", 0x119A], ["GasTrap", 0x113A]], lava: [["FireColumnTrap", 0x10F7], ["FlameSpurtTrap", 0x3709]], acid: [["GasTrap", 0x113A], ["MushroomTrap", 0x1125]],
+  ice: [["SpikeTrap", 0x119A]], spider: [["MushroomTrap", 0x1125], ["GasTrap", 0x113A]], undead: [["SpikeTrap", 0x119A], ["SawTrap", 0x1103], ["StoneFaceTrap", 0x10F5]],
+};
 OPS.underground = o => {
   const x0 = Math.max(1, Math.round(o.x)), y0 = Math.max(1, Math.round(o.y));
   const w = Math.min(W.width - 2 - x0, Math.round(o.w)), h = Math.min(W.height - 2 - y0, Math.round(o.h));
   if (w < 12 || h < 12) throw new Error("An underground area needs at least 12×12 tiles.");
   const style = UNDER_STYLES[o.style] ? o.style : "cave", rnd = mulberry(o.seed ?? ((Math.random() * 1e9) | 0));
+  const theme = UNDER_THEMES[o.theme] ? o.theme : "plain";
   const floorKey = style === "crypt" ? "dungeon" : "cave", F = TKEY[floorKey], V = TKEY.void, z0 = o.z ?? 0;
   const open = new Uint8Array(w * h), at = (x, y) => x >= 0 && y >= 0 && x < w && y < h ? open[x + y * w] : 0;
   const dig = (cx, cy, r) => { for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) if (x >= 2 && y >= 2 && x < w - 2 && y < h - 2 && (x - cx) ** 2 + (y - cy) ** 2 <= r * r + 0.5) open[x + y * w] = 1; };
@@ -1856,21 +1894,196 @@ OPS.underground = o => {
     settle(1, 6, 3);
   }
   keepLargest();
+  // The way in: the open tile nearest the area's edge.
+  let entry = null, entryD = Infinity;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (open[x + y * w]) { const d = Math.min(x, y, w - 1 - x, h - 1 - y); if (d < entryD) { entryD = d; entry = [x, y]; } }
+  if (!entry) throw new Error("Nothing was carved: try a bigger area.");
+  // Lava or acid: meandering rivers across it and pools and lakes in it; then every part still reachable.
+  const liq = new Uint8Array(w * h), liquidKey = theme === "lava" ? "lava" : theme === "acid" ? "acid" : null;
+  if (liquidKey) {
+    const seedN = (o.seed ?? 1) % 100000;
+    const openPts = []; for (let k = 0; k < w * h; k++) if (open[k]) openPts.push(k);
+    const river = (ax, ay, bx, by, r0) => {
+      let x = ax, y = ay, a = Math.atan2(by - ay, bx - ax), steps = 0;
+      while (Math.hypot(bx - x, by - y) > 1.5 && steps++ < 3000) {
+        a += (Math.atan2(by - y, bx - x) - a) * 0.18 + (rnd() - 0.5) * 0.7;
+        x += Math.cos(a); y += Math.sin(a);
+        const r = r0 + Math.sin(steps / 9) * 0.5;
+        for (let yy = Math.floor(y - r); yy <= y + r; yy++) for (let xx = Math.floor(x - r); xx <= x + r; xx++)
+          if (xx >= 0 && yy >= 0 && xx < w && yy < h && open[xx + yy * w] && (xx - x) ** 2 + (yy - y) ** 2 <= r * r + 0.3) liq[xx + yy * w] = 1;
+      }
+    };
+    const rivers = Math.max(1, Math.min(3, Math.round((w + h) / 140) + (theme === "lava" ? 1 : 0)));
+    for (let k = 0; k < rivers && openPts.length; k++) {
+      // From one side of the area to the other, through the open parts.
+      const horiz = rnd() < (w >= h ? 0.7 : 0.3);
+      const side = (lo) => { let best = null, bd = Infinity; for (let t = 0; t < 60; t++) { const p = openPts[Math.floor(rnd() * openPts.length)], px = p % w, py = (p / w) | 0, d = horiz ? (lo ? px : w - px) : (lo ? py : h - py); if (d < bd) { bd = d; best = [px, py]; } } return best; };
+      const A = side(true), B = side(false);
+      if (A && B) river(A[0], A[1], B[0], B[1], (style === "cavern" ? 1.6 : 1.1) + rnd() * 0.6);
+    }
+    // Pools and lakes: soft blobs away from the walls.
+    // As much as makes it a lava (acid) place without drowning it: pools fill up to a share of the floor.
+    const scale = style === "cavern" || style === "lair" ? 11 : 7, target = theme === "lava" ? 0.18 : 0.14;
+    const already = openPts.reduce((a, k) => a + liq[k], 0) / Math.max(1, openPts.length);
+    const vals = openPts.map(k => vnoise((x0 + k % w) / scale, (y0 + ((k / w) | 0)) / scale, seedN + 501));
+    const sorted = Float32Array.from(vals).sort(), want = Math.max(0, target - already);
+    const cut = want <= 0 ? Infinity : sorted[Math.floor((1 - want) * (sorted.length - 1))];
+    openPts.forEach((k, j) => { if (vals[j] > cut) liq[k] = 1; });
+    // Keep the way in dry, and the liquid off one-tile slivers.
+    for (let y = entry[1] - 4; y <= entry[1] + 4; y++) for (let x = entry[0] - 4; x <= entry[0] + 4; x++) if (x >= 0 && y >= 0 && x < w && y < h) liq[x + y * w] = 0;
+    for (let k = 0; k < w * h; k++) if (liq[k]) { const x = k % w, y = (k / w) | 0; let nl = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (x + dx >= 0 && y + dy >= 0 && x + dx < w && y + dy < h && liq[x + dx + (y + dy) * w]) nl++; if (nl === 0) liq[k] = 0; }
+    // Every dry part of any size joins the rest: a causeway of rock across the liquid along the shortest way.
+    const floorAt = k => open[k] && !liq[k];
+    for (let round = 0; round < 40; round++) {
+      const comp = new Int32Array(w * h).fill(-1), sizes = []; let id = 0;
+      for (let s0 = 0; s0 < w * h; s0++) {
+        if (!floorAt(s0) || comp[s0] >= 0) continue;
+        const st = [s0]; comp[s0] = id; let n2 = 0;
+        while (st.length) { const c = st.pop(); n2++; const cx2 = c % w, cy2 = (c / w) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx2 + dx, ny = cy2 + dy, k = nx + ny * w; if (nx >= 0 && ny >= 0 && nx < w && ny < h && floorAt(k) && comp[k] < 0) { comp[k] = id; st.push(k); } } }
+        sizes.push(n2); id++;
+      }
+      const main = comp[entry[0] + entry[1] * w];
+      const other = sizes.findIndex((sz, c) => c !== main && sz >= 6);
+      if (other < 0) break;
+      // BFS from the main part across liquid to the other part.
+      const prev = new Int32Array(w * h).fill(-2), q = [];
+      for (let k = 0; k < w * h; k++) if (comp[k] === main) { prev[k] = -1; q.push(k); }
+      let hit = -1;
+      for (let qh = 0; qh < q.length && hit < 0; qh++) {
+        const c = q[qh], cx2 = c % w, cy2 = (c / w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx2 + dx, ny = cy2 + dy, k = nx + ny * w;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h || prev[k] !== -2 || !open[k]) continue;
+          prev[k] = c;
+          if (comp[k] === other) { hit = k; break; }
+          if (liq[k]) q.push(k);
+        }
+      }
+      if (hit < 0) { for (let k = 0; k < w * h; k++) if (comp[k] === other) liq[k] = 1; continue; } // can't reach: let it sink
+      for (let c = hit; c >= 0; c = prev[c]) { const cx2 = c % w, cy2 = (c / w) | 0;
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1]]) { const k = cx2 + dx + (cy2 + dy) * w; if (cx2 + dx < w && cy2 + dy < h && open[k]) liq[k] = 0; } }
+    }
+  }
   // Write it: floor, gently uneven (caves) or level (crypts); the rest of the rectangle stays as it was.
-  let n = 0, entry = null, entryD = Infinity;
+  const iceFloor = theme === "ice" && floorKey === "cave";
+  const Fl = iceFloor ? TKEY.snow : F, L = liquidKey ? TKEY[liquidKey] : -1;
+  let n = 0;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (!open[x + y * w]) continue;
     const i = (x0 + x) + (y0 + y) * W.width;
-    W.terrain[i] = F; n++;
+    W.terrain[i] = liq[x + y * w] ? L : Fl; n++;
     W.height_[i] = floorKey === "dungeon" ? z0 : z0 + Math.round((vnoise((x0 + x) / 9, (y0 + y) / 9, 77) - 0.5) * 4);
-    const d = Math.min(x, y, w - 1 - x, h - 1 - y); // nearest the area's edge: where the way in goes
-    if (d < entryD) { entryD = d; entry = [x0 + x, y0 + y]; }
+    if (theme !== "plain") W.density[i] = theme === "ice" ? 60 : 90; // a little less of the usual litter: the theme brings its own
   }
+  entry = [x0 + entry[0], y0 + entry[1]];
+  if (theme !== "plain") dressUnderground(theme, style, x0, y0, w, h, open, liq, entry, rnd);
   if (!n) throw new Error("Nothing was carved: try a bigger area.");
-  const name = o.name || `${pickOf(UNDER_ADJ, rnd)} ${pickOf(UNDER_NAMES[style], rnd)}`;
-  W.places.push({ name, kind: "dungeon", style, x: entry[0], y: entry[1], radius: Math.max(w, h) >> 1, area: [x0, y0, w, h] });
+  const name = o.name || `${pickOf(THEME_ADJ[theme] || UNDER_ADJ, rnd)} ${pickOf(UNDER_NAMES[style], rnd)}`;
+  W.places.push({ name, kind: "dungeon", style, theme, x: entry[0], y: entry[1], radius: Math.max(w, h) >> 1, area: [x0, y0, w, h] });
   return { name, tiles: n, entry };
 };
+/** Dresses a themed underground area: the look (fire, slime, frost, webs, bones), real traps where the way
+ *  narrows, and spawners in the far chambers. All placed on floor, never on the way in. */
+function dressUnderground(theme, style, x0, y0, w, h, open, liq, entry, rnd) {
+  ensureObjects();
+  const floor = (x, y) => x >= 0 && y >= 0 && x < w && y < h && open[x + y * w] && !liq[x + y * w];
+  const wet = (x, y) => x >= 0 && y >= 0 && x < w && y < h && liq[x + y * w];
+  const wall = (x, y) => !(x >= 0 && y >= 0 && x < w && y < h && open[x + y * w]);
+  const zAtL = (x, y) => W.height_[(x0 + x) + (y0 + y) * W.width];
+  const put = (id, x, y, dz = 0) => addStatic0(id, x0 + x, y0 + y, zAtL(x, y) + dz);
+  const ex = entry[0] - x0, ey = entry[1] - y0;
+  // Distances: to the liquid, to the walls (room to stand impassable things), to the way in.
+  const dist = (seedTest) => { const d = new Int16Array(w * h).fill(999), q = []; for (let k = 0; k < w * h; k++) if (seedTest(k % w, (k / w) | 0)) { d[k] = 0; q.push(k); }
+    for (let qh = 0; qh < q.length; qh++) { const c = q[qh], cx = c % w, cy = (c / w) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy, k = nx + ny * w; if (nx >= 0 && ny >= 0 && nx < w && ny < h && d[k] > d[c] + 1) { d[k] = d[c] + 1; q.push(k); } } } return d; };
+  const dLiq = dist((x, y) => wet(x, y)), dWall = dist((x, y) => wall(x, y)), dIn = dist((x, y) => x === ex && y === ey);
+  const tiles = []; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (floor(x, y) && dIn[x + y * w] > 3) tiles.push([x, y]);
+  const roomy = (x, y) => dWall[x + y * w] >= 3; // impassable things only where there's room round them
+  const used = new Set(), take = (x, y) => { const k = x + y * w; if (used.has(k)) return false; used.add(k); return true; };
+  const chance = (p) => rnd() < p;
+  for (const [x, y] of tiles) {
+    const k = x + y * w, dl = dLiq[k], nearWall = dWall[k] === 1;
+    if (theme === "lava") {
+      if (dl <= 2 && chance(0.06) && take(x, y)) put(HAZ.embers, x, y);
+      else if (dl <= 2 && chance(0.003) && take(x, y)) put(HAZ.smoke, x, y);
+      else if (dl > 4 && chance(0.003) && take(x, y)) put(pickOf(HAZ.lavaSpot, rnd), x, y);
+      else if (roomy(x, y) && chance(0.0025) && take(x, y)) put(pickOf(HAZ.fireField, rnd), x, y);
+      else if (chance(0.01) && take(x, y)) put(pickOf(HAZ.bones, rnd), x, y);
+    } else if (theme === "acid") {
+      if (dl <= 2 && chance(0.05) && take(x, y)) put(pickOf(HAZ.bones, rnd), x, y);
+      else if (dl <= 2 && chance(0.012) && take(x, y)) put(pickOf(HAZ.skull, rnd), x, y);
+      else if (roomy(x, y) && chance(0.003) && take(x, y)) put(pickOf(HAZ.poisonField, rnd), x, y);
+      else if (roomy(x, y) && chance(0.004) && take(x, y)) put(pickOf(HAZ.bonePile, rnd), x, y);
+    } else if (theme === "ice") {
+      if (nearWall && chance(0.08) && take(x, y)) put(pickOf(wall(x, y - 1) ? HAZ.icicleS : wall(x - 1, y) ? HAZ.icicleE : HAZ.brokenCrystal, rnd), x, y);
+      else if (roomy(x, y) && chance(0.006) && take(x, y)) put(chance(0.5) ? HAZ.tallCrystal : HAZ.crystal, x, y);
+      else if (chance(0.008) && take(x, y)) put(pickOf(HAZ.everfrost, rnd), x, y);
+      else if (chance(0.015) && take(x, y)) put(pickOf(HAZ.brokenCrystal, rnd), x, y);
+      else if (style === "crypt" && chance(0.05) && take(x, y)) put(pickOf(HAZ.snow, rnd), x, y);
+    } else if (theme === "spider") {
+      if (nearWall && chance(0.16) && take(x, y)) put(pickOf(HAZ.webs, rnd), x, y);
+      else if (chance(0.04) && take(x, y)) put(pickOf(HAZ.cobweb.concat(HAZ.smallWeb), rnd), x, y);
+      else if (roomy(x, y) && chance(0.006) && take(x, y)) put(HAZ.egg, x, y);
+      else if (chance(0.02) && take(x, y)) put(pickOf(HAZ.bones, rnd), x, y);
+    } else if (theme === "undead") {
+      if (chance(0.025) && take(x, y)) put(pickOf(HAZ.bones, rnd), x, y);
+      else if (chance(0.018) && take(x, y)) put(pickOf(HAZ.blood, rnd), x, y);
+      else if (roomy(x, y) && chance(0.005) && take(x, y)) put(pickOf(HAZ.skullPile, rnd), x, y);
+      else if (roomy(x, y) && chance(0.004) && take(x, y)) put(pickOf(HAZ.bonePile, rnd), x, y);
+      else if (nearWall && chance(0.006) && take(x, y)) put(HAZ.candleSkull, x, y);
+    }
+  }
+  // On the liquid: the odd eruption bubbling up out of the lava.
+  if (theme === "lava") for (let k = 0; k < w * h; k++) if (liq[k] && dLiq[k] === 0) {
+    const x = k % w, y = (k / w) | 0; let deep = true;
+    for (let dy = -2; dy <= 2 && deep; dy++) for (let dx = -2; dx <= 2; dx++) if (!wet(x + dx, y + dy)) { deep = false; break; }
+    if (deep && chance(0.02) && take(x, y)) put(HAZ.eruption, x, y);
+  }
+  // The heart of it: the roomiest spot, far from the way in.
+  let heart = null, hs = -1;
+  for (const [x, y] of tiles) { const k = x + y * w; const sc = Math.min(dWall[k], 6) * 10 + Math.min(dIn[k], 60) + (dLiq[k] >= 4 ? 5 : 0); if (dWall[k] >= 3 && dLiq[k] >= 3 && sc > hs) { hs = sc; heart = [x, y]; } }
+  if (heart) {
+    const [hx, hy] = heart;
+    if (theme === "undead" || theme === "lava") {
+      for (const [dx, dy, id] of PENTAGRAM) put(id, hx + dx, hy + dy);
+      for (const [dx, dy] of [[-3, 0], [3, 0], [0, -3], [0, 3]]) if (floor(hx + dx, hy + dy)) put(theme === "lava" ? HAZ.fireColumn : HAZ.brazier, hx + dx, hy + dy);
+      if (floor(hx, hy - 5) && floor(hx - 1, hy - 6) && floor(hx + 1, hy - 4)) for (const [dx, dy, id] of ALTAR) put(id, hx + dx, hy - 5 + dy);
+    } else if (theme === "spider") {
+      for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2, x = Math.round(hx + Math.cos(a) * 2), y = Math.round(hy + Math.sin(a) * 2); if (floor(x, y) && take(x, y)) put(k % 2 ? HAZ.egg : pickOf(HAZ.webs, rnd), x, y); }
+    } else if (theme === "ice") {
+      for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2, x = Math.round(hx + Math.cos(a) * 3), y = Math.round(hy + Math.sin(a) * 3); if (floor(x, y) && take(x, y)) put(k % 2 ? HAZ.tallCrystal : pickOf(HAZ.everfrost, rnd), x, y); }
+    } else if (theme === "acid") {
+      for (let k = 0; k < 5; k++) { const x = hx + Math.round((rnd() - 0.5) * 6), y = hy + Math.round((rnd() - 0.5) * 6); if (floor(x, y) && take(x, y)) put(pickOf(HAZ.skullPile, rnd), x, y); }
+    }
+  }
+  // Traps where the way narrows (a passage between walls), away from the way in.
+  const traps = THEME_TRAPS[theme] || THEME_TRAPS.plain, spots = [];
+  for (const [x, y] of tiles) {
+    const k = x + y * w; if (dIn[k] < 10 || used.has(k)) continue;
+    // A passage: narrow one way (3 tiles or less wall to wall), open along the other.
+    const run = (dx, dy) => { let n = 1; for (const sg of [1, -1]) for (let s2 = 1; s2 <= 4; s2++) { if (!open[(x + dx * s2 * sg) + (y + dy * s2 * sg) * w] || x + dx * s2 * sg < 0 || y + dy * s2 * sg < 0 || x + dx * s2 * sg >= w || y + dy * s2 * sg >= h) break; n++; } return n; };
+    const across = Math.min(run(1, 0), run(0, 1)), along = Math.max(run(1, 0), run(0, 1));
+    if (across <= 3 && along >= 7) spots.push([x, y]);
+  }
+  const nTraps = Math.min(14, Math.max(spots.length ? 3 : 0, Math.round(tiles.length / 1500))), placedT = [];
+  for (let t = 0; t < spots.length * 3 && placedT.length < nTraps; t++) {
+    const [x, y] = spots[Math.floor(rnd() * spots.length)];
+    if (placedT.some(([px, py]) => Math.abs(px - x) + Math.abs(py - y) < 14)) continue;
+    placedT.push([x, y]);
+    const [type, id] = pickOf(traps, rnd);
+    W.objects.serverItems.push({ kind: "item", type, id, hue: 0, x: x0 + x, y: y0 + y, z: zAtL(x, y) });
+  }
+  // Spawners in the far chambers, spread out.
+  const packs = THEME_SPAWNS[theme] || THEME_SPAWNS.plain, nSp = Math.max(2, Math.min(10, Math.round(tiles.length / 2500))), placedS = [];
+  const far = tiles.filter(([x, y]) => dIn[x + y * w] > 15 && dWall[x + y * w] >= 2).sort(() => rnd() - 0.5);
+  for (const [x, y] of far) {
+    if (placedS.length >= nSp) break;
+    if (placedS.some(([px, py]) => Math.hypot(px - x, py - y) < 30)) continue;
+    placedS.push([x, y]);
+    const creatures = pickOf(packs, rnd), count = creatures.split(",").reduce((a, c) => a + (+c.split(":")[1] || 1), 0);
+    W.objects.serverItems.push({ kind: "spawn", creatures, count, range: 6, min: 5, max: 10, x: x0 + x, y: y0 + y, z: zAtL(x, y) });
+  }
+  return { traps: placedT.length, spawners: placedS.length };
+}
 OPS.lot = o => {
   ensureObjects();
   const l = { x: Math.round(o.x), y: Math.round(o.y), w: Math.max(3, Math.round(o.w ?? 8)), h: Math.max(3, Math.round(o.h ?? 8)), face: ["N", "S", "E", "W"].includes(o.face) ? o.face : "S", kind: LOT_COLORS[o.kind] ? o.kind : "home" };
@@ -1930,6 +2143,7 @@ OPS.clear_objects = o => {
   W.objects.buildings = W.objects.buildings.filter(b => !inR(b.x, b.y));
   W.objects.lots = W.objects.lots.filter(l => !inR(l.x, l.y));
   W.objects.statics = W.objects.statics.filter(s => !inR(s[1], s[2]));
+  W.objects.serverItems = (W.objects.serverItems || []).filter(s => !inR(s.x, s.y));
   W.objects.multis = W.objects.multis.filter(m => !inR(m[1], m[2]));
   W.places = W.places.filter(p => !inR(p.x, p.y));
 };
@@ -2369,7 +2583,7 @@ function draw() {
       const x = Math.min(d.x, d.ex), y = Math.min(d.y, d.ey), w = Math.abs(d.ex - d.x) + 1, h = Math.abs(d.ey - d.y) + 1;
       vctx.strokeStyle = w >= 12 && h >= 12 ? "#d6aa4c" : "#e07a5f"; vctx.lineWidth = 1.5; vctx.setLineDash([6, 5]);
       vctx.strokeRect((x - cam.x) * cam.z, (y - cam.y) * cam.z, w * cam.z, h * cam.z); vctx.setLineDash([]);
-      if (underDrag) { vctx.font = "600 12px system-ui, sans-serif"; vctx.fillStyle = "#e8c98a"; vctx.fillText(`${w}×${h} · ${UNDER_STYLES[$("underStyle").value]}`, (x - cam.x) * cam.z + 4, (y - cam.y) * cam.z - 6); }
+      if (underDrag) { vctx.font = "600 12px system-ui, sans-serif"; vctx.fillStyle = "#e8c98a"; vctx.fillText(`${w}×${h} · ${UNDER_STYLES[$("underStyle").value]}${$("underTheme").value !== "plain" ? " · " + $("underTheme").value : ""}`, (x - cam.x) * cam.z + 4, (y - cam.y) * cam.z - 6); }
     }
     if (hover && !panning && tool === "town") {
       const c = townDrag ?? hover;
@@ -2489,6 +2703,7 @@ function renderUnderList() {
 }
 function buildUi() {
   $("underStyle").innerHTML = Object.entries(UNDER_STYLES).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join("");
+  $("underTheme").innerHTML = Object.entries(UNDER_THEMES).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join("");
   $("tools").innerHTML = TOOLS.map(t => `<button data-tool="${t.id}" aria-pressed="${t.id === tool}">${t.label}<kbd>${t.key}</kbd></button>`).join("");
   $("tools").onclick = e => { const b = e.target.closest("button"); if (b) setTool(b.dataset.tool); };
   $("palette").innerHTML = TERRAINS.map((t, i) =>
@@ -2590,7 +2805,7 @@ const endStroke = () => {
     const x = Math.min(d.x, d.ex), y = Math.min(d.y, d.ey), w = Math.abs(d.ex - d.x) + 1, h = Math.abs(d.ey - d.y) + 1;
     if (w < 12 || h < 12) addMsg("claude", "Drag a rectangle of at least 12×12 tiles for an underground area.", "error");
     else {
-      const op = { op: "underground", x, y, w, h, style: $("underStyle").value, z: +$("underZ").value || 0, seed: (Math.random() * 1e9) | 0 };
+      const op = { op: "underground", x, y, w, h, style: $("underStyle").value, theme: $("underTheme").value, z: +$("underZ").value || 0, seed: (Math.random() * 1e9) | 0 };
       if ($("underName").value.trim()) op.name = $("underName").value.trim();
       const r = applyOps([op]);
       if (r[0]?.ok) { const pl = W.places[W.places.length - 1]; addMsg("claude", `Carved <b>${escapeHtml(pl.name)}</b> (${UNDER_STYLES[pl.style].toLowerCase()}, ${w}×${h}). Its way in is at ${pl.x}, ${pl.y}: link it from the overworld with a teleporter in Walk.`); $("underName").value = ""; }
@@ -2769,7 +2984,7 @@ function loadWorld(m) {
   for (let i = 0; i < t.length; i++) t[i] = order[t[i]] ?? 0;
   W.width = m.width; W.height = m.height; W.seed = m.seed | 0;
   W.terrain = t; W.height_ = m.heights; W.density = m.density;
-  W.objects = { buildings: m.objects?.buildings ?? [], statics: m.objects?.statics ?? [], multis: m.objects?.multis ?? [], lots: m.objects?.lots ?? [] };
+  W.objects = { buildings: m.objects?.buildings ?? [], statics: m.objects?.statics ?? [], multis: m.objects?.multis ?? [], lots: m.objects?.lots ?? [], serverItems: m.objects?.serverItems ?? [] };
   W.places = m.places ?? [];
   $("projName").value = m.name || "Untitled";
   undoStack.length = 0; redoStack.length = 0; syncUndo();
@@ -2864,7 +3079,7 @@ Ops (JSON objects, applied in order):
 - {"op":"density","cx","cy","rx","ry","value":0-2} vegetation multiplier: 0 clears trees (towns, fields), 2 is dense.
 - {"op":"smooth","passes"?:2,"region"?:{"x","y","w","h"}} softens altitude.
 - {"op":"world","region"?:{"x","y","w","h"},"sea"?:bool (region edges fall to sea),"scale"?:number (plate count as for this many million tiles),"shape"?:"continent"|"twin"|"archipelago"|"inland"|"coast"|"pangaea","climate"?:"temperate"|"frozen"|"warm"|"span","land"?:0.1-0.9,"mountains"?:0-2,"rivers"?:0-2,"seed"?:int} replaces the WHOLE map with a generated world (plates, ranges, rivers, climate). Only when asked for a new world.
-- {"op":"underground","x","y","w","h","style":"cave"|"cavern"|"mine"|"crypt"|"lair","name"?,"z"?:0,"seed"?:int} carves a dungeon area into the void (terrain "void"); the build raises rock walls around cave floor and stone walls around "dungeon" floor. Underground maps start as all void; keep areas apart with void between them.
+- {"op":"underground","x","y","w","h","style":"cave"|"cavern"|"mine"|"crypt"|"lair","theme"?:"plain"|"lava"|"acid"|"ice"|"spider"|"undead","name"?,"z"?:0,"seed"?:int} carves a dungeon area into the void (terrain "void"); the build raises rock walls around cave floor and stone walls around "dungeon" floor. A theme brings its hazards and look (lava rivers and lakes with crusted rims, acid pools, frost and crystals, webs and egg sacs, bones, blood and altars), real ServUO traps where the way narrows and spawners with fitting monsters. Underground maps start as all void; keep areas apart with void between them.
 - {"op":"beaches","width"?:2} turns low shoreline land into sand.
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:

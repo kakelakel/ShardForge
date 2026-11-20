@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Terrain\transitions.json" LogicalName="ShardForge.Core.Terrain.transitions.json" />
+    <EmbeddedResource Include="Terrain\liquid-edges.json" LogicalName="ShardForge.Core.Terrain.liquid-edges.json" />
     <EmbeddedResource Include="Architecture\kits.json" LogicalName="ShardForge.Core.Architecture.kits.json" />
   </ItemGroup>
 

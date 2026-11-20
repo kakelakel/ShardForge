@@ -1,3 +1,18 @@
+## ShardForge 0.5.8
+
+**Dungeons with something in them.** The Underground tool has themes:
+- **Lava**: rivers and lakes of lava with the crusted rims of the client's own fire dungeons, eruptions, embers,
+  fire fields, a pentagram with fire columns at its heart; fire traps; lava lizards, fire elementals, hell hounds.
+- **Acid**: festering pools and streams with slimy rims, poison clouds, bones and skulls; gas traps; acid
+  elementals, slimes, boglings.
+- **Ice**: snow floors, crystals, everfrost, icicles along the walls; frost trolls, ice elementals.
+- **Spiders**: webs everywhere, egg sacs round a nest; giant spiders, dread spiders, black widows.
+- **Undead**: bones, blood, skull piles, candles, a pentagram and an altar; spike, saw and stone face traps;
+  skeletons, ghouls, liches.
+Every part stays reachable (causeways of rock cross the liquid where needed). The traps are real ServUO traps and
+the spawners real spawners: they come with the project when it's built and export with the other server items.
+Lava and acid painted by hand get the same rims when the map is built.
+
 ## ShardForge 0.5.7
 
 - **Beautiful bridges**: generated roads cross rivers on proper wooden bridges built like the Trinsic bridges:

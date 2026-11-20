@@ -45,7 +45,7 @@ public static class EdgeSoftener
         int water = keys.ToList().IndexOf("water");
         // Underground edges become walls, not blends: void and dungeon floor are left alone, like water.
         var fixedSet = new bool[Math.Max(k, 1)];
-        for (int i = 0; i < k; i++) fixedSet[i] = keys[i] is "water" or "void" or "dungeon";
+        for (int i = 0; i < k; i++) fixedSet[i] = keys[i] is "water" or "void" or "dungeon" or "lava" or "acid";
 
         // How many of the 12 corner shapes each pair can draw (exactly or with the nearest-blend fallback).
         var cov = new int[k, k];

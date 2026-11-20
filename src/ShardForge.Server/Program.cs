@@ -497,7 +497,7 @@ api.MapDelete("/projects/{id:long}", (long id, HttpContext ctx, ProjectStore pro
 }).RequireAuthorization("Admin");
 
 var buildLocks = new ConcurrentDictionary<long, SemaphoreSlim>();
-api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, HttpContext ctx, ProjectStore projects, MapRegistry maps, BlockStore blocks, LiveHub hub, AuditLog audit) =>
+api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, HttpContext ctx, ProjectStore projects, MapRegistry maps, BlockStore blocks, ItemStore items, LiveHub hub, AuditLog audit) =>
 {
     var stored = projects.Get(id);
     if (stored is null) return Results.NotFound();
@@ -528,10 +528,26 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
             File.WriteAllText(Path.Combine(dir, "map.json"), JsonSerializer.Serialize(new BuiltMapMeta(
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });
+        // The generator's server items (traps, spawners): the previous build's ones out, these in. Hand-placed stay.
+        int generated = 0;
+        var built2 = maps.Get(mapId);
+        if (built2 is not null)
+        {
+            var oldGen = items.All(mapId).Select(o => o["uid"]?.ToString() ?? "").Where(u => u.StartsWith("gen-")).ToList();
+            var fresh = (project.Objects?.ServerItems ?? []).Select((o, k) =>
+            {
+                var c = (System.Text.Json.Nodes.JsonObject)o.DeepClone();
+                c["uid"] = $"gen-{k:D6}";
+                return c;
+            }).ToList();
+            if (oldGen.Count > 0 || fresh.Count > 0)
+                try { var (put, _) = items.Apply(built2, me, fresh, oldGen); generated = put.Count; await hub.PublishItems(mapId, me.Username, null, put, oldGen); }
+                catch (ItemException e) { return Err(400, "The generated server items: " + e.Message); }
+        }
         await hub.PublishRebuilt(mapId, me.Username);
         audit.Write(me, "project.build", $"built {project.Name} (revision {stored.Value.Rev}) into the map {mapId}{(discarded > 0 ? $"; {discarded} edited blocks dropped (new size)" : "")}",
             target: $"map:{mapId}", details: new { project = id, rev = stored.Value.Rev, facet, kept, discarded }, ip: Ip(ctx));
-        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded,
+        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded, serverItems = generated,
             keptEdits = kept is null ? null : new { statics = kept.StaticBlocks, land = kept.LandBlocks, droppedStatics = kept.DroppedStatics } });
     }
     catch (ProjectException e) { return Err(400, e.Message); }
