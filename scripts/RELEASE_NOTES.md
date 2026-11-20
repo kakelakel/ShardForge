@@ -1,3 +1,11 @@
+## ShardForge 0.5.7
+
+- **Beautiful bridges**: generated roads cross rivers on proper wooden bridges built like the Trinsic bridges:
+  straight and symmetric along the road, a board deck well above the water, ramps up at both ends, railings all
+  along both sides, piles down into the water and a beam under the front edge. The road meets them squarely,
+  nothing grows under them, and two roads crossing at the same place share one bridge.
+- **Walk** no longer draws the client's invisible "no draw" tiles.
+
 ## ShardForge 0.5.6
 
 Generated worlds, round two:

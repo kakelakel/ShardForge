@@ -1991,16 +1991,27 @@ OPS.roads = o => {
   }
   return { bridges };
 };
-/** Wooden bridges where a road (as OPS.path paints it, same wobble) crosses water: a plank deck a step above the
- *  water, as wide as the road, level with the banks. Like the client's own: planks (0x07C9) with the bridge
- *  planks (0x07CA, 0x07CB) mixed in. Spans longer than a river crossing are left alone. */
+/** Wooden bridges where a road crosses a river, built like the client's own (the Trinsic bridges): straight along
+ *  x or y, a board deck a good step above the water with ramps up at both ends, railings all along both sides,
+ *  piles down into the water and a beam under the front edge. The road meets each end squarely. */
+const BRIDGE_KIT = {
+  // along y (north-south). lo = the north (-y) end, hi = the south (+y) end; A = west (-x) side, B = east.
+  y: { deck: [0x04A9, 0x04AA, 0x04AB, 0x04AC], rampLo: 0x087D, rampHi: 0x087B,
+       railA: 0x0886, railB: 0x0887, loRailA: 0x0888, loRailB: 0x0889, hiRailA: 0x0885, hiRailB: 0x0884 },
+  // along x (west-east). lo = the west end, hi = the east end; A = north (-y) side, B = south.
+  x: { deck: [0x04B5, 0x04B6, 0x04B7, 0x04B8], rampLo: 0x087C, rampHi: 0x087A,
+       railA: 0x0880, railB: 0x0881, loRailA: 0x0882, loRailB: 0x0883, hiRailA: 0x087F, hiRailB: 0x087E },
+  beam: 0x0738, pile: 0x03A5,
+};
 function bridgeRoad(pts, width, jit) {
   const half = Math.max(0.5, width / 2) + 0.6, seed = W.seed + 31, Wd = W.width;
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = half + jit + 2;
   const [x0, y0, x1, y1] = bbox(Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad);
-  const deck = new Set();
+  const isWater = (x, y) => inMap(x, y) && W.terrain[x + y * Wd] === TKEY.water;
+  // Where the road (with the same wobble OPS.path gives it) runs over water.
+  const wet = new Set();
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = x + y * Wd; if (W.terrain[i] !== TKEY.water) continue;
+    if (!isWater(x, y)) continue;
     const px = x + (fbm(x / 40, y / 40, seed, 3) - 0.5) * jit * 2, py = y + (fbm(x / 40, y / 40, seed + 9, 3) - 0.5) * jit * 2;
     let best = Infinity;
     for (let k = 0; k < pts.length - 1; k++) {
@@ -2008,33 +2019,96 @@ function bridgeRoad(pts, width, jit) {
       const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L));
       best = Math.min(best, Math.hypot(px - ax - t * dx, py - ay - t * dy));
     }
-    if (best <= half) deck.add(i);
+    if (best <= half) wet.add(x + y * Wd);
   }
   let made = 0;
-  const seen = new Set();
-  for (const s0 of deck) {
+  const seen = new Set(), deckW = width >= 3 ? 6 : 4;
+  for (const s0 of wet) {
     if (seen.has(s0)) continue;
     const group = [s0]; seen.add(s0);
     for (let h = 0; h < group.length; h++) { const i = group[h], x = i % Wd, y = (i / Wd) | 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const j = (x + dx) + (y + dy) * Wd; if (deck.has(j) && !seen.has(j)) { seen.add(j); group.push(j); } } }
-    // Long: not a river crossing (the road should have gone round); leave it.
-    const gx = group.map(i => i % Wd), gy = group.map(i => (i / Wd) | 0);
-    if (Math.max(Math.max(...gx) - Math.min(...gx), Math.max(...gy) - Math.min(...gy)) > 22) continue;
-    // Level with the banks: the land right next to the deck.
-    let bz = 0, bn = 0;
-    for (const i of group) { const x = i % Wd, y = (i / Wd) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (!inMap(X, Y)) continue; const j = X + Y * Wd; if (W.terrain[j] !== TKEY.water) { bz += W.height_[j]; bn++; } } }
-    if (!bn) continue;
-    const z = Math.max(-3, Math.min(60, Math.round(bz / bn) - 1));
-    for (const i of group) {
-      const x = i % Wd, y = (i / Wd) | 0, r = hrand(x, y, seed, 5);
-      addStatic0(r < 0.72 ? 0x07C9 : r < 0.86 ? 0x07CA : 0x07CB, x, y, z);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const j = (x + dx) + (y + dy) * Wd; if (wet.has(j) && !seen.has(j)) { seen.add(j); group.push(j); } } }
+    const cx = group.reduce((a, i) => a + i % Wd, 0) / group.length, cy = group.reduce((a, i) => a + ((i / Wd) | 0), 0) / group.length;
+    // Which way the road runs here: the bridge goes straight along the nearer axis.
+    let dir = [1, 0], bd = Infinity;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [ax, ay] = pts[k], [bx, by] = pts[k + 1], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / L)), d = Math.hypot(cx - ax - t * dx, cy - ay - t * dy);
+      if (d < bd) { bd = d; dir = [dx, dy]; }
     }
-    made++;
+    if (buildBridge(Math.abs(dir[0]) >= Math.abs(dir[1]) ? "x" : "y", cx, cy, deckW, seed)) made++;
   }
   return made;
 }
-function addStatic0(id, x, y, z) { if (inMap(x, y)) W.objects.statics.push([id, x, y, z]); }
+/** One bridge across the water at (cx, cy), straight along `axis`. Returns false where it can't stand. */
+function buildBridge(axis, cx, cy, deckW, seed) {
+  const K = BRIDGE_KIT[axis], Wd = W.width;
+  // u runs along the bridge, v across it.
+  const at = (u, v) => axis === "x" ? [u, v] : [v, u];
+  const idx = (u, v) => { const [x, y] = at(u, v); return inMap(x, y) ? x + y * Wd : -1; };
+  const water = (u, v) => { const i = idx(u, v); return i >= 0 && W.terrain[i] === TKEY.water; };
+  const cu = Math.round(axis === "x" ? cx : cy), cv = axis === "x" ? cy : cx;
+  const v0 = Math.round(cv - (deckW - 1) / 2), vA = v0 - 1, vB = v0 + deckW; // rail lines
+  // The water to span: the widest run over all the bridge's lines.
+  let a = Infinity, b = -Infinity;
+  for (let v = vA; v <= vB; v++) {
+    let u = cu, k = 0; while (!water(u, v) && k < 4) { k++; u = cu + (k % 2 ? 1 : -1) * Math.ceil(k / 2); }
+    if (!water(u, v)) continue;
+    let lo = u, hi = u; while (water(lo - 1, v) && cu - lo < 30) lo--; while (water(hi + 1, v) && hi - cu < 30) hi++;
+    a = Math.min(a, lo); b = Math.max(b, hi);
+  }
+  if (!isFinite(a) || b - a + 1 > 26) return false;
+  // The banks: land just beyond each end (a little further out if the shore is ragged).
+  const bankZ = (u0, step) => { for (let k = 0; k < 5; k++) { let z = 0, n = 0; for (let v = v0; v < v0 + deckW; v++) { const i = idx(u0 + step * k, v); if (i >= 0 && W.terrain[i] !== TKEY.water) { z += W.height_[i]; n++; } } if (n >= deckW / 2) return Math.round(z / n); } return null; };
+  const zLo = bankZ(a - 1, -1), zHi = bankZ(b + 1, 1);
+  if (zLo === null || zHi === null) return false;
+  const deckZ = Math.max(5, Math.max(zLo, zHi) + 10);
+  const nLo = Math.max(2, Math.min(6, Math.round((deckZ - zLo) / 5))), nHi = Math.max(2, Math.min(6, Math.round((deckZ - zHi) / 5)));
+  const startLo = deckZ - 5 * nLo, startHi = deckZ - 5 * nHi;
+  // One bridge per crossing: where two roads meet the river at the same place, the first bridge serves both.
+  const [bx0, by0] = at(a - nLo - 2, vA - 2), [bx1, by1] = at(b + nHi + 2, vB + 2);
+  const box = [Math.min(bx0, bx1), Math.min(by0, by1), Math.max(bx0, bx1), Math.max(by0, by1)];
+  W._bridges ||= [];
+  if (W._bridges.some(o => o[0] <= box[2] && box[0] <= o[2] && o[1] <= box[3] && box[1] <= o[3])) return false;
+  W._bridges.push(box);
+  const put = (id, u, v, z) => { const [x, y] = at(u, v); addStatic0(id, x, y, z); };
+  // Ground: flat under the ramps and a short straight approach, as road, no trees; easing back to the land beyond.
+  const ground = (u, v, z) => { const i = idx(u, v); if (i < 0) return; W.terrain[i] = TKEY.dirt; W.height_[i] = clampZ(z); W.density[i] = 0; };
+  for (const [from, step, n, z0] of [[a - 1, -1, nLo, startLo], [b + 1, 1, nHi, startHi]]) {
+    for (let k = 0; k < n + 5; k++) {
+      const u = from + step * k;
+      for (let v = vA; v <= vB; v++) {
+        const i = idx(u, v); if (i < 0) continue;
+        if (k < n + 3) ground(u, v, z0);
+        else { const t = (k - n - 2) / 3; W.height_[i] = clampZ(Math.round(z0 * (1 - t) + W.height_[i] * t)); if (v >= v0 && v < v0 + deckW) { W.terrain[i] = TKEY.dirt; W.density[i] = 0; } }
+      }
+    }
+  }
+  // Nothing grows under the bridge or beside it.
+  for (let u = a - nLo - 1; u <= b + nHi + 1; u++) for (let v = vA - 1; v <= vB + 1; v++) { const i = idx(u, v); if (i >= 0) W.density[i] = 0; }
+  // Deck and its railings.
+  for (let u = a; u <= b; u++) {
+    for (let v = v0; v < v0 + deckW; v++) put(K.deck[Math.min(3, Math.floor(hrand(u, v, seed, 7) * 4))], u, v, deckZ);
+    put(K.railA, u, vA, deckZ); put(K.railB, u, vB, deckZ);
+  }
+  // Ramps up at both ends, with their railings; a beam under each but the lowest step.
+  for (let k = 0; k < nLo; k++) {
+    const u = a - nLo + k, z = startLo + 5 * k;
+    for (let v = v0; v < v0 + deckW; v++) { put(K.rampLo, u, v, z); if (k > 0) put(K.beam, u, v, z - 5); }
+    put(K.loRailA, u, vA, z); put(K.loRailB, u, vB, z);
+  }
+  for (let k = 0; k < nHi; k++) {
+    const u = b + 1 + k, z = deckZ - 5 * (k + 1);
+    for (let v = v0; v < v0 + deckW; v++) { put(K.rampHi, u, v, z); if (k < nHi - 1) put(K.beam, u, v, z - 5); }
+    put(K.hiRailA, u, vA, z); put(K.hiRailB, u, vB, z);
+  }
+  // A beam along the front (south or east) edge, and piles down into the water every third tile on both sides.
+  for (let u = a; u <= b; u++) put(K.beam, u, v0 + deckW - 1, deckZ - 5);
+  const span = b - a + 1, every = 3, first = a + Math.floor(((span - 1) % every) / 2);
+  for (let u = first; u <= b; u += every) for (const v of [vA, vB]) for (let z = -5; z <= deckZ - 10; z += 5) put(K.pile, u, v, z);
+  return true;
+}
+function addStatic0(id, x, y, z) { if (inMap(x, y) && Number.isInteger(id)) W.objects.statics.push([id, x, y, Math.max(-128, Math.min(127, Math.round(z)))]); }
 function interp(a, b) { const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])), out = []; for (let i = 1; i <= n; i++) out.push([Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n)]); return out; }
 
 function astar(sx, sy, tx, ty, gw, gh, cost, zc) {

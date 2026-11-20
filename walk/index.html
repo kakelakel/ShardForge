@@ -1693,8 +1693,15 @@ function drawLand(x, y, sx, sy, Z) {
   }
 }
 let animSeen = false, animTimer = null;
+/** Tiles the client never draws ("nodraw": invisible blockers, markers). */
+let NODRAW = null;
+function isNoDraw(id) {
+  if (!NODRAW) { NODRAW = new Set([0x0001]); TD.st.name.forEach((n, i) => { if (/^no ?draw$/i.test((n || "").trim())) NODRAW.add(i); }); }
+  return NODRAW.has(id);
+}
 function drawStatic(s, sx, sy, Z) {
   let id = s.id;
+  if (isNoDraw(id)) return;
   if (Anim.is(id)) { id = Anim.frame(id, performance.now()); animSeen = true; }
   const img = s.hue ? Hues.art(id, s.hue) : Art.get(0x4000 + id, requestDraw);
   if (!img) return;
