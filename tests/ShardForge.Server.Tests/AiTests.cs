@@ -135,10 +135,23 @@ public class AiTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(HttpStatusCode.BadGateway, bad.StatusCode);
         Assert.Contains("refused the API key", await bad.Content.ReadAsStringAsync());
 
-        // The daily limit.
-        await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "openai", dailyLimit = 1 });
+        // Allowances by level: decorators get 2 a day here, and have used them; admins have no limit.
+        Assert.Equal(HttpStatusCode.Forbidden, (await deco.PutAsJsonAsync("/api/ai/settings", new { provider = "", limits = new Dictionary<string, int> { ["Decorator"] = -1 } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "", limits = new Dictionary<string, int> { ["Decorator"] = 2, ["Admin"] = -1 } })).StatusCode);
+        var you = (await deco.GetFromJsonAsync<JsonElement>("/api/ai")).GetProperty("you");
+        Assert.Equal(2, you.GetProperty("limit").GetInt32()); Assert.Equal(0, you.GetProperty("left").GetInt32());
         var over = await deco.PostAsJsonAsync("/api/ai/ask", new { provider = "anthropic", prompt = "again" });
         Assert.Equal(HttpStatusCode.TooManyRequests, over.StatusCode);
-        await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "openai", dailyLimit = 200 });
+        Assert.Contains("Decorators", await over.Content.ReadAsStringAsync());
+        Assert.Equal(-1, (await admin.GetFromJsonAsync<JsonElement>("/api/ai")).GetProperty("you").GetProperty("limit").GetInt32());
+        // 0 turns it off for a level altogether.
+        await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "", limits = new Dictionary<string, int> { ["Decorator"] = 0 } });
+        var off = await deco.PostAsJsonAsync("/api/ai/ask", new { provider = "anthropic", prompt = "again" });
+        Assert.Equal(HttpStatusCode.Forbidden, off.StatusCode);
+        Assert.Contains("can't use the AI assistant", await off.Content.ReadAsStringAsync());
+        Assert.Contains("Decorator none", await admin.GetStringAsync("/api/audit?action=ai.settings"));
+        // Limits are only for the levels that build.
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "", limits = new Dictionary<string, int> { ["Viewer"] = 5 } })).StatusCode);
+        await admin.PutAsJsonAsync("/api/ai/settings", new { provider = "", limits = new Dictionary<string, int> { ["Decorator"] = 30 } });
     }
 }

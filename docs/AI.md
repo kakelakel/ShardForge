@@ -15,7 +15,10 @@ Admin → **AI assistants**:
    - Claude: a key from console.anthropic.com. Default model `claude-sonnet-5-5`.
    - Ollama: install Ollama, `ollama pull llama3.1` (or another model), turn it on. No key; set the address if
      it runs on another machine.
-2. Set how many requests each person may make per day (default 200).
+2. Set each level's daily allowance under **Requests per person per day, by level**: a number of requests, 0 to
+   turn the assistant off for that level, or **No limit**. Defaults: Decorator 30, Worldbuilder 100, Admin no
+   limit. Viewers only look, so they never get it. The editor and Walk show each person how many they have left
+   today; counts reset at midnight (UTC).
 
 API keys are billed by OpenAI and Anthropic per use; a ChatGPT or Claude subscription doesn't include API
 access. Keys are stored in `data/ai.json` on the server (not in backups) and are never sent to a browser: the
@@ -44,7 +47,7 @@ Every request is in **Activity** (who asked which assistant what, where), with t
 
 | | |
 |---|---|
-| `GET /api/ai` | the assistants that are ready (Viewer) |
+| `GET /api/ai` | the assistants that are ready, and your allowance today `{ limit, used, left }` (-1 = no limit) (Viewer) |
 | `POST /api/ai/ask` | `{ provider, prompt, request?, where? }` → `{ text, model, ms }` (Decorator) |
-| `GET/PUT /api/ai/settings` | `{ provider, enabled?, key?, model?, url?, dailyLimit? }`; key `"-"` removes it (Admin) |
+| `GET/PUT /api/ai/settings` | `{ provider, enabled?, key?, model?, url?, limits?: { Decorator, Worldbuilder, Admin } }`; key `"-"` removes it; a limit of 0 is off, -1 no limit (Admin) |
 | `POST /api/ai/test` | `{ provider }`: a quick check that it answers (Admin) |

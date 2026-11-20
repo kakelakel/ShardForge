@@ -52,7 +52,12 @@
     <h2 id="hAi">AI assistants</h2>
     <p class="note" style="max-width:820px">The editor's <b>Ask</b> panel and Walk's <b>Ask AI</b> window send requests through this server. Keys stay here (in <span class="mono">data/ai.json</span>) and are never sent to a browser. Every request is logged in Activity. ChatGPT and Claude are billed by OpenAI and Anthropic per use (an API key, not a ChatGPT or Claude subscription); Ollama runs a model on your own machine for free.</p>
     <div id="aiList" style="display:grid;gap:12px;max-width:820px"></div>
-    <div class="row" style="margin-top:10px;align-items:center;gap:8px"><label for="aiLimit" class="note" style="margin:0">Requests per person per day (0 = no limit)</label><input type="number" id="aiLimit" min="0" max="100000" style="width:100px"><button id="aiLimitSave">Save</button></div>
+    <div class="field" style="max-width:820px;margin-top:14px">
+      <label>Requests per person per day, by level</label>
+      <table class="levels" style="max-width:520px"><thead><tr><th>Level</th><th>Requests a day</th><th>No limit</th></tr></thead><tbody id="aiLimits"></tbody></table>
+      <p class="note" style="margin:4px 0 0">0 turns the assistant off for that level. Viewers only look, so they never get it. Counts reset at midnight (UTC).</p>
+      <div><button id="aiLimitSave" class="primary">Save limits</button></div>
+    </div>
     <div class="msg" id="aiMsg" role="status" style="margin-top:6px"></div>
   </section>
 
@@ -262,7 +267,11 @@ const AI_HELP = {
 function aiMsg(t, kind) { SF.msg(document.getElementById("aiMsg"), t, kind); }
 async function loadAi() {
   let st; try { st = await SF.api("GET", "/api/ai/settings"); } catch (e) { aiMsg(e.message, "error"); return; }
-  document.getElementById("aiLimit").value = st.dailyLimit;
+  document.getElementById("aiLimits").innerHTML = Object.entries(st.limits).map(([lvl, v]) => `<tr data-l="${lvl}">
+      <td><span class="pill ${lvl}">${lvl}</span></td>
+      <td><input type="number" class="aiN" min="0" max="100000" value="${v < 0 ? "" : v}" style="width:100px" ${v < 0 ? "disabled" : ""} aria-label="${lvl}: requests a day"></td>
+      <td><label class="check" style="margin:0"><input type="checkbox" class="aiInf" ${v < 0 ? "checked" : ""} aria-label="${lvl}: no limit"></label></td></tr>`).join("");
+  for (const tr of document.querySelectorAll("#aiLimits tr")) tr.querySelector(".aiInf").onchange = e => { const n = tr.querySelector(".aiN"); n.disabled = e.target.checked; if (!e.target.checked && n.value === "") n.value = 30; };
   document.getElementById("aiList").innerHTML = st.providers.map(p => `
     <div class="card" style="padding:12px 14px;border:1px solid var(--line);border-radius:10px" data-id="${p.id}">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -295,7 +304,9 @@ async function loadAi() {
   }
 }
 document.getElementById("aiLimitSave").onclick = async () => {
-  try { await SF.api("PUT", "/api/ai/settings", { provider: "openai", dailyLimit: +document.getElementById("aiLimit").value || 0 }); aiMsg("✓ Saved.", "ok"); }
+  const limits = {};
+  for (const tr of document.querySelectorAll("#aiLimits tr")) limits[tr.dataset.l] = tr.querySelector(".aiInf").checked ? -1 : Math.max(0, +tr.querySelector(".aiN").value || 0);
+  try { await SF.api("PUT", "/api/ai/settings", { provider: "", limits }); aiMsg("✓ Limits saved.", "ok"); loadAi(); }
   catch (e) { aiMsg(e.message, "error"); }
 };
 async function loadServer() {

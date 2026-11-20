@@ -1,3 +1,9 @@
+## ShardForge 0.6.1
+
+- **AI allowances by level.** Admin → AI assistants → *Requests per person per day, by level*: a daily number for
+  Decorators, Worldbuilders and Admins, 0 to keep a level out, or no limit. Defaults: Decorator 30, Worldbuilder
+  100, Admin no limit. The editor and Walk show how many requests each person has left today.
+
 ## ShardForge 0.6.0
 
 **AI assistants: ChatGPT, Claude or a local model, in the editor and in Walk.**

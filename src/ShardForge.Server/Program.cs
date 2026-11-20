@@ -559,20 +559,21 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
 
 // ============================================================================ AI assistants
 // Which assistants are ready (no keys): for the editor's and Walk's pickers.
-api.MapGet("/ai", (AiService ai) => Results.Ok(ai.Public())).RequireAuthorization("Viewer");
+api.MapGet("/ai", (HttpContext ctx, AiService ai) => Results.Ok(ai.Public(Current(ctx)))).RequireAuthorization("Viewer");
 api.MapGet("/ai/settings", (AiService ai) => Results.Ok(ai.ForAdmin())).RequireAuthorization("Admin");
 api.MapPut("/ai/settings", (HttpContext ctx, AiService ai, AiSettingsBody body, AuditLog audit) =>
 {
     try
     {
-        ai.Update(body.Provider ?? "", body.Enabled, body.Key, body.Model, body.Url, body.DailyLimit);
+        ai.Update(body.Provider ?? "", body.Enabled, body.Key, body.Model, body.Url, body.Limits);
         var what = new List<string>();
         if (body.Enabled is bool e) what.Add(e ? "turned on" : "turned off");
         if (!string.IsNullOrEmpty(body.Key)) what.Add(body.Key.Trim() == "-" ? "removed the key" : "set a new key");
         if (body.Model is not null) what.Add("model " + (ai.Get(body.Provider!)?.Model ?? ""));
         if (body.Url is not null) what.Add("address " + (string.IsNullOrWhiteSpace(body.Url) ? "default" : body.Url.Trim()));
-        if (body.DailyLimit is int d) what.Add($"daily limit {d}");
-        audit.Write(Current(ctx), "ai.settings", $"{AiService.Defaults.GetValueOrDefault(body.Provider ?? "").Name ?? "AI"}: {string.Join(", ", what)}", ip: Ip(ctx));
+        if (body.Limits is { Count: > 0 } lim) what.Add("daily requests " + string.Join(", ", lim.Select(kv => $"{kv.Key} {(kv.Value < 0 ? "no limit" : kv.Value == 0 ? "none" : kv.Value.ToString())}")));
+        string who = string.IsNullOrEmpty(body.Provider) ? "AI" : AiService.Defaults.GetValueOrDefault(body.Provider).Name ?? "AI";
+        audit.Write(Current(ctx), "ai.settings", $"{who}: {string.Join(", ", what)}", ip: Ip(ctx));
         return Results.Ok(ai.ForAdmin());
     }
     catch (AiException e) { return Err(e.Status, e.Message); }
@@ -585,12 +586,12 @@ api.MapPost("/ai/ask", async (HttpContext ctx, AiService ai, AiAskBody body, Aud
     if (string.IsNullOrWhiteSpace(body.Prompt) || body.Prompt.Length > 400_000) return Err(400, "Send the prompt (up to 400,000 characters).");
     try
     {
-        int n = ai.Charge(me.Id);
+        int n = ai.Charge(me);
         var a = await ai.Ask(body.Provider ?? "", body.System ?? "You turn requests into JSON plans for a map editor. Reply with JSON only.", body.Prompt, ctx.RequestAborted);
         string req = (body.Request ?? "").Trim();
         audit.Write(me, "ai.ask", $"asked {AiService.Defaults[a.Provider].Name} ({a.Model}) in {body.Where ?? "the editor"}: \"{(req.Length > 160 ? req[..160] + "…" : req)}\"",
             details: new { provider = a.Provider, model = a.Model, ms = a.Ms, promptChars = body.Prompt.Length, answerChars = a.Text.Length, today = n }, ip: Ip(ctx));
-        return Results.Ok(new { text = a.Text, provider = a.Provider, model = a.Model, ms = a.Ms });
+        return Results.Ok(new { text = a.Text, provider = a.Provider, model = a.Model, ms = a.Ms, you = ai.Allowance(me) });
     }
     catch (AiException e) { return Err(e.Status, e.Message); }
 }).RequireAuthorization("Decorator");
@@ -807,7 +808,7 @@ static int GuessFacet(int w, int h) => (w, h) switch
 record Credentials(string? Username, string? Password, string? ClientPath = null);
 record PathBody(string? Path);
 record SettingsBody(string? ClientPath, bool? Network = null);
-record AiSettingsBody(string? Provider, bool? Enabled = null, string? Key = null, string? Model = null, string? Url = null, int? DailyLimit = null);
+record AiSettingsBody(string? Provider, bool? Enabled = null, string? Key = null, string? Model = null, string? Url = null, Dictionary<string, int>? Limits = null);
 record AiAskBody(string? Provider, string? Prompt, string? System = null, string? Request = null, string? Where = null);
 record PasswordChange(string? Current, string? Password);
 record NewUser(string? Username, string? Password, string? Role);

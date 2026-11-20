@@ -3184,7 +3184,8 @@ async function loadLocal() {
 let sample = null, aiAbort = null;
 // AI through ShardForge Server: ChatGPT, Claude or a local model, whichever the admin set up (keys stay on the
 // server). Inside the Claude app the page uses Claude directly instead.
-const AI = { providers: [], pick: null };
+const AI = { providers: [], pick: null, you: null };
+function aiLeft() { const y = AI.you; return !y ? "" : y.limit < 0 ? "" : ` ${y.left} of ${y.limit} requests left today.`; }
 function aiName() { return AI.providers.find(p => p.id === AI.pick)?.name || "Claude"; }
 function aiChose() {
   const n = aiName();
@@ -3192,7 +3193,7 @@ function aiChose() {
   try { localStorage.setItem("sf.ai.pick", AI.pick || ""); } catch { }
 }
 async function serverAi() {
-  try { AI.providers = (await SRV.api("GET", "/api/ai")).data.providers || []; } catch { AI.providers = []; }
+  try { const d = (await SRV.api("GET", "/api/ai")).data; AI.providers = d.providers || []; AI.you = d.you || null; } catch { AI.providers = []; }
   if (!AI.providers.length) {
     $("btnAsk").disabled = true; $("askTitle").textContent = "Ask AI"; $("btnAsk").textContent = "Ask AI";
     $("aiNote").textContent = "No AI assistant is set up on this server. An admin can add ChatGPT, Claude or a local model (Ollama) on the Admin page; painting and generating work without one.";
@@ -3209,11 +3210,15 @@ async function serverAi() {
       body: JSON.stringify({ provider: AI.pick, prompt, request: opts.request || "", where: "the editor" }) });
     const data = await r.json().catch(() => null);
     if (!r.ok) throw new Error(data?.error || `the server answered ${r.status}`);
+    if (data.you) { AI.you = data.you; $("aiNote").textContent = `Ctrl+Enter sends. ${aiName()} edits the map with the same tools you have.` + aiLeft(); }
     return { text: data.text };
   };
   aiChose();
-  $("btnAsk").disabled = !(SRV.me?.level >= 3);
-  $("aiNote").textContent = SRV.me?.level >= 3 ? `Ctrl+Enter sends. ${aiName()} edits the map with the same tools you have.` : "Worldbuilders can ask the AI to shape the map.";
+  const allowed = SRV.me?.level >= 3 && AI.you?.limit !== 0;
+  $("btnAsk").disabled = !allowed;
+  $("aiNote").textContent = !(SRV.me?.level >= 3) ? "Worldbuilders can ask the AI to shape the map."
+    : AI.you?.limit === 0 ? `${SRV.me.role}s can't use the AI assistant on this server (an admin can change that).`
+    : `Ctrl+Enter sends. ${aiName()} edits the map with the same tools you have.` + aiLeft();
 }
 const OP_DOC = `
 Coordinates are tiles: x grows east (right), y grows south (down), origin top-left.

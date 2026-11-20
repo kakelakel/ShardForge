@@ -4395,11 +4395,12 @@ const WIN = {
 // house, spawn, sign, item. The plan runs as one step, so Undo takes it all back and everyone sees it live.
 // ===========================================================================
 const WALK_AI = {
-  providers: [], pick: null, abort: null, vocab: null,
+  providers: [], pick: null, abort: null, vocab: null, you: null,
+  left() { const y = this.you; return !y || y.limit < 0 ? "" : ` ${y.left} of ${y.limit} left today.`; },
   name() { return this.providers.find(p => p.id === this.pick)?.name || "AI"; },
   async init() {
     if (!Server.on) { $("aiNote").textContent = "The AI works when Walk runs on ShardForge Server."; $("aiAsk").disabled = true; return; }
-    try { this.providers = (await Server.api("GET", "/api/ai")).providers || []; } catch { this.providers = []; }
+    try { const d = await Server.api("GET", "/api/ai"); this.providers = d.providers || []; this.you = d.you || null; } catch { this.providers = []; }
     if (!this.providers.length) { $("aiAsk").disabled = true; $("aiNote").textContent = "No AI assistant is set up. An admin can add ChatGPT, Claude or a local model on the Admin page."; return; }
     let saved = null; try { saved = localStorage.getItem("sf.ai.pick"); } catch { }
     this.pick = this.providers.some(p => p.id === saved) ? saved : this.providers[0].id;
@@ -4408,7 +4409,11 @@ const WALK_AI = {
     $("aiPick").onchange = () => { this.pick = $("aiPick").value; try { localStorage.setItem("sf.ai.pick", this.pick); } catch { } this.label(); };
     this.label();
   },
-  label() { $("aiAsk").textContent = "Ask " + this.name(); $("aiNote").textContent = `Ctrl+Enter sends. ${this.name()} builds with your tools; Undo takes it back.`; },
+  label() {
+    $("aiAsk").textContent = "Ask " + this.name();
+    if (this.you?.limit === 0) { $("aiAsk").disabled = true; $("aiNote").textContent = `${Server.me?.role || "Your level"}s can't use the AI assistant on this server (an admin can change that).`; return; }
+    $("aiNote").textContent = `Ctrl+Enter sends. ${this.name()} builds with your tools; Undo takes it back.` + this.left();
+  },
   say(who, html, cls = "") { const d = document.createElement("div"); d.className = "m " + cls; d.innerHTML = `<div class="who">${escapeHtml(who)}</div>${html}`; $("aiLog").appendChild(d); $("aiLog").scrollTop = 1e9; return d; },
   /** The area the request is about. */
   area() {
@@ -4494,6 +4499,7 @@ Reply with only a JSON object: {"summary": "one or two sentences on what you did
         body: JSON.stringify({ provider: this.pick, prompt: this.prompt(req, A), request: req, where: "Walk at " + P.x + "," + P.y + " on " + M.name }) });
       const data = await r.json().catch(() => null);
       if (!r.ok) throw new Error(data?.error || `the server answered ${r.status}`);
+      if (data.you) { this.you = data.you; this.label(); }
       const t = data.text, a = t.indexOf("{"), b = t.lastIndexOf("}");
       if (a < 0 || b <= a) throw new Error("the answer had no plan in it");
       const plan = JSON.parse(t.slice(a, b + 1));

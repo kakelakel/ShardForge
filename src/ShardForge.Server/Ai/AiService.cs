@@ -37,8 +37,43 @@ public sealed class AiService(string dataPath, ILogger<AiService> log)
         [JsonPropertyName("openai")] public Provider OpenAi { get; set; } = new() { Model = Defaults["openai"].Model };
         [JsonPropertyName("anthropic")] public Provider Anthropic { get; set; } = new() { Model = Defaults["anthropic"].Model };
         [JsonPropertyName("ollama")] public Provider Ollama { get; set; } = new() { Model = Defaults["ollama"].Model, Url = Defaults["ollama"].Url };
-        /// <summary>Requests per person per day (0 = no limit).</summary>
-        [JsonPropertyName("dailyLimit")] public int DailyLimit { get; set; } = 200;
+        /// <summary>Old single limit (before limits per level); read once and moved into <see cref="Limits"/>.</summary>
+        [JsonPropertyName("dailyLimit")] public int? DailyLimit { get; set; }
+        /// <summary>Requests per person per day, by level: 0 = can't use it, -1 = no limit.</summary>
+        [JsonPropertyName("limits")] public Dictionary<string, int>? Limits { get; set; }
+    }
+
+    /// <summary>Levels that can build (viewers only look, so they never get the assistant).</summary>
+    public static readonly string[] Levels = ["Decorator", "Worldbuilder", "Admin"];
+    public static readonly IReadOnlyDictionary<string, int> DefaultLimits = new Dictionary<string, int> { ["Decorator"] = 30, ["Worldbuilder"] = 100, ["Admin"] = -1 };
+
+    /// <summary>Today's allowance for a level: 0 none, -1 no limit.</summary>
+    public int LimitFor(ShardForge.Server.Auth.Role role)
+    {
+        if (role < ShardForge.Server.Auth.Role.Decorator) return 0;
+        var l = Current.Limits ??= new(DefaultLimits);
+        return l.TryGetValue(role.ToString(), out var v) ? v : DefaultLimits[role.ToString()];
+    }
+    public int UsedToday(long userId) => _used.TryGetValue((userId, DateOnly.FromDateTime(DateTime.UtcNow)), out var n) ? n : 0;
+
+    /// <summary>A person's allowance today, for the pages.</summary>
+    public object Allowance(ShardForge.Server.Auth.User u)
+    {
+        int limit = LimitFor(u.Role), used = UsedToday(u.Id);
+        return new { limit, used, left = limit < 0 ? -1 : Math.Max(0, limit - used) };
+    }
+
+    private static Config Migrate(Config c)
+    {
+        if (c.Limits is null)
+        {
+            c.Limits = new(DefaultLimits);
+            // An old single limit applied to everyone: keep it for decorators and worldbuilders.
+            if (c.DailyLimit is int d) { int v = d == 0 ? -1 : d; c.Limits["Decorator"] = v; c.Limits["Worldbuilder"] = v; }
+        }
+        c.DailyLimit = null;
+        foreach (var lvl in Levels) c.Limits.TryAdd(lvl, DefaultLimits[lvl]);
+        return c;
     }
 
     public static readonly IReadOnlyDictionary<string, (string Name, string Model, string Url)> Defaults = new Dictionary<string, (string, string, string)>
@@ -63,7 +98,7 @@ public sealed class AiService(string dataPath, ILogger<AiService> log)
                 if (_config is not null) return _config;
                 try { _config = File.Exists(FilePath) ? JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath)) : null; }
                 catch (JsonException) { _config = null; }
-                return _config ??= new Config();
+                return _config = Migrate(_config ?? new Config());
             }
         }
     }
@@ -72,11 +107,11 @@ public sealed class AiService(string dataPath, ILogger<AiService> log)
 
     public bool Ready(string id) => Get(id) is { Enabled: true } p && (id == "ollama" ? !string.IsNullOrWhiteSpace(p.Url) : !string.IsNullOrWhiteSpace(p.Key));
 
-    /// <summary>What everyone may see: which assistants are ready, by name and model. No keys.</summary>
-    public object Public() => new
+    /// <summary>What everyone may see: which assistants are ready, by name and model, and their own allowance. No keys.</summary>
+    public object Public(ShardForge.Server.Auth.User me) => new
     {
         providers = Defaults.Keys.Where(Ready).Select(id => new { id, name = Defaults[id].Name, model = Get(id)!.Model ?? Defaults[id].Model }).ToArray(),
-        dailyLimit = Current.DailyLimit,
+        you = Allowance(me),
     };
 
     /// <summary>For the Admin page: everything but the keys themselves (their last four characters only).</summary>
@@ -93,14 +128,21 @@ public sealed class AiService(string dataPath, ILogger<AiService> log)
                 ready = Ready(id),
             };
         }).ToArray(),
-        dailyLimit = Current.DailyLimit,
+        limits = Levels.ToDictionary(l => l, l => Current.Limits![l]),
     };
 
     /// <summary>Changes a provider. A blank key keeps the old one; "-" removes it.</summary>
-    public void Update(string id, bool? enabled, string? key, string? model, string? url, int? dailyLimit)
+    public void Update(string id, bool? enabled, string? key, string? model, string? url, Dictionary<string, int>? limits)
     {
         lock (_gate)
         {
+            if (limits is not null)
+                foreach (var (lvl, v) in limits)
+                {
+                    if (!Levels.Contains(lvl)) throw new AiException($"Limits are for {string.Join(", ", Levels)}.", 400);
+                    Current.Limits![lvl] = Math.Clamp(v, -1, 100_000);
+                }
+            if (string.IsNullOrEmpty(id)) { Save(); return; }
             var p = Get(id) ?? throw new AiException("Unknown assistant: " + id, 400);
             if (enabled is bool e) p.Enabled = e;
             if (key is not null) { key = key.Trim(); if (key == "-") p.Key = null; else if (key.Length > 0) p.Key = key; }
@@ -111,20 +153,25 @@ public sealed class AiService(string dataPath, ILogger<AiService> log)
                 if (url.Length > 0 && !Uri.TryCreate(url, UriKind.Absolute, out var u)) throw new AiException("That isn't an address (http://… or https://…).", 400);
                 p.Url = url.Length == 0 ? (id == "ollama" ? Defaults[id].Url : null) : url;
             }
-            if (dailyLimit is int d) Current.DailyLimit = Math.Clamp(d, 0, 100_000);
-            string tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmp, FilePath, overwrite: true);
+            Save();
         }
     }
 
-    /// <summary>Counts a request against the person's daily limit (throws when it's used up).</summary>
-    public int Charge(long userId)
+    private void Save()
     {
-        int limit = Current.DailyLimit;
-        var key = (userId, DateOnly.FromDateTime(DateTime.UtcNow));
+        string tmp = FilePath + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }));
+        File.Move(tmp, FilePath, overwrite: true);
+    }
+
+    /// <summary>Counts a request against the person's allowance for their level (throws when there's none left).</summary>
+    public int Charge(ShardForge.Server.Auth.User u)
+    {
+        int limit = LimitFor(u.Role);
+        if (limit == 0) throw new AiException($"{u.Role}s can't use the AI assistant on this server. An admin can change that in Admin → AI assistants.", 403);
+        var key = (u.Id, DateOnly.FromDateTime(DateTime.UtcNow));
         int n = _used.AddOrUpdate(key, 1, (_, v) => v + 1);
-        if (limit > 0 && n > limit) { _used.AddOrUpdate(key, 0, (_, v) => v - 1); throw new AiException($"You've used today's {limit} requests. It resets at midnight (UTC).", 429); }
+        if (limit > 0 && n > limit) { _used.AddOrUpdate(key, 0, (_, v) => v - 1); throw new AiException($"You've used today's {limit} requests (the allowance for {u.Role}s). It resets at midnight (UTC).", 429); }
         return n;
     }
 
