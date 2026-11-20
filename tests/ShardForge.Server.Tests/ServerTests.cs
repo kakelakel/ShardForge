@@ -451,6 +451,7 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         var (_, vicCookie) = await As("vic");
 
         using var bob = await Connect(bobCookie);
+        await Receive(bob, "welcome"); // bob is in the room before vic arrives (the upgrade returns before that)
         using var vic = await Connect(vicCookie);
         var welcome = await Receive(vic, "welcome");
         Assert.Contains(welcome.GetProperty("peers").EnumerateArray(), p => p.GetProperty("name").GetString() == "bob");
