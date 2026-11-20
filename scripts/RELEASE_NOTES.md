@@ -1,3 +1,15 @@
+## ShardForge 0.5.10
+
+**Five more bridges**, eleven in all:
+- **Stone arcade** (Ilshenar), copied piece for piece: posts, capped arches and buttressed piers with columns down
+  into the water; along north-south rivers an arched wall on a stone base.
+- **Stone with iron railings**: grey pavers, wrought-iron rails and lamps at both ends; the city bridge.
+- **Gargish**: teal Ter Mur flooring, dark blue marble pillars with gold, low crystal walls and lamps.
+- **Crystal**: dark crystal floor between crystal walls, for places of magic.
+- **Log**: logs laid side by side, log railings, on piles.
+Towns get the grand ones, the wilds the wooden ones. Piles under wooden bridges now reach the deck and stand in
+the water (they stopped short before).
+
 ## ShardForge 0.5.9
 
 **Bridges in six materials**, each built after bridges in the client's own world: **wooden** (Trinsic), **stone**
