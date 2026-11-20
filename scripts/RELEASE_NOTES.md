@@ -1,3 +1,19 @@
+## ShardForge 0.7.0
+
+- **World features.** Populate world (or **Add features to this map**) now adds, each one switchable:
+  - Water: piers with moored ships at harbour towns, waterfalls off high ground into rivers and lakes, fords and
+    stepping stones where small roads cross streams, lighthouses on headlands, fishing huts on lake shores.
+  - Roads and land: signposts at crossroads naming the towns each way (and at each road's start), watchtowers and
+    forts at mountain passes, stone walls and hedges along roads near towns, scarecrows in fields, water mills.
+  - Caves: mouths spread over the mountains, built from the client's own mouth tiles, leading by teleporters both
+    ways into caves and mines carved inside the mountains, or into a dungeon map's areas (linked when you build);
+    ruins near dungeon mouths.
+  - Coasts and wilds: shipwrecks and driftwood, desert oases, standing stones on hilltops.
+  - Towns that work on ServUO: guarded regions, bankers, town criers, vendors at stalls and plots, and moongates
+    linking the towns in a ring.
+- Projects can set land tiles directly (`objects.land`), for things like cave mouths.
+- Fixed: rebuilding a project no longer drops the traps and spawners it generated.
+
 ## ShardForge 0.6.1
 
 - **AI allowances by level.** Admin → AI assistants → *Requests per person per day, by level*: a daily number for

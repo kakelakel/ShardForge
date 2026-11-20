@@ -82,7 +82,24 @@ creating anything.
   hasn't yet been run on a live ServUO by us: tell us what the console says the first time.
 
 
-## Generated traps and spawners
+### Cave mouths from Populate world
+
+**World features** puts cave mouths in the mountains (the client's own mouth tiles, facing south or east). Each
+leads by teleporters, both ways, into a cave or mine carved inside a mountain on the same map, or, if you pick a
+dungeon map under **Cave mouths also lead into** (on a server, once that map is built), into one of its areas:
+half the mouths go there, one area each. Building the overworld points them at the areas and places the
+teleporters back out on the dungeon map (ids start with `link-`); rebuilding replaces them. If an area can't be
+found (the dungeon map was rebuilt with other names), the build says so and leaves that mouth unlinked.
+
+## Generated towns, traps and spawners
+
+Populated towns come with what a ServUO town needs: a region with the town's name (guarded, except hamlets), a
+banker and a town crier on the square, a vendor at each market stall, and one in each plot by what it's for
+(innkeeper and barkeeper at the inn, smiths at the smithy, a healer at the chapel, a fisherman and shipwright at the
+docks…). Towns and cities get a moongate on the square; together they make a ring round the map, each gate named
+for where it goes (a teleporter shown as a moongate). Missing classes are skipped with a note in the console.
+
+
 
 The editor's underground themes (lava, acid, ice, spiders, undead) place real ServUO traps where the passages
 narrow (`FireColumnTrap`, `FlameSpurtTrap`, `GasTrap`, `MushroomTrap`, `SpikeTrap`, `SawTrap`, `StoneFaceTrap`)

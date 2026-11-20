@@ -114,7 +114,7 @@ public sealed class ItemStore(Db db)
         "door" => $"door ({S(o, "type")})",
         "sign" => $"sign \"{S(o, "name")}\"",
         "item" => $"item {S(o, "type")}",
-        "tele" => $"teleporter to {N(o, "dx")}, {N(o, "dy")} {S(o, "dmap")}",
+        "tele" => $"{(S(o, "look") == "moongate" ? "moongate" : "teleporter")} to {N(o, "dx")}, {N(o, "dy")} {S(o, "dmap")}",
         "spawn" => $"spawner: {S(o, "creatures")}",
         "region" => $"region {S(o, "name")}{(o["guarded"]?.ToJsonString() == "true" ? " (guarded)" : "")} {N(o, "w")}x{N(o, "h")}",
         _ => S(o, "kind"),
@@ -129,7 +129,11 @@ public sealed class ItemStore(Db db)
     }
     private static int Int(JsonObject o, string k, int min, int max, int def = 0)
     {
-        int v = o[k] is JsonValue jv && jv.TryGetValue<double>(out var d) ? (int)Math.Round(d) : def;
+        int v = o[k] is not JsonValue jv ? def
+            : jv.TryGetValue<double>(out var d) ? (int)Math.Round(d)
+            : jv.TryGetValue<int>(out var i) ? i
+            : jv.TryGetValue<long>(out var l) ? (int)Math.Clamp(l, int.MinValue, int.MaxValue)
+            : jv.TryGetValue<JsonElement>(out var e) && e.ValueKind == JsonValueKind.Number ? (int)Math.Round(e.GetDouble()) : def;
         if (v < min || v > max) throw new ItemException($"{k} must be between {min} and {max}.");
         return v;
     }
@@ -163,6 +167,11 @@ public sealed class ItemStore(Db db)
                 r["dmap"] = dm.Length == 0 ? ServUOMap(map) : Ident(dm) ? dm : throw new ItemException("A map name has letters only.");
                 string dmid = Str(o, "dmapId", 64, false);
                 if (dmid.Length > 0) r["dmapId"] = dmid.All(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_') ? dmid : throw new ItemException("Bad destination map id.");
+                // A teleporter can look like a moongate (visible, named) instead of being hidden.
+                string look = Str(o, "look", 12, false);
+                if (look.Length > 0) { if (look != "moongate") throw new ItemException("A teleporter looks like nothing or a moongate."); r["look"] = look; }
+                string tname = Str(o, "name", 60, false);
+                if (tname.Length > 0) r["name"] = tname;
                 break;
             case "spawn":
                 // "Orc:4, OrcishMage:1", or plain names sharing the total count.
@@ -198,7 +207,7 @@ public sealed class ItemStore(Db db)
                 "door" => $"door\t{at}\t{S(o, "type")}\t{S(o, "facing")}",
                 "sign" => $"sign\t{at}\t{I(o, "id")}\t{I(o, "hue")}\t{S(o, "name")}",
                 "item" => $"item\t{at}\t{S(o, "type")}\t{I(o, "id")}\t{I(o, "hue")}",
-                "tele" => $"tele\t{at}\t{I(o, "dx")}\t{I(o, "dy")}\t{I(o, "dz")}\t{S(o, "dmap")}",
+                "tele" => $"tele\t{at}\t{I(o, "dx")}\t{I(o, "dy")}\t{I(o, "dz")}\t{S(o, "dmap")}" + (S(o, "look").Length > 0 ? $"\t{S(o, "look")}\t{S(o, "name")}" : ""),
                 "spawn" => $"spawn\t{at}\t{I(o, "count")}\t{I(o, "range")}\t{I(o, "min")}\t{I(o, "max")}\t{S(o, "creatures")}",
                 "region" => $"region\t{I(o, "x")}\t{I(o, "y")}\t{I(o, "w")}\t{I(o, "h")}\t{(o["guarded"]?.ToJsonString() == "true" ? 1 : 0)}\t{S(o, "name")}",
                 _ => "# ?",

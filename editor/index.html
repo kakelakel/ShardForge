@@ -221,6 +221,16 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
           <select id="townDecoAmount"><option value="0.5">Light</option><option value="1" selected>Normal</option><option value="1.7">Rich</option></select>
         </details>
       </div>
+      <details class="deco" id="featBox">
+        <summary>World features <span id="featSummary" class="note"></span></summary>
+        <div class="deco-grid" id="featGrid"></div>
+        <div id="caveLinkRow" hidden style="margin-top:6px">
+          <label for="caveMap">Cave mouths also lead into</label>
+          <select id="caveMap"><option value="">Only caves inside this map's mountains</option></select>
+          <p class="note" style="margin:2px 0 0">Half the mouths go to that dungeon map's areas, by teleporters both ways (made when you build). Build the dungeon map first.</p>
+        </div>
+        <div class="row" style="margin-top:6px"><button id="btnFeatures" title="Add the ticked features to this map as it is now (towns, roads and all)">Add features to this map</button></div>
+      </details>
       <p class="note">Pick the <b>Town</b> tool (T), then click for the radius above, or press and <b>drag out</b> to size it (<kbd>[</kbd> <kbd>]</kbd> resize). <b>Reroll</b> lays the last one out again.</p>
       <div class="row" style="margin-top:8px">
         <button id="btnReroll" disabled title="Undo the town you just founded and lay it out again with the same settings">Reroll</button>
@@ -468,13 +478,13 @@ function newWorld(width, height, start) {
   else if (start === "world") { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   else { W.terrain.fill(TKEY.water); W.height_.fill(-5); }
   undoStack.length = 0; redoStack.length = 0;
-  W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [] }; W.places = [];
+  W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [], land: [] }; W.places = [];
   if (start === "island") applyOps(starterOps(width, height), false);
   if (start === "world") {
     const o = worldOptions(); W.seed = o.seed;
     const r = applyOps([{ op: "world", ...o }], false)[0];
     if (!r?.ok) addMsg("claude", "Couldn't generate the world: " + escapeHtml(r?.why || "?"), "error");
-    else if ($("wTowns").checked) applyOps([{ op: "populate_world", seed: o.seed }], false);
+    else if ($("wTowns").checked) applyOps([{ op: "populate_world", seed: o.seed, ...featureSettings() }], false);
     lastWorld = o;
   }
   resetImage(); fitView(); updateStats(); if (typeof renderUnderList === "function") renderUnderList();
@@ -684,7 +694,7 @@ const OPS = {
 // cleared and face their road; build on them by hand in Walk. Nothing is on a grid: squares are blobs, roads
 // wander and follow the land, lanes branch at odd angles and sometimes loop back.
 // ---------------------------------------------------------------------------
-W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [] };
+W.objects = { buildings: [], statics: [], multis: [], lots: [], serverItems: [], land: [] };
 W.places = [];
 
 const THEME_ROOF = { wood: "#9a6a3c", darkwood: "#6e4a2c", plaster: "#8a3b2a", thatch: "#c9a25a", log: "#7a5a34", fieldstone: "#4f5862",
@@ -744,7 +754,7 @@ function townName(rnd) {
   for (let i = 0; i < 50; i++) { const n = pickOf(NAME_A, rnd) + pickOf(NAME_B, rnd); if (!used.has(n)) return n; }
   return "Settlement " + (W.places.length + 1);
 }
-function ensureObjects() { W.objects.lots ??= []; W.objects.buildings ??= []; W.objects.statics ??= []; W.objects.multis ??= []; W.objects.serverItems ??= []; }
+function ensureObjects() { W.objects.lots ??= []; W.objects.buildings ??= []; W.objects.statics ??= []; W.objects.multis ??= []; W.objects.serverItems ??= []; W.objects.land ??= []; }
 
 /** Cells taken: 3 water/lava, 2 roads and squares, 1 plots and fields. */
 function occupancy() {
@@ -1521,6 +1531,7 @@ OPS.town = o => {
   // 5. Life, each part switchable (o.deco) and scaled by the amount A: lamps, signposts, the square,
   //    street life, flowers, gardens and fields, a graveyard.
   const n = (base) => Math.max(0, Math.round(base * A));
+  const stallSpots = [];
   const freeCell = (x, y) => inMap(x, y) && !occ[x + y * W.width] && !isHard(W.terrain[x + y * W.width]);
   for (const rd of roads.filter(rd => rd.main)) {
     const dense = densify(rd.pts);
@@ -1549,7 +1560,7 @@ OPS.town = o => {
       const nearHub = cells.filter(([x, y]) => Math.hypot(x - hub[0], y - hub[1]) < S.square * 0.8);
       place(stalls, nearHub.length ? nearHub : cells, (x, y) => {
         if (!free(x, y) || !free(x + 1, y) || !free(x, y + 1) || !free(x - 1, y) || !free(x, y - 1)) return false;
-        addStatic(PROP.table, x, y, z0); used.add(x + "," + y);
+        addStatic(PROP.table, x, y, z0); used.add(x + "," + y); stallSpots.push([x, y - 1, z0]);
         if (rnd() < 0.8) { addStatic(pickOf(PROP.crates, rnd), x + 1, y, z0); used.add(x + 1 + "," + y); }
         if (rnd() < 0.6) { addStatic(rnd() < 0.5 ? PROP.barrel : PROP.sack, x, y + 1, z0); used.add(x + "," + (y + 1)); }
         for (const [dx, dy] of [[-1, 0], [0, -1], [2, 0], [0, 2]]) used.add((x + dx) + "," + (y + dy));
@@ -1632,7 +1643,9 @@ OPS.town = o => {
   // Exits: where the main roads leave town, for country roads to join.
   const exits = roads.filter(rd => rd.main).map(rd => rd.pts[rd.pts.length - 1]);
   if (walled) cityWalls(cx, cy, r, edge, rnd, occ);
-  W.places.push({ name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r, exits, walled: !!walled });
+  const place = { name: o.name || townName(rnd), kind: sizeKey, style: styleKey, x: cx, y: cy, radius: r, exits, walled: !!walled };
+  W.places.push(place);
+  if (o.life ?? W._feat?.life ?? true) townLife(place, { lots, stalls: stallSpots, squareT, z0, squareR, rnd, sizeKey, styleKey });
 };
 
 /** Waterfront: a lane down to the shore and a dock plot at the water's edge (build the pier yourself). */
@@ -1642,7 +1655,7 @@ function harbour(cx, cy, r, rnd, occ, roads, laneKey) {
     if (!inMap(x, y) || isWater(x, y) || Math.hypot(x - cx, y - cy) > R) continue;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (inMap(x + dx, y + dy) && isWater(x + dx, y + dy)) { shore.push({ x, y, dx, dy }); break; }
   }
-  if (!shore.length) { addMsg?.("claude", "No water near this town for a waterfront.", "error"); return; }
+  if (!shore.length) { if (!W._quiet) addMsg?.("claude", "No water near this town for a waterfront.", "error"); return; }
   shore.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
   const docks = [];
   for (const s0 of shore) {
@@ -1650,7 +1663,7 @@ function harbour(cx, cy, r, rnd, occ, roads, laneKey) {
     if (docks.some(p => Math.hypot(p.x - s0.x, p.y - s0.y) < 16)) continue;
     // Open water straight out, so a pier can be built there.
     let len = 0;
-    while (len < 10 && inMap(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1)) && isWater(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1))) len++;
+    while (len < 18 && inMap(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1)) && isWater(s0.x + s0.dx * (len + 1), s0.y + s0.dy * (len + 1))) len++;
     if (len < 6) continue;
     // The plot: on the shore, its front facing the water.
     const along = s0.dx !== 0 ? 0 : 1, w = along ? 8 : 6, h = along ? 6 : 8;
@@ -1669,7 +1682,58 @@ function harbour(cx, cy, r, rnd, occ, roads, laneKey) {
     let best = null;
     for (const rd of roads) for (const q of rd.pts) { const d = Math.hypot(q[0] - s0.x, q[1] - s0.y); if (!best || d < best.d) best = { q, d }; }
     if (best && best.d > 3) OPS.path({ points: [best.q, [X + (w >> 1), Y + (h >> 1)]], width: 2, terrain: laneKey, jitter: 1, within: TERRAINS.map(t => t.key).filter(k => k !== "water") });
+    // The pier out from the middle of the dock's water side, a boat moored alongside when there's room.
+    if (featOn("docks") && len >= 9) {
+      const deckZ = Math.max(0, Math.min(6, lot.z ?? 0)), plen = Math.min(len - 2, 12);
+      buildPier(s0.x, s0.y, s0.dx, s0.dy, plen, 1, deckZ, rnd, len >= 12);
+      if (featOn("life")) W.objects.serverItems.push({ kind: "spawn", creatures: "Fisherman:1,Shipwright:1", count: 2, range: 3, min: 5, max: 10, x: s0.x + s0.dx * 3, y: s0.y + s0.dy * 3, z: deckZ });
+    }
     docks.push(s0);
+  }
+}
+/**
+ * What makes a town work on a ServUO shard: a guarded region with the town's name, a banker and a town crier on
+ * the square, vendors at the market stalls and in the plots by what the plot is for (an innkeeper at the inn, a
+ * smith at the smithy, a healer at the chapel…), and a spot on the square for the moongate the world links up later.
+ * All are real spawners and regions, made by the import script; Walk shows and edits them.
+ */
+const SHOP_VENDORS = ["Provisioner", "Tailor", "Weaponsmith", "Armorer", "Alchemist", "Herbalist", "Tinker", "Carpenter", "Bowyer", "Jeweler", "Mage", "Scribe", "Tanner", "Weaver", "Mapmaker"];
+const STALL_VENDORS = ["Provisioner", "Baker", "Butcher", "Farmer", "Fisherman", "Herbalist", "Tailor", "Jeweler"];
+const LOT_VENDORS = { inn: ["InnKeeper", "Barkeeper", "Cook"], smithy: ["Blacksmith", "Weaponsmith"], chapel: ["Healer"], hall: ["Scribe", "Mapmaker"],
+  keep: ["Armorer", "Weaponsmith"], dock: ["Fisherman", "Shipwright"], farm: ["Farmer"] };
+function townLife(place, t) {
+  ensureObjects();
+  const { lots, stalls, rnd, sizeKey } = t, items = W.objects.serverItems, small = sizeKey === "hamlet";
+  const spawn = (creatures, x, y, z, range = 2) => { if (inMap(x, y) && !isWater(x, y)) items.push({ kind: "spawn", creatures, count: creatures.split(",").reduce((a, c) => a + (+c.split(":")[1] || 1), 0), range, min: 5, max: 10, x, y, z: z ?? zAt(x, y) }); };
+  // The town's own region: named, guarded unless it's a hamlet.
+  const R = Math.round(place.radius * 1.15);
+  items.push({ kind: "region", x: Math.max(0, place.x - R), y: Math.max(0, place.y - R), w: Math.min(W.width - 1, place.x + R) - Math.max(0, place.x - R) + 1,
+    h: Math.min(W.height - 1, place.y + R) - Math.max(0, place.y - R) + 1, z: 0, name: place.name, guarded: !small });
+  // On the square: banker and crier (hamlets have neither; villages get a crier).
+  const near = (dx, dy) => [place.x + dx, place.y + dy];
+  if (sizeKey === "town" || sizeKey === "city") { const [bx, by] = near(-2, 1); spawn(sizeKey === "city" ? "Banker:2" : "Banker:1", bx, by, t.z0, 2); }
+  if (!small) { const [tx, ty] = near(2, -1); spawn("TownCrier:1", tx, ty, t.z0, 4); }
+  // Market stalls each get a vendor; plots by their kind.
+  for (const [x, y, z] of stalls) spawn(pickOf(STALL_VENDORS, rnd) + ":1", x, y, z, 1);
+  let shops = 0;
+  for (const l of lots) {
+    const pool = l.kind === "shop" ? SHOP_VENDORS : LOT_VENDORS[l.kind];
+    if (!pool || (l.kind === "farm" && rnd() < 0.6)) continue;
+    const who = l.kind === "shop" ? SHOP_VENDORS[(shops++ + Math.floor(rnd() * 3)) % SHOP_VENDORS.length] : l.kind === "inn" ? "InnKeeper:1,Barkeeper:1" : pickOf(pool, rnd);
+    const fx = l.face === "E" ? l.x + l.w - 2 : l.face === "W" ? l.x + 1 : l.x + (l.w >> 1);
+    const fy = l.face === "S" ? l.y + l.h - 2 : l.face === "N" ? l.y + 1 : l.y + (l.h >> 1);
+    spawn(who.includes(":") ? who : who + ":1", fx, fy, l.z, 2);
+  }
+  if (small) spawn("WanderingHealer:1", place.x, place.y, null, 6);
+  // A free spot on the edge of the square for a moongate (towns and cities): linked up once the world is populated.
+  if (sizeKey === "town" || sizeKey === "city") {
+    const taken = new Set(W.objects.statics.filter(st => Math.abs(st[1] - place.x) < 40 && Math.abs(st[2] - place.y) < 40).map(st => st[1] + "," + st[2]));
+    const free = (x, y) => inMap(x, y) && W.terrain[x + y * W.width] === t.squareT && !taken.has(x + "," + y);
+    for (let d = Math.max(3, Math.round(t.squareR)); d >= 2 && !place.gate; d--)
+      for (let a = 0; a < 16 && !place.gate; a++) {
+        const x = Math.round(place.x + Math.cos(a / 16 * Math.PI * 2) * d), y = Math.round(place.y + Math.sin(a / 16 * Math.PI * 2) * d);
+        if (free(x, y) && free(x + 1, y + 1) && free(x + 1, y) && free(x, y + 1)) place.gate = [x, y, zAt(x, y)];
+      }
   }
 }
 function garden(x0, y0, x1, y1, rnd, occ) {
@@ -1690,6 +1754,11 @@ function field(x0, y0, x1, y1, rnd, occ, fenced) {
     if ((x === x0 || x === x1) && (y === y0 || y === y1) && rnd() < 0.7) continue;
     const i = x + y * W.width; W.terrain[i] = TKEY.farmland; W.density[i] = 0; occ[i] = Math.max(occ[i], 1);
     if ((y - y0) % 2 === 0 && rnd() < 0.85) addStatic(pickOf(crop, rnd), x, y);
+  }
+  // A scarecrow standing in the crop (FARM.scarecrow: facing east or south).
+  if ((W._feat?.farms ?? true) && x1 - x0 >= 5 && y1 - y0 >= 4 && rnd() < 0.7) {
+    const sx = Math.round((x0 + x1) / 2), sy = y0 + 1 + 2 * Math.floor((y1 - y0 - 1) / 4); // an odd row: crops grow on the even ones
+    addStatic(rnd() < 0.5 ? 0x1E34 : 0x1E35, sx, sy);
   }
   if (fenced && rnd() < 0.5) fence(x0 - 1, y0 - 1, x1 + 1, y1 + 1, null, PROP.fenceX, PROP.fenceY, PROP.fencePost, rnd);
   if (rnd() < 0.7) { addStatic(pickOf(PROP.hay, rnd), x1 + 2, y0 + 1); if (rnd() < 0.5) addStatic(pickOf(PROP.hay, rnd), x1 + 2, y0 + 2); }
@@ -2146,6 +2215,7 @@ OPS.clear_objects = o => {
   W.objects.statics = W.objects.statics.filter(s => !inR(s[1], s[2]));
   W.objects.serverItems = (W.objects.serverItems || []).filter(s => !inR(s.x, s.y));
   W.objects.multis = W.objects.multis.filter(m => !inR(m[1], m[2]));
+  W.objects.land = (W.objects.land || []).filter(l => !inR(l[1], l[2]));
   W.places = W.places.filter(p => !inR(p.x, p.y));
 };
 
@@ -2203,6 +2273,7 @@ OPS.roads = o => {
     const big = ["town", "city"].includes(A.kind) && ["town", "city"].includes(B.kind);
     OPS.path({ points: pts, width: big ? 3 : 2, terrain: "dirt", jitter: 2.5, within: keep });
     bridges += bridgeRoad(pts, big ? 3 : 2, 2.5);
+    (W._roadLines ||= []).push({ pts, a: A, b: B, big });
   }
   return { bridges };
 };
@@ -2251,9 +2322,43 @@ function bridgeRoad(pts, width, jit) {
       const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / L)), d = Math.hypot(cx - ax - t * dx, cy - ay - t * dy);
       if (d < bd) { bd = d; dir = [dx, dy]; }
     }
-    if (buildBridge(Math.abs(dir[0]) >= Math.abs(dir[1]) ? "x" : "y", cx, cy, deckW, seed, bridgeStyleFor(cx, cy, width >= 3, seed))) made++;
+    const axis = Math.abs(dir[0]) >= Math.abs(dir[1]) ? "x" : "y";
+    // A narrow stream: a ford for a big road, stepping stones for a small one, instead of a bridge.
+    const span = crossingSpan(axis, Math.round(cx), Math.round(cy));
+    if ((W._feat?.fords ?? true) && span <= (width >= 3 ? 2 : 4)) { fordAt(axis, Math.round(cx), Math.round(cy), span, width, width >= 3 ? "ford" : "stones", seed); continue; }
+    if (buildBridge(axis, cx, cy, deckW, seed, bridgeStyleFor(cx, cy, width >= 3, seed))) made++;
   }
   return made;
+}
+/** How many water tiles a crossing along `axis` through (cx, cy) has to get over. */
+function crossingSpan(axis, cx, cy) {
+  const [dx, dy] = axis === "x" ? [1, 0] : [0, 1];
+  if (!isWater(cx, cy)) return 0;
+  let n = 1;
+  for (const sg of [1, -1]) for (let k = 1; k < 30; k++) { const x = cx + dx * k * sg, y = cy + dy * k * sg; if (!inMap(x, y) || !isWater(x, y)) break; n++; }
+  return n;
+}
+/** Fords and stepping stones (FORD): a ford raises the stream bed into a gravel bar the road runs over; stepping
+ *  stones are flat pavers standing in the water, zig-zagging across, with a few rocks round them. */
+const FORD = { stones: [0x0519, 0x051A, 0x051B, 0x051C], rocks: [0x1771, 0x1772, 0x1773, 0x1774, 0x1775, 0x1776, 0x1778, 0x1779] };
+function fordAt(axis, cx, cy, span, width, kind, seed) {
+  const [dx, dy] = axis === "x" ? [1, 0] : [0, 1], [px, py] = [dy, dx];
+  let a = 0; while (a < 30 && isWater(cx - dx * (a + 1), cy - dy * (a + 1))) a++;
+  const cells = []; for (let k = -a; k < span - a; k++) cells.push([cx + dx * k, cy + dy * k]);
+  if (kind === "ford") {
+    const half = Math.ceil(width / 2);
+    for (const [x, y] of cells) for (let w = -half; w <= half; w++) {
+      const X = x + px * w, Y = y + py * w; if (!inMap(X, Y) || !isWater(X, Y)) continue;
+      const i = X + Y * W.width; W.terrain[i] = TKEY.dirt; W.height_[i] = -2; W.density[i] = 0;
+      if (Math.abs(w) === half && hrand(X, Y, seed, 7) < 0.5) addStatic0(pickOf(FORD.rocks, () => hrand(X, Y, seed, 8)), X, Y, -2);
+    }
+    return;
+  }
+  cells.forEach(([x, y], k) => {
+    const w = k % 2 ? 1 : 0, X = x + px * w, Y = y + py * w;
+    addStatic0(FORD.stones[(X + Y) & 3], X, Y, -3);
+    if (hrand(X, Y, seed, 9) < 0.5) { const s = hrand(X, Y, seed, 10) < 0.5 ? -1 : 2, rx = x + px * s, ry = y + py * s; if (inMap(rx, ry) && isWater(rx, ry)) addStatic0(pickOf(FORD.rocks, () => hrand(rx, ry, seed, 11)), rx, ry, -5); }
+  });
 }
 // Bridges in more materials, after the client's own: stairs climb north, west, south, east as the first four of
 // each family; walls are the house builder's half walls (east-west pieces on a tile's south edge, north-south on
@@ -2464,11 +2569,614 @@ function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
   return path.reverse();
 }
 
+// ---------------------------------------------------------------------------
+// World features: what makes generated land look travelled and lived in. Each is switchable (o.features / W._feat):
+//  water   docks and piers with moored boats at harbour towns, waterfalls off high ground into rivers and lakes,
+//          fords and stepping stones (in bridgeRoad), lighthouses on headlands, fishing huts by lakes;
+//  roads   signposts at crossroads naming the towns each way, watchtowers and forts at mountain passes, stone walls
+//          and hedges along roads near towns, water mills by rivers (and scarecrows in the fields);
+//  caves   mouths in mountain sides, spread out over the map, into caves and mines carved inside the mountain or
+//          into the areas of a dungeon map, with real teleporters both ways; ruins near the dungeon ones;
+//  wilds   shipwrecks and driftwood on the beaches, oases in the deserts, standing stones on hilltops;
+//  towns   moongates linking the towns and cities (the vendors, bankers, criers and regions come with each town).
+// Art pieces are the client's own, laid out the way the client's maps use them.
+// ---------------------------------------------------------------------------
+const FEATURES = {
+  docks: "Docks, piers and moored boats", waterfalls: "Waterfalls", fords: "Fords and stepping stones", lighthouses: "Lighthouses", huts: "Fishing huts by lakes",
+  signs: "Signposts naming the towns", forts: "Watchtowers and forts at passes", hedges: "Walls and hedges by towns", farms: "Scarecrows and water mills",
+  caves: "Cave mouths into caves, mines and dungeons", ruins: "Ruins by dungeon mouths",
+  wrecks: "Shipwrecks and driftwood", oases: "Desert oases", stones: "Standing stones",
+  life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
+};
+const featOn = k => W._feat?.[k] ?? true;
+const PIER = { pile: 0x03A5, pole: 0x01CD, rope: [0x14F8, 0x14FA], anchor: 0x14F7, nets: [0x0DCA, 0x0DCB, 0x0DD0, 0x0DD1], fish: 0x09CC };
+// Waterfall pieces (animated): a curtain that drops one tile at a time, foam where it hits the water, ripples past it.
+const FALLS = { E: { curtain: 0x34F3, foam: 0x34FF, ripple: 0x3505 }, S: { curtain: 0x3511, foam: 0x351D, ripple: 0x3523 } };
+// Cave mouths: the client's mouth land tiles (Destard faces south, Despise east): the back line, then the dark mouth.
+const MOUTH = { S: { back: [0x1D3, 0x1D4, 0x1D4, 0x1D4, 0x1D5], front: [0x1DA, 0x1DB, 0x1DB, 0x1DB, 0x1D6] },
+                E: { back: [0x1D3, 0x1DA, 0x1DA, 0x1DA, 0x1D9], front: [0x1D4, 0x1DB, 0x1DB, 0x1DB, 0x1D8] }, walk: 0x2198 };
+// The wreck in Malas (a hull lying on its side, bow west), piece by piece: [id, dx, dy].
+const WRECK = [[0x47C7, 0, 0], [0x47C9, 2, 0], [0x47C3, 3, 0], [0x47C4, 4, 0], [0x47D5, -1, 1], [0x47D2, 0, 1], [0x47CE, 1, 1], [0x47C8, 2, 1], [0x47C2, 3, 1],
+  [0x47D4, -1, 2], [0x47D1, 0, 2], [0x47CD, 1, 2], [0x47B8, 2, 2], [0x47C1, 3, 2], [0x47B9, 5, 2], [0x47D3, -1, 3], [0x47D0, 0, 3], [0x47CC, 1, 3], [0x47C6, 2, 3],
+  [0x47C0, 3, 3], [0x47BB, 4, 3], [0x47BA, 5, 3], [0x47CF, 0, 4], [0x47CB, 1, 4], [0x47C5, 2, 4], [0x47BF, 3, 4], [0x47BC, 4, 4], [0x47CA, 2, 5], [0x47BE, 3, 5], [0x47BD, 4, 5]];
+const WILD = { driftwood: [0x0CF3, 0x0CF4, 0x0CF5, 0x0CF6, 0x0CF7], seaweed: [0x0DBA, 0x0DBB], shells: [0x0FC5, 0x0FC6, 0x0FC9, 0x0FCA],
+  menhirs: [0x134F, 0x1350, 0x1351, 0x1352, 0x1353, 0x1354], lowStone: 0x1355, hedge: [0x0C8F, 0x0C90], halfWallEW: 37, halfWallNS: 38, halfPost: 39,
+  mill: { E: 0xA0EE, S: 0xA0F8 }, millstones: [0x1883, 0x1887], brazier: 0x0E31 };
+const isRockT = t => t === TKEY.rock || t === TKEY.snow;
+const townsOf = () => W.places.filter(p => ["hamlet", "village", "town", "city"].includes(p.kind));
+const nearTown = (x, y, pad) => townsOf().some(p => Math.hypot(p.x - x, p.y - y) < (p.radius || 20) + pad);
+const nearestTown = (x, y) => townsOf().reduce((b, p) => !b || Math.hypot(p.x - x, p.y - y) < Math.hypot(b.x - x, b.y - y) ? p : b, null);
+/** Greedy spread: candidates in random order, each kept only if far enough from those kept already. */
+function spread(cands, want, minD, rnd) {
+  for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [cands[i], cands[j]] = [cands[j], cands[i]]; }
+  const out = [];
+  for (const c of cands) { if (out.length >= want) break; if (out.some(p => Math.hypot(p.x - c.x, p.y - c.y) < minD)) continue; out.push(c); }
+  return out;
+}
+/** Water bodies on a 4x4 grid: the sea (touches the edge or is huge), lakes, and -1 for rivers too thin to show. */
+function waterBodies() {
+  const Q = 4, cw = Math.ceil(W.width / Q), ch = Math.ceil(W.height / Q), lab = new Int32Array(cw * ch).fill(-1), sizes = [], sea = [];
+  const wet = (cx, cy) => { const x = Math.min(W.width - 1, cx * Q + 2), y = Math.min(W.height - 1, cy * Q + 2); return W.terrain[x + y * W.width] === TKEY.water; };
+  for (let s = 0; s < cw * ch; s++) {
+    if (lab[s] >= 0 || !wet(s % cw, (s / cw) | 0)) continue;
+    const id = sizes.length, st = [s]; lab[s] = id; let n = 0, edge = false;
+    while (st.length) { const c = st.pop(), x = c % cw, y = (c / cw) | 0; n++; if (x === 0 || y === 0 || x === cw - 1 || y === ch - 1) edge = true;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, k = nx + ny * cw; if (nx >= 0 && ny >= 0 && nx < cw && ny < ch && lab[k] < 0 && wet(nx, ny)) { lab[k] = id; st.push(k); } } }
+    sizes.push(n); sea.push(edge || n > 60000);
+  }
+  return { at: (x, y) => lab[Math.min(cw - 1, (x / Q) | 0) + Math.min(ch - 1, (y / Q) | 0) * cw], size: id => sizes[id] ?? 0, sea: id => id >= 0 && sea[id] };
+}
+function clearCell(x, y) { if (inMap(x, y)) W.density[x + y * W.width] = 0; }
+function setGround(x, y, z, t) { if (!inMap(x, y)) return; const i = x + y * W.width; W.height_[i] = clampZ(z); if (t != null) W.terrain[i] = t; W.density[i] = 0; }
+
+/** A wooden pier from the shore (sx, sy) out over the water along (dx, dy): a board deck `half` tiles either side
+ *  of its line, piles down into the water and mooring posts along the edges, a boat tied alongside when asked. */
+function buildPier(sx, sy, dx, dy, len, half, z, rnd, boat) {
+  const alongX = dx !== 0, deck = alongX ? BRIDGE_KIT.x.deck : BRIDGE_KIT.y.deck, px = Math.abs(dy), py = Math.abs(dx);
+  const at = (t, w) => [sx + dx * t + px * w, sy + dy * t + py * w];
+  for (let t = 0; t <= len; t++) for (let w = -half; w <= half; w++) {
+    const [x, y] = at(t, w); if (!inMap(x, y)) continue;
+    addStatic0(deck[(t * 3 + w + 8) & 3], x, y, z);
+    if (t > 0 && Math.abs(w) === half && (t % 3 === 0 || t === len)) {
+      for (let pz = -10; pz <= z - 5; pz += 5) addStatic0(PIER.pile, x, y, pz);
+      if (t % 6 === 0 || t === len) addStatic0(PIER.pole, x, y, z);
+    }
+  }
+  if (half >= 1) {
+    const [cx1, cy1] = at(1, half), [bx1, by1] = at(2, -half), [rx, ry] = at(len, -half);
+    addStatic0(pickOf(PROP.crates, rnd), cx1, cy1, z); addStatic0(rnd() < 0.5 ? PROP.barrel : PROP.keg, bx1, by1, z);
+    addStatic0(pickOf(PIER.rope, rnd), rx, ry, z);
+    if (rnd() < 0.5) { const [ax, ay] = at(Math.max(2, len - 2), half); addStatic0(PIER.anchor, ax, ay, z); }
+  } else if (rnd() < 0.7) { const [nx, ny] = at(len, 0); addStatic0(pickOf(PIER.nets, rnd), nx, ny, z); }
+  if (!boat) return false;
+  // A small ship alongside, its keel parallel to the pier (multis 0-3 face N, E, S, W; 5 wide, 11 long).
+  for (const side of rnd() < 0.5 ? [1, -1] : [-1, 1]) for (let t0 = 7; t0 <= len + 4; t0++) {
+    const [bx, by] = at(t0, side * (half + 3));
+    let ok = true;
+    for (let a = -6; a <= 6 && ok; a++) for (let b = -2; b <= 2; b++) { const x = bx + dx * a + px * b, y = by + dy * a + py * b; if (!inMap(x, y) || !isWater(x, y)) { ok = false; break; } }
+    if (!ok) continue;
+    W.objects.multis.push([alongX ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0), bx, by, -5]);
+    return true;
+  }
+  return false;
+}
+
+/** Waterfalls: where high ground stands right over a river or lake, a stream runs across the top from a spring and
+ *  drops down the face in the client's animated curtain, foaming where it lands. Falls face south or east, the
+ *  way the client draws them. */
+function waterfallsPass(rnd, occ, want) {
+  const N = W.width, cands = [];
+  for (let y = 16; y < W.height - 16; y += 3) for (let x = 16; x < N - 16; x += 3) {
+    if (!isWater(x, y)) continue;
+    for (const face of ["E", "S"]) {
+      // u across the fall (2 wide), v downstream: the water is at v = 0, the face at v = -1 .. -(k-1), the top at v = -k.
+      const P = (u, v) => face === "E" ? [x + v, y + u] : [x + u, y + v];
+      const [w2x, w2y] = P(1, 0); if (!isWater(w2x, w2y)) continue;
+      for (let k = 4; k <= 12; k++) {
+        let ok = true, top = 999;
+        for (let u = 0; u <= 1 && ok; u++) for (let v = -1; v >= -k; v--) { const [X, Y] = P(u, v), i = X + Y * N; if (W.terrain[i] === TKEY.water || occ[i]) { ok = false; break; } if (v === -k) top = Math.min(top, W.height_[i]); }
+        if (!ok || top < 16) continue;
+        // A flat-ish top to run the stream across.
+        for (let v = -k - 1; v >= -k - 10 && ok; v--) for (let u = -1; u <= 2; u++) { const [X, Y] = P(u, v); if (!inMap(X, Y)) { ok = false; break; } const i = X + Y * N, h = W.height_[i]; if (W.terrain[i] === TKEY.water || occ[i] || h < top - 8) { ok = false; break; } }
+        if (ok) { cands.push({ x, y, face, k, top }); break; }
+      }
+    }
+  }
+  let made = 0;
+  for (const c of spread(cands, want, 110, rnd)) {
+    const { face, k } = c, P = (u, v) => face === "E" ? [c.x + v, c.y + u] : [c.x + u, c.y + v], F = FALLS[face], T = c.top - 1, Ts = T - 2;
+    // The stream across the top, wandering a little, from a spring pool.
+    const L = 8 + Math.floor(rnd() * 9), ph = rnd() * 6;
+    let lastO = 0;
+    for (let i = 0; i <= L; i++) {
+      const o = i < 3 ? 0 : Math.round(Math.sin(i / 4 + ph) * 1.2); lastO = o;
+      for (let u = -1; u <= 2; u++) { const [X, Y] = P(u + o, -k - i), j = X + Y * N;
+        if (u === 0 || u === 1) { W.terrain[j] = TKEY.water; W.height_[j] = Ts; W.density[j] = 0; }
+        else if (W.terrain[j] !== TKEY.water) { W.height_[j] = clampZ(Math.max(W.height_[j], T)); W.density[j] = Math.min(W.density[j], 60); } }
+    }
+    for (let v = -2; v <= 2; v++) for (let u = -2; u <= 3; u++) {
+      const [X, Y] = P(u + lastO, -k - L - 2 + v), j = X + Y * N; if (!inMap(X, Y)) continue;
+      if (Math.hypot(u - 0.5, v) <= 2.1) { W.terrain[j] = TKEY.water; W.height_[j] = Ts; W.density[j] = 0; }
+      else if (W.terrain[j] !== TKEY.water) W.height_[j] = clampZ(Math.max(W.height_[j], T));
+    }
+    // The bank becomes a crag: the stream runs out to its edge, then a sheer face of three steps down to the
+    // water, which the curtain covers.
+    const F0 = -3;
+    for (let v = -k + 1; v <= -1; v++) for (let u = -3; u <= 4; u++) {
+      const [X, Y] = P(u, v), j = X + Y * N, edge = Math.abs(u - 0.5) > 2.5;
+      if (v < F0) {
+        if (u === 0 || u === 1) { W.terrain[j] = TKEY.water; W.height_[j] = Ts; }
+        else { W.height_[j] = clampZ(Math.max(W.height_[j], edge ? T - 4 : T)); if (!edge) W.terrain[j] = TKEY.rock; }
+      } else {
+        const h = Math.round(T - (T + 5) * (v - F0 + 1) / (1 - F0 + 1));
+        if (u === 0 || u === 1) W.height_[j] = clampZ(h);
+        else W.height_[j] = clampZ(Math.max(W.height_[j], edge ? h : h + 8));
+        if (!edge) W.terrain[j] = TKEY.rock;
+      }
+      W.density[j] = 0;
+    }
+    for (let u = 0; u <= 1; u++) {
+      let upper = Ts;
+      for (let v = F0; v <= -1; v++) {
+        const [X, Y] = P(u, v), own = W.height_[X + Y * N];
+        for (let z = upper - 10; z >= own - 9; z -= 10) addStatic0(F.curtain, X, Y, z);
+        upper = Math.min(upper, own + 1);
+      }
+      const [fx, fy] = P(u, 0); addStatic0(F.foam, fx, fy, -5);
+      const [rx, ry] = P(u, 1); if (inMap(rx, ry) && isWater(rx, ry)) addStatic0(F.ripple, rx, ry, -5);
+    }
+    made++;
+  }
+  return made;
+}
+
+/** Lighthouses on headlands: land the sea wraps round. A tall stone tower with a fire on its roof. */
+function lighthousesPass(rnd, occ, wb, want) {
+  const cands = [];
+  for (let y = 20; y < W.height - 20; y += 6) for (let x = 20; x < W.width - 20; x += 6) {
+    if (isWater(x, y) || isRockT(W.terrain[x + y * W.width])) continue;
+    let wet = 0, sea = 0, n = 0;
+    for (let a = 0; a < 24; a++) for (const r of [6, 10]) { const X = Math.round(x + Math.cos(a / 24 * Math.PI * 2) * r), Y = Math.round(y + Math.sin(a / 24 * Math.PI * 2) * r); n++; if (inMap(X, Y) && isWater(X, Y)) { wet++; if (wb.sea(wb.at(X, Y))) sea++; } }
+    if (wet / n < 0.5 || sea < wet * 0.8) continue;
+    if (!rectFree(occ, x - 3, y - 3, x + 3, y + 3) || !flatEnough(x - 3, y - 3, x + 3, y + 3, 14)) continue;
+    let dry = true; for (let j = -3; j <= 3 && dry; j++) for (let i = -3; i <= 3; i++) if (isWater(x + i, y + j)) { dry = false; break; }
+    if (dry && !nearTown(x, y, 15)) cands.push({ x, y, score: wet });
+  }
+  let made = 0;
+  for (const c of spread(cands, want, 260, rnd)) {
+    const z = levelRect(c.x - 3, c.y - 3, c.x + 3, c.y + 3, 2);
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) clearCell(c.x + i, c.y + j);
+    markRect(occ, c.x - 4, c.y - 4, c.x + 4, c.y + 4, 1);
+    // Door toward the land.
+    let lx = 0, ly = 0; for (let a = 0; a < 16; a++) { const X = Math.round(c.x + Math.cos(a / 8 * Math.PI) * 8), Y = Math.round(c.y + Math.sin(a / 8 * Math.PI) * 8); if (inMap(X, Y) && !isWater(X, Y)) { lx += X - c.x; ly += Y - c.y; } }
+    const door = Math.abs(lx) > Math.abs(ly) ? (lx > 0 ? "E" : "W") : (ly > 0 ? "S" : "N");
+    W.objects.buildings.push({ x: c.x - 2, y: c.y - 2, w: 4, h: 4, z, floors: 4, theme: "stone", roofType: "flat", use: "tower", door, seed: Math.floor(rnd() * 1e6) });
+    addStatic0(WILD.brazier, c.x - 1, c.y - 1, z + 80); addStatic0(WILD.brazier, c.x, c.y, z + 80);
+    const t = nearestTown(c.x, c.y);
+    W.places.push({ name: uniqueName(`${t ? t.name : townName(rnd)} Light`, rnd), kind: "lighthouse", x: c.x, y: c.y, radius: 4 });
+    made++;
+  }
+  return made;
+}
+
+/** Fishing huts on lake shores: a small hut facing the water, a jetty, nets drying. */
+function hutsPass(rnd, occ, wb, want) {
+  const cands = [];
+  for (let y = 12; y < W.height - 12; y += 4) for (let x = 12; x < W.width - 12; x += 4) {
+    if (isWater(x, y)) continue;
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      if (!isWater(x + dx, y + dy)) continue;
+      const id = wb.at(x + dx * 3, y + dy * 3); if (id < 0 || wb.sea(id) || wb.size(id) < 20) continue;
+      let run = 0; while (run < 8 && isWater(x + dx * (run + 1), y + dy * (run + 1))) run++;
+      if (run < 5) continue;
+      const r = dy === 1 ? [x - 1, y - 5, x + 2, y - 2] : dy === -1 ? [x - 1, y + 2, x + 2, y + 5] : dx === 1 ? [x - 5, y - 1, x - 2, y + 2] : [x + 2, y - 1, x + 5, y + 2];
+      if (!rectFree(occ, r[0] - 2, r[1] - 2, r[2] + 2, r[3] + 2) || !flatEnough(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, 10)) continue;
+      let dry = true; for (let Y = r[1] - 1; Y <= r[3] + 1 && dry; Y++) for (let X = r[0] - 1; X <= r[2] + 1; X++) if (isWater(X, Y) || isRockT(W.terrain[X + Y * W.width])) { dry = false; break; }
+      if (dry && !nearTown(x, y, 40)) { cands.push({ x, y, dx, dy, r }); break; }
+    }
+  }
+  let made = 0;
+  for (const c of spread(cands, want, 170, rnd)) {
+    const [x0, y0, x1, y1] = c.r, z = levelRect(x0 - 1, y0 - 1, x1 + 1, y1 + 1, 2);
+    for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) clearCell(x, y);
+    markRect(occ, x0 - 2, y0 - 2, x1 + 2, y1 + 2, 1);
+    const door = c.dy === 1 ? "S" : c.dy === -1 ? "N" : c.dx === 1 ? "E" : "W";
+    W.objects.buildings.push({ x: x0, y: y0, w: 4, h: 4, z, floors: 1, theme: pickOf(["log", "wood", "thatch"], rnd), use: "home", door, seed: Math.floor(rnd() * 1e6) });
+    buildPier(c.x, c.y, c.dx, c.dy, 4 + Math.floor(rnd() * 3), 0, Math.max(0, Math.min(4, zAt(c.x, c.y))), rnd, false);
+    // Nets drying beside the hut, a barrel of the day's catch.
+    const side = c.dx === 0 ? [x1 + 2, y0 + 1] : [x0 + 1, y1 + 2];
+    addStatic(pickOf(PIER.nets, rnd), side[0], side[1]); addStatic(PROP.barrel, side[0] + (c.dx === 0 ? 0 : 1), side[1] + (c.dx === 0 ? 1 : 0));
+    if (featOn("life")) W.objects.serverItems.push({ kind: "spawn", creatures: "Fisherman:1", count: 1, range: 3, min: 5, max: 10, x: c.x, y: c.y, z: zAt(c.x, c.y) });
+    made++;
+  }
+  return made;
+}
+
+const COMPASS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
+const compass = (dx, dy) => COMPASS[((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8];
+/** A signpost: the post (static) and a sign item carrying the text, so a click in game reads it. */
+function signpost(x, y, text, ew) {
+  const id = ew ? PROP.signX : PROP.signY;
+  addStatic(id, x, y);
+  W.objects.serverItems.push({ kind: "sign", id, hue: 0, name: text.slice(0, 120), x, y, z: zAt(x, y) });
+}
+const offRoad = (x, y) => inMap(x, y) && !isWater(x, y) && W.terrain[x + y * W.width] !== TKEY.dirt && W.terrain[x + y * W.width] !== TKEY.cobblestone && !isRockT(W.terrain[x + y * W.width]);
+/** Signposts where country roads meet, naming the towns each way, and at each road's start naming where it goes. */
+function signsPass(rnd) {
+  const lines = W._roadLines || [], dens = lines.map(l => densify(l.pts)), buckets = new Map();
+  dens.forEach((d, i) => d.forEach((p, k) => { if (k % 2) return; const key = (Math.floor(p.x / 8)) + "," + (Math.floor(p.y / 8)); (buckets.get(key) || buckets.set(key, []).get(key)).push([i, k, p]); }));
+  const junctions = [];
+  dens.forEach((d, i) => d.forEach((p, k) => {
+    if (k % 2) return;
+    for (let by = -1; by <= 1; by++) for (let bx = -1; bx <= 1; bx++) for (const [j, k2, q] of buckets.get((Math.floor(p.x / 8) + bx) + "," + (Math.floor(p.y / 8) + by)) || []) {
+      if (j <= i || Math.hypot(p.x - q.x, p.y - q.y) > 3) continue;
+      if (nearTown(p.x, p.y, 14) || junctions.some(J => Math.hypot(J.x - p.x, J.y - p.y) < 30)) continue;
+      junctions.push({ x: p.x, y: p.y, at: [[i, k], [j, k2]] });
+    }
+  }));
+  let made = 0;
+  for (const J of junctions) {
+    const ways = new Map();
+    for (const [i, k] of J.at) {
+      const d = dens[i], L = lines[i];
+      for (const [end, town] of [[Math.max(0, k - 14), L.a], [Math.min(d.length - 1, k + 14), L.b]]) {
+        const dir = compass(d[end].x - J.x, d[end].y - J.y), dist = Math.hypot(town.x - J.x, town.y - J.y);
+        if (!ways.has(dir) || ways.get(dir).dist > dist) ways.set(dir, { name: town.name, dist });
+      }
+    }
+    if (ways.size < 3) continue;
+    const text = [...ways].sort((a, b) => COMPASS.indexOf(a[0]) - COMPASS.indexOf(b[0])).map(([d, w]) => `${d}: ${w.name}`).join(" · ");
+    for (let r = 2; r <= 5; r++) { let done = false;
+      for (let a = 0; a < 8 && !done; a++) { const x = Math.round(J.x + Math.cos(a / 4 * Math.PI) * r), y = Math.round(J.y + Math.sin(a / 4 * Math.PI) * r); if (offRoad(x, y)) { signpost(x, y, text, rnd() < 0.5); made++; done = true; } }
+      if (done) break; }
+  }
+  // Where each road leaves its towns: which town it goes to.
+  lines.forEach((L, i) => {
+    const d = dens[i]; if (d.length < 30) return;
+    for (const [k, to] of [[6, L.b], [d.length - 7, L.a]]) {
+      const p = d[k], n = Math.hypot(p.dx, p.dy) || 1, nx = -p.dy / n, ny = p.dx / n;
+      for (const s of [1, -1]) { const x = Math.round(p.x + nx * s * 3), y = Math.round(p.y + ny * s * 3); if (offRoad(x, y)) { signpost(x, y, `To ${to.name}`, Math.abs(p.dx) >= Math.abs(p.dy)); made++; break; } }
+    }
+  });
+  return made;
+}
+
+/** Mountain passes: the high point of a road with higher ground both sides. A watchtower beside it, or on a big
+ *  road a small fort: a walled yard with the tower and a barracks. */
+function fortsPass(rnd, occ, want) {
+  const cands = [];
+  (W._roadLines || []).forEach(L => {
+    const d = densify(L.pts);
+    for (let k = 20; k < d.length - 20; k += 4) {
+      const p = d[k], h = zAt(Math.round(p.x), Math.round(p.y));
+      if (h < 16) continue;
+      let top = true; for (let j = k - 20; j <= k + 20 && top; j += 4) if (zAt(Math.round(d[j].x), Math.round(d[j].y)) > h) top = false;
+      if (!top) continue;
+      const n = Math.hypot(p.dx, p.dy) || 1, nx = -p.dy / n, ny = p.dx / n;
+      const side = s => { let m = -999; for (let r = 8; r <= 30; r += 3) { const X = Math.round(p.x + nx * s * r), Y = Math.round(p.y + ny * s * r); if (inMap(X, Y)) m = Math.max(m, zAt(X, Y)); } return m; };
+      if (side(1) < h + 6 || side(-1) < h + 6) continue;
+      cands.push({ x: p.x, y: p.y, nx, ny, big: L.big, a: L.a, b: L.b });
+    }
+  });
+  let made = 0;
+  for (const c of spread(cands, want, 160, rnd)) {
+    const fort = c.big && rnd() < 0.6, R = fort ? 7 : 3;
+    // Beside the road, on the flatter side.
+    let spot = null;
+    for (const s of [1, -1]) for (let off = R + 3; off <= R + 7 && !spot; off++) {
+      const x = Math.round(c.x + c.nx * s * off), y = Math.round(c.y + c.ny * s * off);
+      if (rectFree(occ, x - R - 1, y - R - 1, x + R + 1, y + R + 1) && flatEnough(x - R, y - R, x + R, y + R, fort ? 18 : 14)) {
+        let ok = true; for (let j = -R; j <= R && ok; j++) for (let i = -R; i <= R; i++) if (!offRoad(x + i, y + j) && !isRockT(W.terrain[x + i + (y + j) * W.width])) { ok = false; break; }
+        if (ok) spot = { x, y, s };
+      }
+    }
+    if (!spot) continue;
+    const { x, y } = spot, z = levelRect(x - R, y - R, x + R, y + R, 3);
+    for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) { const k = x + i + (y + j) * W.width; if (isRockT(W.terrain[k])) W.terrain[k] = TKEY.dirt; W.density[k] = 0; }
+    markRect(occ, x - R - 1, y - R - 1, x + R + 1, y + R + 1, 1);
+    const toRoad = Math.abs(c.nx) > Math.abs(c.ny) ? (spot.s > 0 ? "W" : "E") : (spot.s > 0 ? "N" : "S");
+    if (!fort) {
+      W.objects.buildings.push({ x: x - 2, y: y - 2, w: 4, h: 4, z, floors: 3, theme: "stone", roofType: "flat", use: "guard", door: toRoad, seed: Math.floor(rnd() * 1e6) });
+      addStatic0(WILD.brazier, x - 1, y - 1, z + 60);
+    } else {
+      // A walled yard, two storeys of fieldstone with a gate toward the road; tower in one corner, barracks along a side.
+      const x0 = x - R, y0 = y - R, x1 = x + R, y1 = y + R, gx = x, gy = y;
+      const gate = (wx, wy) => (toRoad === "N" && wy === y0 - 1 || toRoad === "S" && wy === y1) && Math.abs(wx - gx) <= 1 || (toRoad === "W" && wx === x0 - 1 || toRoad === "E" && wx === x1) && Math.abs(wy - gy) <= 1;
+      for (const zz of [z, z + 20]) {
+        addStatic0(PROP.wallPost, x0 - 1, y0 - 1, zz);
+        for (let wx = x0; wx <= x1; wx++) { if (!gate(wx, y0 - 1)) addStatic0(PROP.wallEW, wx, y0 - 1, zz); if (wx < x1 && !gate(wx, y1)) addStatic0(PROP.wallEW, wx, y1, zz); }
+        for (let wy = y0; wy <= y1; wy++) { if (!gate(x0 - 1, wy)) addStatic0(PROP.wallNS, x0 - 1, wy, zz); if (wy < y1 && !gate(x1, wy)) addStatic0(PROP.wallNS, x1, wy, zz); }
+        addStatic0(PROP.wallCorner, x1, y1, zz);
+      }
+      const tx = toRoad === "W" ? x1 - 4 : x0 + 1, ty = toRoad === "N" ? y1 - 4 : y0 + 1;
+      W.objects.buildings.push({ x: tx, y: ty, w: 3, h: 3, z, floors: 3, theme: "stone", roofType: "flat", use: "guard", door: toRoad === "N" ? "N" : toRoad === "W" ? "W" : "S", seed: Math.floor(rnd() * 1e6) });
+      addStatic0(WILD.brazier, tx + 1, ty + 1, z + 60);
+      const bx = toRoad === "E" ? x0 + 1 : x1 - 5, by = toRoad === "S" ? y0 + 1 : y1 - 4;
+      W.objects.buildings.push({ x: bx, y: by, w: 4, h: 3, z, floors: 1, theme: "fieldstone", use: "guard", door: toRoad, seed: Math.floor(rnd() * 1e6) });
+    }
+    const t = rnd() < 0.5 ? c.a : c.b;
+    W.places.push({ name: uniqueName(fort ? `Fort ${t.name}` : `${t.name} Watch`, rnd), kind: fort ? "fort" : "tower", x, y, radius: R + 2 });
+    made++;
+  }
+  return made;
+}
+
+/** Field walls and hedges lining the roads where they near a town: runs with gaps, stone by towns and cities,
+ *  hedges by villages and hamlets. */
+function hedgesPass(rnd, occ) {
+  let made = 0;
+  for (const L of W._roadLines || []) {
+    const d = densify(L.pts), off = (L.big ? 3 : 2) + 1;
+    for (const s of [1, -1]) {
+      let run = 0, gap = between(2, 8, rnd), stone = false;
+      for (let k = 0; k < d.length; k++) {
+        const p = d[k], t = [L.a, L.b].reduce((b, q) => Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(b.x - p.x, b.y - p.y) ? q : b), dt = Math.hypot(t.x - p.x, t.y - p.y);
+        if (dt < t.radius + 4 || dt > t.radius * 2 + 30) { run = 0; continue; }
+        if (gap > 0) { gap--; if (gap === 0) { run = between(10, 26, rnd); stone = ["town", "city"].includes(t.kind) ? rnd() < 0.8 : rnd() < 0.25; } continue; }
+        if (run-- <= 0) { gap = between(3, 10, rnd); continue; }
+        const n = Math.hypot(p.dx, p.dy) || 1, x = Math.round(p.x - p.dy / n * s * off), y = Math.round(p.y + p.dx / n * s * off);
+        if (!offRoad(x, y) || occ[x + y * W.width]) continue;
+        const ew = Math.abs(p.dx) >= Math.abs(p.dy);
+        addStatic(stone ? (ew ? WILD.halfWallEW : WILD.halfWallNS) : pickOf(WILD.hedge, rnd), x, y);
+        clearCell(x, y); occ[x + y * W.width] = 1; made++;
+      }
+    }
+  }
+  return made;
+}
+
+/** Water mills: by a river near a village or town, a mill house with the turning wheel on the bank. */
+function millsPass(rnd, occ, wb) {
+  let made = 0;
+  for (const t of townsOf()) {
+    if (!["village", "town"].includes(t.kind) || rnd() < 0.3) continue;
+    let done = false;
+    for (let tries = 0; tries < 400 && !done; tries++) {
+      const a = rnd() * Math.PI * 2, r = t.radius * (1 + rnd() * 0.9), x = Math.round(t.x + Math.cos(a) * r), y = Math.round(t.y + Math.sin(a) * r);
+      for (const [face, dx, dy] of [["E", 1, 0], ["S", 0, 1]]) {
+        if (done || !inMap(x + dx * 2, y + dy * 2) || isWater(x, y) || !isWater(x + dx, y + dy) || wb.sea(wb.at(x + dx, y + dy))) continue;
+        // The house behind the bank (away from the water).
+        const hx0 = face === "E" ? x - 6 : x - 2, hy0 = face === "S" ? y - 6 : y - 2, hx1 = hx0 + 4, hy1 = hy0 + 4;
+        if (!rectFree(occ, hx0 - 1, hy0 - 1, hx1 + 1, hy1 + 1) || !flatEnough(hx0, hy0, hx1, hy1, 8)) continue;
+        let dry = true; for (let Y = hy0 - 1; Y <= hy1 + 1 && dry; Y++) for (let X = hx0 - 1; X <= hx1 + 1; X++) if (isWater(X, Y) || isRockT(W.terrain[X + Y * W.width])) { dry = false; break; }
+        if (!dry) continue;
+        const z = levelRect(hx0, hy0, hx1, hy1, 2);
+        for (let Y = hy0 - 1; Y <= hy1 + 1; Y++) for (let X = hx0 - 1; X <= hx1 + 1; X++) clearCell(X, Y);
+        markRect(occ, hx0 - 1, hy0 - 1, hx1 + 1, hy1 + 1, 1);
+        W.objects.buildings.push({ x: hx0 + 1, y: hy0 + 1, w: 3, h: 3, z, floors: 2, theme: pickOf(["wood", "plaster", "fieldstone"], rnd), use: "storage", door: face === "E" ? "W" : "N", seed: Math.floor(rnd() * 1e6) });
+        addStatic0(WILD.mill[face], x, y, zAt(x, y));
+        addStatic(pickOf(WILD.millstones, rnd), face === "E" ? hx0 - 1 : hx0 + 2, face === "E" ? hy0 + 2 : hy0 - 1);
+        W.places.push({ name: uniqueName(`${t.name} Mill`, rnd), kind: "mill", x, y, radius: 4 });
+        made++; done = true;
+      }
+    }
+  }
+  return made;
+}
+
+/**
+ * Cave mouths: S- or E-facing mountain sides with open, level ground in front, spread out over the map. Each leads,
+ * by real teleporters both ways, into a cave or mine carved inside a mountain (void around cave floor, as the
+ * client's Minoc caves are) or, when a dungeon map is given, into one of its areas. A dungeon mouth may have ruins
+ * near it; each gets a signpost with its name.
+ */
+function cavesPass(o, rnd, occ) {
+  const N = W.width, H = W.height, area = N * H / 1e6;
+  // Distance (in tiles) from the nearest tile that isn't mountain: how deep inside the rock a tile is.
+  const dist = new Uint8Array(N * H);
+  for (let i = 0; i < dist.length; i++) dist[i] = isRockT(W.terrain[i]) ? 255 : 0;
+  for (let y = 1; y < H; y++) for (let x = 1; x < N - 1; x++) { const i = x + y * N; if (dist[i]) dist[i] = Math.min(dist[i], dist[i - 1] + 1, dist[i - N] + 1, dist[i - N - 1] + 1, dist[i - N + 1] + 1); }
+  for (let y = H - 2; y >= 0; y--) for (let x = N - 2; x >= 1; x--) { const i = x + y * N; if (dist[i]) dist[i] = Math.min(dist[i], dist[i + 1] + 1, dist[i + N] + 1, dist[i + N + 1] + 1, dist[i + N - 1] + 1); }
+  // Mouth sites.
+  const cands = [];
+  for (let y = 14; y < H - 14; y += 2) for (let x = 14; x < N - 14; x += 2) for (const face of ["S", "E"]) {
+    const P = (u, v) => face === "S" ? [x + u, y + v] : [x + v, y + u];
+    let ok = true; const zs = [];
+    for (let v = 1; v <= 3 && ok; v++) for (let u = -2; u <= 2; u++) { const [X, Y] = P(u, v), i = X + Y * N, t = W.terrain[i];
+      if (isRockT(t) || t === TKEY.water || t === TKEY.void || t === TKEY.lava || occ[i]) { ok = false; break; } zs.push(W.height_[i]); }
+    if (!ok) continue;
+    zs.sort((a, b) => a - b); const h0 = zs[zs.length >> 1]; if (zs[zs.length - 1] - zs[0] > 12) continue;
+    for (let v = -3; v >= -7 && ok; v--) for (let u = -2; u <= 2; u++) { const [X, Y] = P(u, v), i = X + Y * N; if (!isRockT(W.terrain[i]) || W.height_[i] < h0 + 16) { ok = false; break; } }
+    if (!ok) continue;
+    const [kx, ky] = P(0, -5); if (dist[kx + ky * N] < 2 || nearTown(x, y, 30)) continue;
+    cands.push({ x, y, face, h0 });
+  }
+  const want = Math.max(2, Math.round(area * (o.caves ?? 1.2))), minD = Math.max(90, Math.sqrt(N * H / want) * 0.3);
+  const mouths = spread(cands, want, minD, rnd);
+  // Room for caves inside the mountains: 4x4 cells that are all deep rock, with a summed-area table.
+  const Q = 4, cw = Math.floor(N / Q), ch = Math.floor(H / Q), sat = new Int32Array((cw + 1) * (ch + 1));
+  for (let cy = 0; cy < ch; cy++) for (let cx = 0; cx < cw; cx++) {
+    let deep = 1; for (let j = 0; j < Q && deep; j++) for (let i = 0; i < Q; i++) if (dist[cx * Q + i + (cy * Q + j) * N] < 4) { deep = 0; break; }
+    const k = (cx + 1) + (cy + 1) * (cw + 1); sat[k] = deep + sat[k - 1] + sat[k - cw - 1] - sat[k - cw - 2];
+  }
+  const full = (ax, ay, s) => { if (ax < 1 || ay < 1 || ax + s >= cw || ay + s >= ch) return false; const S = cw + 1; return sat[(ax + s) + (ay + s) * S] - sat[ax + (ay + s) * S] - sat[(ax + s) + ay * S] + sat[ax + ay * S] === s * s; };
+  const taken = [];
+  const findRoom = (mx, my) => {
+    for (let s = 14; s >= 7; s--) {
+      let best = null;
+      for (let ay = Math.floor(my / Q) - 40; ay <= Math.floor(my / Q) + 40; ay++) for (let ax = Math.floor(mx / Q) - 40; ax <= Math.floor(mx / Q) + 40; ax++) {
+        if (!full(ax, ay, s) || taken.some(r => ax < r[0] + r[2] + 2 && r[0] < ax + s + 2 && ay < r[1] + r[2] + 2 && r[1] < ay + s + 2)) continue;
+        const d = Math.hypot((ax + s / 2) * Q - mx, (ay + s / 2) * Q - my); if (!best || d < best.d) best = { ax, ay, s, d };
+      }
+      if (best) { taken.push([best.ax, best.ay, best.s]); return { x: best.ax * Q, y: best.ay * Q, w: best.s * Q, h: best.s * Q }; }
+    }
+    return null;
+  };
+  const dungeons = (o.caveAreas || []).slice();
+  for (let i = dungeons.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [dungeons[i], dungeons[j]] = [dungeons[j], dungeons[i]]; }
+  const toDungeons = o.caveMap ? Math.min(dungeons.length, Math.ceil(mouths.length / 2)) : 0;
+  let made = 0, inner = 0, linked = 0;
+  mouths.forEach((m, n) => {
+    const P = (u, v) => m.face === "S" ? [m.x + u, m.y + v] : [m.x + v, m.y + u], h0 = m.h0;
+    const [ox, oy] = P(0, 2);
+    let target = null, name;
+    if (n < toDungeons) { target = { link: { map: o.caveMap, place: dungeons[n] } }; name = dungeons[n]; }
+    else {
+      const room = findRoom(m.x, m.y);
+      if (room) {
+        const keepZ = [];
+        for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { const i = x + y * N; keepZ.push(W.height_[i]); W.terrain[i] = TKEY.void; W.height_[i] = 0; W.density[i] = 0; }
+        const plain = rnd() < 0.65, style = plain ? pickOf(["mine", "cave", "cave", "cavern"], rnd) : pickOf(["cave", "cavern", "crypt", "lair"], rnd);
+        const theme = plain ? "plain" : pickOf(["lava", "acid", "ice", "spider", "undead"], rnd);
+        try {
+          const r = OPS.underground({ x: room.x, y: room.y, w: room.w, h: room.h, style, theme, z: 0, seed: Math.floor(rnd() * 1e9) });
+          name = r.name;
+          // Arrive a couple of steps in from the way in; the way in itself leads back out.
+          const [ex, ey] = r.entry, floor = (x, y) => inMap(x, y) && ![TKEY.void, TKEY.water, TKEY.lava, TKEY.acid, TKEY.rock].includes(W.terrain[x + y * N]);
+          let arrive = [ex, ey], bestN = -1;
+          for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const cd = Math.max(Math.abs(dx), Math.abs(dy)); if (cd < 2 || !floor(ex + dx, ey + dy)) continue;
+            let k = 0; for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (floor(ex + dx + i, ey + dy + j)) k++; if (k > bestN) { bestN = k; arrive = [ex + dx, ey + dy]; } }
+          target = { dx: arrive[0], dy: arrive[1], dz: W.height_[arrive[0] + arrive[1] * N] };
+          W.objects.serverItems.push({ kind: "tele", x: ex, y: ey, z: W.height_[ex + ey * N], dx: ox, dy: oy, dz: h0 });
+          inner++;
+        } catch { let k = 0; for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { W.terrain[x + y * N] = TKEY.rock; W.height_[x + y * N] = keepZ[k++]; } }
+      }
+      if (!target && n - toDungeons < dungeons.length - toDungeons && o.caveMap) { const d = dungeons[toDungeons + (n - toDungeons)]; target = { link: { map: o.caveMap, place: d } }; name = d; }
+    }
+    if (!target) return;
+    // The mouth: the client's mouth tiles, the mountain built up round them, level ground and a path in front.
+    const M = MOUTH[m.face], backZ = h0 + 26 + Math.floor(rnd() * 6), frontZ = h0 + 18 + Math.floor(rnd() * 4);
+    for (let u = -3; u <= 3; u++) for (let v = -3; v <= 0; v++) { const [X, Y] = P(u, v), i = X + Y * N; W.terrain[i] = TKEY.rock; W.height_[i] = clampZ(Math.max(W.height_[i], v === 0 ? frontZ + 4 : backZ + 2)); W.density[i] = 0; }
+    for (let u = -2; u <= 2; u++) {
+      const [bx, by] = P(u, -1), [fx, fy] = P(u, 0);
+      W.height_[bx + by * N] = backZ + (u & 1) * 2; W.height_[fx + fy * N] = frontZ + Math.abs(u);
+      W.objects.land.push([M.back[u + 2], bx, by, backZ + (u & 1) * 2], [M.front[u + 2], fx, fy, frontZ + Math.abs(u)]);
+    }
+    for (let v = 1; v <= 3; v++) for (let u = -3; u <= 3; u++) { const [X, Y] = P(u, v); setGround(X, Y, h0, Math.abs(u) <= 1 ? TKEY.dirt : null); }
+    for (let u = -1; u <= 1; u++) {
+      const [X, Y] = P(u, 0);
+      addStatic0(MOUTH.walk, X, Y, h0);
+      W.objects.serverItems.push({ kind: "tele", x: X, y: Y, z: h0, ...(target.link ? { link: target.link, back: [ox, oy, h0] } : { dx: target.dx, dy: target.dy, dz: target.dz }) });
+    }
+    markRect(occ, Math.min(...[P(-3, -3)[0], P(3, 3)[0]]), Math.min(...[P(-3, -3)[1], P(3, 3)[1]]), Math.max(...[P(-3, -3)[0], P(3, 3)[0]]), Math.max(...[P(-3, -3)[1], P(3, 3)[1]]), 1);
+    const [sx, sy] = P(3, 2); if (offRoad(sx, sy)) signpost(sx, sy, name, m.face === "E");
+    W.places.push({ name: uniqueName(name + (target.link ? "" : " (way in)"), rnd), kind: "cave", x: ox, y: oy, radius: 4 });
+    if (featOn("ruins") && rnd() < (target.link ? 0.75 : 0.25)) {
+      const [rx, ry] = P((rnd() < 0.5 ? -1 : 1) * between(6, 10, rnd), between(11, 17, rnd));
+      if (inMap(rx, ry) && offRoad(rx, ry) && rectFree(occ, rx - 6, ry - 6, rx + 6, ry + 6)) OPS.ruins({ cx: rx, cy: ry, seed: Math.floor(rnd() * 1e9), name: uniqueName(`Ruins by ${name}`, rnd) });
+    }
+    if (target.link) linked++;
+    made++;
+  });
+  return { mouths: made, caves: inner, linked };
+}
+
+/** Wrecks on the beaches, driftwood and seaweed along them, oases in the deserts, standing stones on hilltops. */
+function wildsPass(rnd, occ, wb, area) {
+  const out = { wrecks: 0, oases: 0, stones: 0 };
+  const N = W.width;
+  if (featOn("wrecks")) {
+    const cands = [];
+    for (let y = 10; y < W.height - 10; y += 5) for (let x = 10; x < N - 10; x += 5) {
+      if (W.terrain[x + y * N] !== TKEY.sand) continue;
+      let ok = true, wet = 0;
+      for (const [, dx, dy] of WRECK) { const X = x + dx, Y = y + dy; if (!inMap(X, Y) || W.terrain[X + Y * N] !== TKEY.sand || occ[X + Y * N] || Math.abs(zAt(X, Y) - zAt(x, y)) > 4) { ok = false; break; } }
+      if (!ok) continue;
+      for (let j = -4; j <= 9; j++) for (let i = -5; i <= 10; i++) if (inMap(x + i, y + j) && isWater(x + i, y + j) && wb.sea(wb.at(x + i, y + j))) wet++;
+      if (wet >= 12 && !nearTown(x, y, 20)) cands.push({ x, y });
+    }
+    for (const c of spread(cands, Math.max(1, Math.round(area * 0.7)), 240, rnd)) {
+      const z = zAt(c.x, c.y);
+      for (let j = -4; j <= 9; j++) for (let i = -5; i <= 9; i++) clearCell(c.x + i, c.y + j);
+      for (const [id, dx, dy] of WRECK) addStatic0(id, c.x + dx, c.y + dy, z);
+      markRect(occ, c.x - 2, c.y - 1, c.x + 6, c.y + 6, 1);
+      for (let k = 0; k < 6; k++) { const x = c.x + between(-4, 9, rnd), y = c.y + between(-3, 8, rnd); if (inMap(x, y) && !isWater(x, y) && !occ[x + y * N]) addStatic(pickOf(WILD.driftwood.concat(PROP.crates), rnd), x, y); }
+      W.places.push({ name: uniqueName("Wreck of the " + pickOf(["Grey Gull", "Sea Wolf", "Maiden's Hope", "Corsair", "Wanderer", "Black Swan", "Fair Wind", "Kraken's Bane"], rnd), rnd), kind: "wreck", x: c.x + 2, y: c.y + 2, radius: 5 });
+      out.wrecks++;
+    }
+    // Driftwood, seaweed and shells along sandy sea shores.
+    for (let y = 2; y < W.height - 2; y++) for (let x = 2; x < N - 2; x++) {
+      const i = x + y * N; if (W.terrain[i] !== TKEY.sand || occ[i] || hrand(x, y, W.seed, 41) > 0.012) continue;
+      let shore = false; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0], [0, -2]]) if (isWater(x + dx, y + dy) && wb.sea(wb.at(x + dx, y + dy))) { shore = true; break; }
+      if (!shore) continue;
+      const r = hrand(x, y, W.seed, 42);
+      addStatic(r < 0.45 ? pickOf(WILD.driftwood, rnd) : r < 0.75 ? pickOf(WILD.seaweed, rnd) : pickOf(WILD.shells, rnd), x, y);
+    }
+  }
+  if (featOn("oases")) {
+    const cands = [];
+    for (let y = 30; y < W.height - 30; y += 8) for (let x = 30; x < N - 30; x += 8) {
+      if (W.terrain[x + y * N] !== TKEY.sand) continue;
+      let ok = true; for (let a = 0; a < 16 && ok; a++) for (const r of [8, 16, 24]) { const X = Math.round(x + Math.cos(a / 8 * Math.PI) * r), Y = Math.round(y + Math.sin(a / 8 * Math.PI) * r); if (!inMap(X, Y) || W.terrain[X + Y * N] !== TKEY.sand || occ[X + Y * N]) { ok = false; break; } }
+      if (ok && !nearTown(x, y, 40)) cands.push({ x, y });
+    }
+    for (const c of spread(cands, Math.max(1, Math.round(area * 0.6)), 260, rnd)) {
+      const rx = 3 + rnd() * 3, ry = 2.5 + rnd() * 2.5, g = groundHeight(c.x, c.y, 8), seed = Math.floor(rnd() * 1e5);
+      for (let y = Math.floor(c.y - ry * 3); y <= c.y + ry * 3; y++) for (let x = Math.floor(c.x - rx * 3); x <= c.x + rx * 3; x++) {
+        if (!inMap(x, y)) continue;
+        const v = Math.hypot((x - c.x) / rx, (y - c.y) / ry) + (fbm(x / 4, y / 4, seed, 2) - 0.5) * 0.4, i = x + y * N;
+        if (v < 1) { W.terrain[i] = TKEY.water; W.height_[i] = -5; W.density[i] = 0; }
+        else if (v < 2.2) { const t = (v - 1) / 1.2; W.height_[i] = clampZ(-1 + (g + 1) * Math.min(1, t * t * 1.5)); if (v < 1.9) { W.terrain[i] = TKEY.grass; W.density[i] = 50; } if (v < 1.9 && rnd() < 0.12) addStatic(pickOf(PROP.palms, rnd), x, y); }
+      }
+      markRect(occ, Math.floor(c.x - rx * 3), Math.floor(c.y - ry * 3), Math.ceil(c.x + rx * 3), Math.ceil(c.y + ry * 3), 1);
+      W.places.push({ name: uniqueName(pickOf(["Oasis of ", "Wells of ", "Springs of "], rnd) + townName(rnd), rnd), kind: "oasis", x: c.x, y: c.y, radius: 8 });
+      out.oases++;
+    }
+  }
+  if (featOn("stones")) {
+    const cands = [];
+    for (let y = 20; y < W.height - 20; y += 6) for (let x = 20; x < N - 20; x += 6) {
+      const i = x + y * N, t = W.terrain[i], h = W.height_[i];
+      if (h < 24 || isRockT(t) || t === TKEY.water || t === TKEY.sand || occ[i]) continue;
+      let top = true; for (let a = 0; a < 16 && top; a++) for (const r of [6, 12]) { const X = Math.round(x + Math.cos(a / 8 * Math.PI) * r), Y = Math.round(y + Math.sin(a / 8 * Math.PI) * r); if (!inMap(X, Y) || zAt(X, Y) > h) { top = false; break; } }
+      if (top && rectFree(occ, x - 6, y - 6, x + 6, y + 6) && flatEnough(x - 5, y - 5, x + 5, y + 5, 12) && !nearTown(x, y, 30)) cands.push({ x, y });
+    }
+    for (const c of spread(cands, Math.max(1, Math.round(area * 0.6)), 260, rnd)) {
+      const z = levelRect(c.x - 5, c.y - 5, c.x + 5, c.y + 5, 3), n = between(7, 10, rnd), R = 4 + rnd();
+      for (let j = -7; j <= 7; j++) for (let i = -7; i <= 7; i++) { const k = c.x + i + (c.y + j) * N, d = Math.hypot(i, j); W.density[k] = d <= R + 1.5 ? 0 : Math.min(W.density[k], 30); }
+      for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2 + rnd() * 0.15, x = Math.round(c.x + Math.cos(a) * R), y = Math.round(c.y + Math.sin(a) * R); addStatic(pickOf(WILD.menhirs, rnd), x, y, z); }
+      addStatic(WILD.lowStone, c.x, c.y, z);
+      markRect(occ, c.x - 6, c.y - 6, c.x + 6, c.y + 6, 1);
+      W.places.push({ name: uniqueName(pickOf(["The Old Stones", "Stones of ", "The Ring of ", "The Watchers of "], rnd).replace(/of $/, "of " + townName(rnd)), rnd), kind: "stones", x: c.x, y: c.y, radius: 6 });
+      out.stones++;
+    }
+  }
+  return out;
+}
+
+/** Moongates: one on each town's and city's square, in a ring that goes round the map, each named for where it goes. */
+function gatesPass() {
+  const gates = townsOf().filter(p => p.gate);
+  if (gates.length < 2) return 0;
+  const mx = gates.reduce((a, p) => a + p.x, 0) / gates.length, my = gates.reduce((a, p) => a + p.y, 0) / gates.length;
+  gates.sort((a, b) => Math.atan2(a.y - my, a.x - mx) - Math.atan2(b.y - my, b.x - mx));
+  gates.forEach((p, i) => {
+    const q = gates[(i + 1) % gates.length], [x, y, z] = p.gate, [qx, qy, qz] = q.gate;
+    W.objects.serverItems.push({ kind: "tele", look: "moongate", name: `Moongate to ${q.name}`, x, y, z, dx: qx + 1, dy: qy + 1, dz: qz });
+  });
+  return gates.length;
+}
+
+/** Adds the world features to a populated map (or a map with towns of its own). */
+OPS.world_features = o => (W._lastFeatures = worldFeatures(o));
+function worldFeatures(o) {
+  ensureObjects();
+  const quiet = W._quiet; W._quiet = true;
+  if (o.features) W._feat = { ...(W._feat || {}), ...o.features };
+  const rnd = mulberry(((o.seed ?? 11) * 2654435761) ^ W.seed), area = W.width * W.height / 1e6;
+  const occ = W._occ || occupancy(), wb = waterBodies(), r = {};
+  try {
+    if (featOn("waterfalls")) r.waterfalls = waterfallsPass(rnd, occ, Math.max(1, Math.round(area * 1.4)));
+    if (featOn("lighthouses")) r.lighthouses = lighthousesPass(rnd, occ, wb, Math.max(1, Math.round(area * 0.5)));
+    if (featOn("huts")) r.huts = hutsPass(rnd, occ, wb, Math.max(1, Math.round(area * 1.5)));
+    if (featOn("signs")) r.signs = signsPass(rnd);
+    if (featOn("forts")) r.forts = fortsPass(rnd, occ, Math.max(1, Math.round(area * 0.8)));
+    if (featOn("hedges")) r.hedges = hedgesPass(rnd, occ);
+    if (featOn("farms")) r.mills = millsPass(rnd, occ, wb);
+    if (featOn("caves")) Object.assign(r, cavesPass(o, rnd, occ));
+    Object.assign(r, wildsPass(rnd, occ, wb, area));
+    if (featOn("gates")) r.gates = gatesPass();
+  } finally { W._quiet = quiet; }
+  return r;
+};
+
 /** Founds settlements across the map on good sites, joins them with roads and scatters camps, ruins and shrines. */
 OPS.populate_world = o => {
   W._bridgeStyle = o.bridges || "mixed";
+  W._feat = { ...(o.features || {}) }; W._roadLines = [];
   W._occ = null; W._occ = occupancy();
-  try { populateWorld(o); } finally { W._occ = null; }
+  const quiet = W._quiet; W._quiet = true;
+  try { populateWorld(o); if (o.features !== false) W._featResult = OPS.world_features({ ...o, features: undefined }); } finally { W._occ = null; W._quiet = quiet; }
 };
 function populateWorld(o) {
   const rnd = mulberry((o.seed ?? 7) * 2246822519 ^ W.seed), area = W.width * W.height / 1e6;
@@ -2506,7 +3214,9 @@ function populateWorld(o) {
       if (chosen.some(p => Math.hypot(p.x - c.x, p.y - c.y) < (p.r + r) * 1.9 + 40)) continue;
       const style = c.sand > 0.3 ? "desert" : c.jungle > 0.3 ? "frontier" : c.rough ? "mountain" : size === "city" ? "city" : size === "town" ? "town"
         : c.nearWater && rnd() < 0.6 ? "fishing" : rnd() < 0.2 ? "frontier" : "rustic";
-      OPS.town({ cx: c.x, cy: c.y, size, style, seed: Math.floor(rnd() * 1e9) });
+      // Towns by the sea or a big lake get a waterfront: docks, a pier, boats.
+      const setting = c.nearWater && size !== "hamlet" && (size !== "village" || style === "fishing") && featOn("docks") ? "harbour" : undefined;
+      OPS.town({ cx: c.x, cy: c.y, size, style, setting, seed: Math.floor(rnd() * 1e9) });
       chosen.push({ x: c.x, y: c.y, r }); placed++;
     }
   }
@@ -3023,14 +3733,62 @@ $("btnReroll").onclick = () => {
   undo();
   foundTown({ ...lastTown.op, name: lastTown.op.name ?? name, seed: Math.floor(Math.random() * 1e9) });
 };
+// World features: a tick box each, remembered between visits; the dungeon map to lead caves into (on a server).
+function featureSettings() {
+  const f = {}; for (const el of document.querySelectorAll("#featGrid input")) f[el.dataset.feat] = el.checked;
+  const o = { features: f };
+  if ($("caveMap").value) { const opt = $("caveMap").selectedOptions[0]; o.caveMap = $("caveMap").value; o.caveAreas = JSON.parse(opt.dataset.areas || "[]"); }
+  return o;
+}
+function syncFeatSummary() {
+  const f = featureSettings().features, n = Object.values(f).filter(Boolean).length;
+  $("featSummary").textContent = n === Object.keys(f).length ? "all" : `${n} of ${Object.keys(f).length}`;
+  try { localStorage.setItem("sf.features", JSON.stringify(f)); } catch {}
+}
+(() => {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem("sf.features") || "{}"); } catch {}
+  $("featGrid").innerHTML = Object.entries(FEATURES).map(([k, label]) => `<label class="check"><input type="checkbox" data-feat="${k}" ${saved[k] === false ? "" : "checked"}> ${label}</label>`).join("");
+  $("featGrid").onchange = syncFeatSummary; syncFeatSummary();
+})();
+/** On a server: the built maps that have dungeon areas, for cave mouths to lead into. */
+async function loadDungeonMaps() {
+  try {
+    const maps = (await SRV.api("GET", "/api/maps")).data.filter(m => m.files?.["layout.json"] && m.id !== `project-${SRV.id}`);
+    const opts = [];
+    for (const m of maps) {
+      try {
+        const r = await fetch(`/api/maps/${encodeURIComponent(m.id)}/files/layout.json`, { credentials: "same-origin" });
+        const areas = ((await r.json()).places || []).filter(p => p.kind === "dungeon").map(p => p.name);
+        if (areas.length) opts.push(`<option value="${escapeHtml(m.id)}" data-areas="${escapeHtml(JSON.stringify(areas))}">${escapeHtml(m.name)} (${areas.length} area${areas.length === 1 ? "" : "s"})</option>`);
+      } catch {}
+    }
+    $("caveMap").innerHTML = `<option value="">Only caves inside this map's mountains</option>` + opts.join("");
+    $("caveLinkRow").hidden = !opts.length;
+  } catch {}
+}
+function featureReport(r) {
+  if (!r) return "";
+  const parts = [["mouths", "cave mouth"], ["linked", "into the dungeon map"], ["waterfalls", "waterfall"], ["lighthouses", "lighthouse"], ["huts", "fishing hut"], ["signs", "signpost"],
+    ["forts", "watchtower or fort", "watchtowers and forts"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
+  return parts.filter(([k]) => r[k]).map(([k, one, many]) => k === "linked" ? `${r[k]} ${one}` : `${r[k]} ${r[k] === 1 ? one : many || one + "s"}`).join(", ");
+}
+$("btnFeatures").onclick = () => {
+  busy("Adding world features…");
+  setTimeout(() => {
+    const t0 = performance.now(), res = applyOps([{ op: "world_features", seed: Math.floor(Math.random() * 1e9), ...featureSettings() }]);
+    fullRedraw(); busy();
+    if (!res[0]?.ok) addMsg("claude", "Couldn't add the features: " + escapeHtml(res[0]?.why || "?"), "error");
+    else addMsg("claude", `Added in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${featureReport(W._lastFeatures) || "nothing found room"}.`);
+  }, 30);
+};
 $("btnPopulate").onclick = () => {
   busy("Populating the world: finding sites, founding towns, building roads…");
   setTimeout(() => {
     const t0 = performance.now();
-    applyOps([{ op: "populate_world", seed: Math.floor(Math.random() * 1e9) }]);
+    applyOps([{ op: "populate_world", seed: Math.floor(Math.random() * 1e9), ...featureSettings() }]);
     fullRedraw(); busy();
     const kinds = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine"].map(k => [k, W.places.filter(p => p.kind === k).length]).filter(([, n]) => n);
-    addMsg("claude", `Populated in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${kinds.map(([k, n]) => `${n} ${k}${n === 1 ? "" : k === "city" ? "" : "s"}`.replace("citys", "cities")).join(", ")}; ${W.objects.lots.length.toLocaleString()} building plots. Build the map and walk it to build on the plots.`);
+    addMsg("claude", `Populated in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${kinds.map(([k, n]) => `${n} ${k}${n === 1 ? "" : k === "city" ? "" : "s"}`.replace("citys", "cities")).join(", ")}; ${W.objects.lots.length.toLocaleString()} building plots${W._featResult ? "; " + featureReport(W._featResult) : ""}. Build the map and walk it to build on the plots.`);
   }, 30);
 };
 $("btnClearObj").onclick = () => { applyOps([{ op: "clear_objects" }]); fullRedraw(); };
@@ -3101,7 +3859,7 @@ function loadWorld(m) {
   for (let i = 0; i < t.length; i++) t[i] = order[t[i]] ?? 0;
   W.width = m.width; W.height = m.height; W.seed = m.seed | 0;
   W.terrain = t; W.height_ = m.heights; W.density = m.density;
-  W.objects = { buildings: m.objects?.buildings ?? [], statics: m.objects?.statics ?? [], multis: m.objects?.multis ?? [], lots: m.objects?.lots ?? [], serverItems: m.objects?.serverItems ?? [] };
+  W.objects = { buildings: m.objects?.buildings ?? [], statics: m.objects?.statics ?? [], multis: m.objects?.multis ?? [], lots: m.objects?.lots ?? [], serverItems: m.objects?.serverItems ?? [], land: m.objects?.land ?? [] };
   W.places = m.places ?? [];
   $("projName").value = m.name || "Untitled";
   undoStack.length = 0; redoStack.length = 0; syncUndo();
@@ -3239,6 +3997,7 @@ Ops (JSON objects, applied in order):
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
+- {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts naming the towns at crossroads, watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) into caves and mines carved inside the mountains with teleporters both ways, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"masonry"|"wood"|"stone"|"ironstone"|"arcade"|"sandstone"|"brick"|"marble"|"gargish"|"crystal"|"rustic"|"log","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
@@ -3439,6 +4198,10 @@ const SRV = {
     busy("Building the map…");
     try {
       const { data } = await this.api("POST", `/api/projects/${this.id}/build`, {});
+      if (data.unlinked?.length) {
+        busy(); addMsg("claude", `Built, but ${data.unlinked.length} cave mouth${data.unlinked.length === 1 ? "" : "s"} couldn't find ${data.unlinked.length === 1 ? "its area" : "their areas"} on the dungeon map (${escapeHtml([...new Set(data.unlinked)].slice(0, 5).join(", "))}). Build the dungeon map first, then build this one again. Opening Walk in a moment…`, "error");
+        await new Promise(r => setTimeout(r, 6000));
+      }
       location.href = `/walk/?map=${encodeURIComponent(data.mapId)}`;
     } catch (e) { busy(); addMsg("claude", "Couldn't build: " + escapeHtml(e.message), "error"); }
   },
@@ -3470,7 +4233,7 @@ buildUi(); syncUndo();
 $("btnAsk").disabled = true;
 $("aiNote").textContent = "Connecting to Claude…";
 (async () => {
-  if (await SRV.start()) { serverAi(); return; }
+  if (await SRV.start()) { serverAi(); loadDungeonMaps(); return; }
   const saved = await loadLocal();
   try {
     if (saved?.kind === "world" && saved.heights) loadWorld({ ...saved, terrain: saved.terrain.slice(), heights: saved.heights.slice(), density: saved.density.slice() });

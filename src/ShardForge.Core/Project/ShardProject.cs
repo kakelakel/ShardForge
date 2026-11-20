@@ -47,6 +47,11 @@ public sealed class ProjectObjects
     /// the map, replacing the ones the previous build put there; items placed by hand stay.
     /// </summary>
     [JsonPropertyName("serverItems")] public System.Text.Json.Nodes.JsonObject[] ServerItems { get; set; } = [];
+    /// <summary>
+    /// [landTileId, x, y, z]: land tiles set by hand over what the terrain would give (cave mouths in a mountain
+    /// side use the client's own mouth tiles). Natural statics on those cells are cleared.
+    /// </summary>
+    [JsonPropertyName("land")] public int[][] Land { get; set; } = [];
 }
 
 /// <summary>A building plot: x, y is the north-west tile; <see cref="Face"/> is the side that faces its road.</summary>
@@ -160,7 +165,7 @@ public sealed class ShardProject
     public void WriteLayout(string dir)
     {
         string path = Path.Combine(dir, LayoutFile);
-        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine", "dungeon"];
+        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine", "dungeon", "cave", "fort", "tower", "lighthouse", "mill", "wreck", "oasis", "stones"];
         var places = (Places ?? []).Where(p => order.Contains(p.Kind))
             .OrderBy(p => Array.IndexOf(order, p.Kind)).ThenBy(p => p.Name, StringComparer.Ordinal)
             .Select(p => new LayoutPlace(p.Name, p.Kind, p.X, p.Y)).ToArray();
@@ -266,6 +271,14 @@ public sealed class ShardProject
             if (x < 0 || y < 0 || x >= Width || y >= Height || id is < 0 or > 0xFFFF) return;
             var list = blockStatics[facet.BlockIndex(x >> 3, y >> 3)] ??= [];
             list.Add(new StaticTile((ushort)id, (byte)(x & 7), (byte)(y & 7), (sbyte)Math.Clamp(z, -128, 127), (ushort)Math.Clamp(hue, 0, 0xFFFF)));
+        }
+        foreach (var l in Objects.Land)
+        {
+            if (l.Length < 4) throw new InvalidDataException("Each land override needs [tileId, x, y, z].");
+            int x = l[1], y = l[2];
+            if (x < 0 || y < 0 || x >= Width || y >= Height || l[0] is < 0 or > 0x3FFF) continue;
+            facet.SetLand(x, y, new LandCell((ushort)l[0], (sbyte)Math.Clamp(l[3], -128, 127)));
+            blockStatics[facet.BlockIndex(x >> 3, y >> 3)]?.RemoveAll(s => s.X == (x & 7) && s.Y == (y & 7));
         }
         foreach (var m in Objects.Multis)
         {

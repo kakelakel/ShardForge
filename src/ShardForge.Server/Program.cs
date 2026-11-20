@@ -531,7 +531,8 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
                 project.Name, facet, project.Width, project.Height, id, stored.Value.Rev, me.Username, Db.Now())));
         });
         // The generator's server items (traps, spawners): the previous build's ones out, these in. Hand-placed stay.
-        int generated = 0;
+        int generated = 0, linked = 0;
+        List<string> unlinked = [];
         var built2 = maps.Get(mapId);
         if (built2 is not null)
         {
@@ -542,14 +543,28 @@ api.MapPost("/projects/{id:long}/build", async (long id, BuildRequest body, Http
                 c["uid"] = $"gen-{k:D6}";
                 return c;
             }).ToList();
+            // Cave mouths into another map: point them at the areas there and put the ways back on that map.
+            var links = DungeonLinks.Resolve(built2, fresh, maps, blocks);
+            fresh = links.Items; unlinked = links.Unlinked;
+            // Only the old ones this build doesn't replace go (the same uid is overwritten in place).
+            var freshUids = fresh.Select(o => o["uid"]?.ToString()).ToHashSet();
+            oldGen = oldGen.Where(u => !freshUids.Contains(u)).ToList();
             if (oldGen.Count > 0 || fresh.Count > 0)
                 try { var (put, _) = items.Apply(built2, me, fresh, oldGen); generated = put.Count; await hub.PublishItems(mapId, me.Username, null, put, oldGen); }
                 catch (ItemException e) { return Err(400, "The generated server items: " + e.Message); }
+            foreach (var other in maps.All().Where(m => m.Id != mapId))
+            {
+                var oldLinks = items.All(other.Id).Select(o => o["uid"]?.ToString() ?? "").Where(u => u.StartsWith($"link-{mapId}-")).ToList();
+                var add = links.Returns.TryGetValue(other.Id, out var r) ? r : [];
+                if (oldLinks.Count == 0 && add.Count == 0) continue;
+                try { var (put, _) = items.Apply(other, me, add, oldLinks); linked += put.Count; await hub.PublishItems(other.Id, me.Username, null, put, oldLinks); }
+                catch (ItemException e) { return Err(400, $"The ways back on {other.Name}: " + e.Message); }
+            }
         }
         await hub.PublishRebuilt(mapId, me.Username);
         audit.Write(me, "project.build", $"built {project.Name} (revision {stored.Value.Rev}) into the map {mapId}{(discarded > 0 ? $"; {discarded} edited blocks dropped (new size)" : "")}",
             target: $"map:{mapId}", details: new { project = id, rev = stored.Value.Rev, facet, kept, discarded }, ip: Ip(ctx));
-        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded, serverItems = generated,
+        return Results.Ok(new { mapId, facet, rev = stored.Value.Rev, discardedEdits = discarded, serverItems = generated, waysBack = linked, unlinked,
             keptEdits = kept is null ? null : new { statics = kept.StaticBlocks, land = kept.LandBlocks, droppedStatics = kept.DroppedStatics } });
     }
     catch (ProjectException e) { return Err(400, e.Message); }

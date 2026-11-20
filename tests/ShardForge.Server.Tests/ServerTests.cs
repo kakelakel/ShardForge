@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
 using ShardForge.Core.Map;
 using ShardForge.Core.Project;
@@ -563,6 +564,71 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(HttpStatusCode.Unauthorized, (await Anon().GetAsync("/api/settings")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Anon().GetAsync("/api/setup/detect")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Anon().PostAsJsonAsync("/api/setup/check", new { path = good })).StatusCode);
+    }
+
+    [Fact]
+    public async Task CaveMouthsLeadIntoADungeonMapAndBackAndMoongatesExport()
+    {
+        await EnsureUser("bob", "Builder");
+        var (builder, _) = await As("bob");
+        async Task<string> Build(ShardProject p, int facet)
+        {
+            long pid = (await (await builder.PostAsync("/api/projects", new StringContent(JsonSerializer.Serialize(p), Encoding.UTF8, "application/json"))).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+            var r = await builder.PostAsJsonAsync($"/api/projects/{pid}/build", new { facet });
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            return (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("mapId").GetString()!;
+        }
+        // The dungeon map: one named area, its way in at 12, 4.
+        var dungeon = ServerFixture.TinyProject("Deeps");
+        dungeon.Places = [new ProjectPlace { Name = "Black Hollow", Kind = "dungeon", X = 12, Y = 4 }];
+        string dmap = await Build(dungeon, 5);
+
+        // The overworld: a mouth into it, a moongate, and the mouth's own land tile.
+        var world = ServerFixture.TinyProject("Overland");
+        world.Objects = new ProjectObjects
+        {
+            Land = [[0x1DB, 10, 10, 20]],
+            ServerItems =
+            [
+                JsonNode.Parse($$"""{"kind":"tele","x":10,"y":10,"z":0,"link":{"map":"{{dmap}}","place":"Black Hollow"},"back":[10,12,0]}""")!.AsObject(),
+                JsonNode.Parse("""{"kind":"tele","x":11,"y":11,"z":0,"dx":3,"dy":3,"dz":0,"look":"moongate","name":"Moongate to Ashford"}""")!.AsObject(),
+                JsonNode.Parse("""{"kind":"tele","x":12,"y":12,"z":0,"link":{"map":"nowhere","place":"Nothing"},"back":[1,1,0]}""")!.AsObject(),
+            ],
+        };
+        long id = (await (await builder.PostAsync("/api/projects", new StringContent(JsonSerializer.Serialize(world), Encoding.UTF8, "application/json"))).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        var build = await (await builder.PostAsJsonAsync($"/api/projects/{id}/build", new { facet = 4 })).Content.ReadFromJsonAsync<JsonElement>();
+        string wmap = build.GetProperty("mapId").GetString()!;
+        Assert.Equal(1, build.GetProperty("waysBack").GetInt32());
+        Assert.Equal("Nothing", build.GetProperty("unlinked")[0].GetString());
+
+        var mouth = (await builder.GetFromJsonAsync<JsonElement[]>($"/api/maps/{wmap}/items"))!.Single(i => i.GetProperty("x").GetInt32() == 10);
+        Assert.Equal(dmap, mouth.GetProperty("dmapId").GetString());
+        Assert.Equal("TerMur", mouth.GetProperty("dmap").GetString());
+        Assert.InRange(Math.Max(Math.Abs(mouth.GetProperty("dx").GetInt32() - 12), Math.Abs(mouth.GetProperty("dy").GetInt32() - 4)), 0, 4);
+        var back = (await builder.GetFromJsonAsync<JsonElement[]>($"/api/maps/{dmap}/items"))!.Single(i => i.GetProperty("uid").GetString()!.StartsWith($"link-{wmap}-"));
+        Assert.Equal(12, back.GetProperty("x").GetInt32());
+        Assert.Equal(10, back.GetProperty("dx").GetInt32());
+        Assert.Equal(12, back.GetProperty("dy").GetInt32());
+        Assert.Equal(wmap, back.GetProperty("dmapId").GetString());
+
+        // The mouth's land tile is in the built map.
+        string dir = Path.Combine(fx.Root, "data", "maps", wmap);
+        Assert.Equal(0x1DB, FacetLoader.Load(dir, 4, new FacetInfo(4, "t", 16, 16)).GetLand(10, 10).TileId);
+
+        // Rebuilding without the mouth takes the way back away again.
+        world.Objects.ServerItems = [world.Objects.ServerItems[1]];
+        var put = new HttpRequestMessage(HttpMethod.Put, $"/api/projects/{id}?baseRev=1") { Content = new StringContent(JsonSerializer.Serialize(world), Encoding.UTF8, "application/json") };
+        Assert.Equal(HttpStatusCode.OK, (await builder.SendAsync(put)).StatusCode);
+        await builder.PostAsJsonAsync($"/api/projects/{id}/build", new { facet = 4 });
+        Assert.DoesNotContain((await builder.GetFromJsonAsync<JsonElement[]>($"/api/maps/{dmap}/items"))!, i => i.GetProperty("uid").GetString()!.StartsWith($"link-{wmap}-"));
+
+        // The moongate goes to ServUO as a visible, named teleporter.
+        var (admin, _) = await As("admin");
+        var zip = new ZipArchive(new MemoryStream(await admin.GetByteArrayAsync($"/api/maps/{wmap}/servuo")));
+        string sf = new StreamReader(zip.Entries.Single(e => e.Name.EndsWith(".sfitems")).Open()).ReadToEnd();
+        Assert.True(sf.Contains("tele\t11\t11\t0\t3\t3\t0\t"), sf); Assert.Contains("\tmoongate\tMoongate to Ashford\n", sf);
+        var badLook = await builder.PutAsJsonAsync($"/api/maps/{wmap}/items", new { put = new[] { new { uid = "x1", kind = "tele", x = 1, y = 1, z = 0, dx = 2, dy = 2, dz = 0, look = "dragon" } } });
+        Assert.Equal(HttpStatusCode.BadRequest, badLook.StatusCode);
     }
 
     [Fact]

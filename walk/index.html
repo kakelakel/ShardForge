@@ -3246,7 +3246,7 @@ const ITEMS = {
       else if (it.kind === "tele") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#6ad1e3", "rgba(106,209,227,.25)");
         const there = it.dmapId && it.dmapId !== Server.map?.id ? (Server.maps.find(m => m.id === it.dmapId)?.name || it.dmapId) : (it.dmap && it.dmap !== FACET_NAMES[M.facet] ? it.dmap : "");
-        if (zoom >= 0.8 || it === this.sel) label(`→ ${there ? there + " " : ""}${it.dx}, ${it.dy}`, sx, t - 4, "#6ad1e3");
+        if (zoom >= 0.8 || it === this.sel) label(it.look === "moongate" ? `◯ ${it.name || "Moongate"}` : `→ ${there ? there + " " : ""}${it.dx}, ${it.dy}`, sx, t - 4, "#6ad1e3");
         if (it === this.sel && !there) diamond(it.dx, it.dy, it.dz, "#6ad1e3", null, 1);
       } else if (it.kind === "spawn") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#e07a5f", "rgba(224,122,95,.25)");
@@ -3293,7 +3293,7 @@ const ITEMS = {
     for (const o of items) {
       const at = `${o.x}\t${o.y}\t${o.z}`;
       L.push({ door: () => `door\t${at}\t${o.type}\t${o.facing}`, sign: () => `sign\t${at}\t${o.id}\t${o.hue || 0}\t${o.name || ""}`,
-        item: () => `item\t${at}\t${o.type}\t${o.id || 0}\t${o.hue || 0}`, tele: () => `tele\t${at}\t${o.dx}\t${o.dy}\t${o.dz}\t${o.dmap}`,
+        item: () => `item\t${at}\t${o.type}\t${o.id || 0}\t${o.hue || 0}`, tele: () => `tele\t${at}\t${o.dx}\t${o.dy}\t${o.dz}\t${o.dmap}` + (o.look ? `\t${o.look}\t${o.name || ""}` : ""),
         spawn: () => `spawn\t${at}\t${o.count}\t${o.range}\t${o.min}\t${o.max}\t${o.creatures}`,
         region: () => `region\t${o.x}\t${o.y}\t${o.w}\t${o.h}\t${o.guarded ? 1 : 0}\t${o.name}` }[o.kind]());
     }
@@ -3952,7 +3952,8 @@ $("btnLoad").onclick = async () => {
     for (const p of places) (groups[p[3] || ""] ??= []).push(p);
     const opt = p => `<option value="${p[1]},${p[2]}">${escapeHtml(p[0])}</option>`;
     $("places").innerHTML = `<option value="">Known places…</option>` + Object.entries(groups).map(([k, ps]) =>
-      k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines" })[k] || k)}">${ps.map(opt).join("")}</optgroup>` : ps.map(opt).join("")).join("");
+      k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines", dungeon: "Caves and dungeons", cave: "Cave mouths",
+        fort: "Forts", tower: "Watchtowers", lighthouse: "Lighthouses", mill: "Mills", wreck: "Wrecks", oasis: "Oases", stones: "Standing stones" })[k] || k)}">${ps.map(opt).join("")}</optgroup>` : ps.map(opt).join("")).join("");
     const start = places[0] || ["", M.w >> 1, M.h >> 1];
     const land = nearestWalkable(start[1], start[2]) || nearestWalkable(M.w >> 1, M.h >> 1);
     // A link from the activity log (?x=&y=) opens that spot, from above.

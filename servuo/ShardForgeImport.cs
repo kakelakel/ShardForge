@@ -168,6 +168,13 @@ namespace Server.ShardForge
                     Teleporter t = new Teleporter();
                     t.PointDest = new Point3D(I(c[4]), I(c[5]), I(c[6]));
                     t.MapDest = Map.Parse(c[7]);
+                    if (c.Length > 8 && c[8] == "moongate")
+                    {
+                        // A moongate players can see and step into: the teleporter shows the gate art.
+                        t.ItemID = 0xF6C; t.Visible = true;
+                        if (c.Length > 9 && c[9].Length > 0) t.Name = c[9];
+                        Set(t, "SourceEffect", true); Set(t, "DestEffect", true); Set(t, "SoundID", 0x20E);
+                    }
                     return t;
                 }
                 case "spawn":
