@@ -1,3 +1,12 @@
+## ShardForge 0.5.9
+
+**Bridges in six materials**, each built after bridges in the client's own world: **wooden** (Trinsic), **stone**
+(Ilshenar) and **brick** (Luna) with walls, piers and arches beneath, **sandstone** (Trinsic, Nujel'm), **marble**
+causeways (Malas: kerbs, a checkered floor with a blue line down the middle) and **rustic** plank bridges with low
+rails. Big roads and towns get masonry, sandy country sandstone, the wilds wood and planks. Every style climbs on
+its own stairs or ramps and is walkable. `populate_world` takes `"bridges": "stone"` (or any style) for one style
+everywhere.
+
 ## ShardForge 0.5.8
 
 **Dungeons with something in them.** The Underground tool has themes:

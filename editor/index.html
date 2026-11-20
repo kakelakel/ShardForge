@@ -2250,13 +2250,49 @@ function bridgeRoad(pts, width, jit) {
       const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / L)), d = Math.hypot(cx - ax - t * dx, cy - ay - t * dy);
       if (d < bd) { bd = d; dir = [dx, dy]; }
     }
-    if (buildBridge(Math.abs(dir[0]) >= Math.abs(dir[1]) ? "x" : "y", cx, cy, deckW, seed)) made++;
+    if (buildBridge(Math.abs(dir[0]) >= Math.abs(dir[1]) ? "x" : "y", cx, cy, deckW, seed, bridgeStyleFor(cx, cy, width >= 3, seed))) made++;
   }
   return made;
 }
+// Bridges in more materials, after the client's own: stairs climb north, west, south, east as the first four of
+// each family; walls are the house builder's half walls (east-west pieces on a tile's south edge, north-south on
+// its east edge), so the far railing stands on the deck's last line.
+const BRIDGE_STYLES = {
+  wood: { name: "Wooden (Trinsic)" },
+  stone: { name: "Stone (Ilshenar)", deck: [0x051D, 0x051E, 0x051F, 0x0520], fill: 0x0788, stairs: [0x0789, 0x078A, 0x078B, 0x078C],
+           wall: { ew: 0x003E, ns: 0x003F, post: 0x0040 } },
+  sandstone: { name: "Sandstone (Trinsic, Nujel'm)", deck: [0x049D, 0x049E, 0x049F, 0x04A0], fill: 0x076C, stairs: [0x076D, 0x076E, 0x076F, 0x0770],
+           wall: { ew: 0x016A, ns: 0x0169, post: 0x016B } },
+  brick: { name: "Brick (Luna)", deck: [0x0500, 0x0501, 0x0502, 0x0503], fill: 0x0788, stairs: [0x0751, 0x0752, 0x0753, 0x0754],
+           wall: { ew: 0x005F, ns: 0x0060, post: 0x0062 } },
+  marble: { name: "Marble (Malas)", deck: [0x050D, 0x050E], stripe: 0x049B, fill: 0x0709, stairs: [0x070A, 0x070B, 0x070C, 0x070D], curb: 0x0709 },
+  rustic: { name: "Rustic plank", deckX: [0x07C9, 0x07CA, 0x07CB, 0x07CC], deckY: [0x07CD, 0x07CE, 0x07CF, 0x07D0], ramp: true,
+           wall: { ew: 0x0016, ns: 0x0015, post: 0x0017 } },
+};
+/** Which bridge suits this crossing: big roads and towns get masonry, warm sandy country sandstone, the wilds
+ *  wood; `o.bridges` can ask for one style everywhere. */
+function bridgeStyleFor(cx, cy, big, seed) {
+  const want = W._bridgeStyle;
+  if (want && want !== "mixed" && BRIDGE_STYLES[want]) return want;
+  const near = (W.places || []).filter(p => ["city", "town"].includes(p.kind)).reduce((m, p) => Math.min(m, Math.hypot(p.x - cx, p.y - cy) - (p.radius || 40)), Infinity);
+  let sand = 0, wild = 0, n = 0;
+  for (let dy = -12; dy <= 12; dy += 4) for (let dx = -12; dx <= 12; dx += 4) {
+    const x = Math.round(cx + dx), y = Math.round(cy + dy); if (!inMap(x, y)) continue;
+    const t = W.terrain[x + y * W.width]; n++;
+    if (t === TKEY.sand || t === TKEY.dirt) sand++; if (t === TKEY.jungle || t === TKEY.forest) wild++;
+  }
+  const r = hrand(Math.round(cx), Math.round(cy), seed, 77);
+  if (sand / Math.max(1, n) > 0.35) return r < 0.75 ? "sandstone" : "stone";
+  if (near < 60) return r < 0.35 ? "stone" : r < 0.6 ? "brick" : r < 0.85 ? "marble" : "wood";
+  if (big) return r < 0.45 ? "stone" : r < 0.6 ? "brick" : "wood";
+  if (wild / Math.max(1, n) > 0.5) return r < 0.5 ? "rustic" : "wood";
+  return r < 0.55 ? "wood" : r < 0.8 ? "rustic" : "stone";
+}
 /** One bridge across the water at (cx, cy), straight along `axis`. Returns false where it can't stand. */
-function buildBridge(axis, cx, cy, deckW, seed) {
-  const K = BRIDGE_KIT[axis], Wd = W.width;
+function buildBridge(axis, cx, cy, deckW, seed, styleKey = "wood") {
+  const K = BRIDGE_KIT[axis], S = BRIDGE_STYLES[styleKey] || BRIDGE_STYLES.wood, Wd = W.width;
+  const masonry = !!S.fill && styleKey !== "wood";
+  if (styleKey !== "wood") deckW = deckW >= 6 ? 6 : 4; // walkable width; the far wall stands on one more line
   // u runs along the bridge, v across it.
   const at = (u, v) => axis === "x" ? [u, v] : [v, u];
   const idx = (u, v) => { const [x, y] = at(u, v); return inMap(x, y) ? x + y * Wd : -1; };
@@ -2300,26 +2336,58 @@ function buildBridge(axis, cx, cy, deckW, seed) {
   }
   // Nothing grows under the bridge or beside it.
   for (let u = a - nLo - 1; u <= b + nHi + 1; u++) for (let v = vA - 1; v <= vB + 1; v++) { const i = idx(u, v); if (i >= 0) W.density[i] = 0; }
-  // Deck and its railings.
+  // Stairs by the way they climb: the low (north or west) end climbs south or east, the high end north or west.
+  const climbLo = axis === "x" ? 3 : 2, climbHi = axis === "x" ? 1 : 0; // index into [N, W, S, E]
+
+  if (styleKey === "wood") {
+    // Deck and its railings.
+    for (let u = a; u <= b; u++) {
+      for (let v = v0; v < v0 + deckW; v++) put(K.deck[Math.min(3, Math.floor(hrand(u, v, seed, 7) * 4))], u, v, deckZ);
+      put(K.railA, u, vA, deckZ); put(K.railB, u, vB, deckZ);
+    }
+    for (let k = 0; k < nLo; k++) {
+      const u = a - nLo + k, z = startLo + 5 * k;
+      for (let v = v0; v < v0 + deckW; v++) { put(K.rampLo, u, v, z); if (k > 0) put(K.beam, u, v, z - 5); }
+      put(K.loRailA, u, vA, z); put(K.loRailB, u, vB, z);
+    }
+    for (let k = 0; k < nHi; k++) {
+      const u = b + 1 + k, z = deckZ - 5 * (k + 1);
+      for (let v = v0; v < v0 + deckW; v++) { put(K.rampHi, u, v, z); if (k < nHi - 1) put(K.beam, u, v, z - 5); }
+      put(K.hiRailA, u, vA, z); put(K.hiRailB, u, vB, z);
+    }
+    for (let u = a; u <= b; u++) put(K.beam, u, v0 + deckW - 1, deckZ - 5);
+    const span = b - a + 1, every = 3, first = a + Math.floor(((span - 1) % every) / 2);
+    for (let u = first; u <= b; u += every) for (const v of [vA, vB]) for (let z = -5; z <= deckZ - 10; z += 5) put(K.pile, u, v, z);
+    return true;
+  }
+
+  // Other materials. Walkable deck v0 .. vB-1; the far wall stands on line vB (on the deck), the near one on vA.
+  const deckTile = (u, v) => {
+    if (S.stripe) return v === v0 + (deckW >> 1) && (u & 1) ? S.stripe : S.deck[(u + v) & 1];
+    const set = S.deck || (axis === "x" ? S.deckX : S.deckY);
+    return set[Math.min(set.length - 1, Math.floor(hrand(u, v, seed, 7) * set.length))];
+  };
+  const lastV = S.curb ? vB - 1 : vB; // a curb is a block of its own; walls stand on the deck's last line
   for (let u = a; u <= b; u++) {
-    for (let v = v0; v < v0 + deckW; v++) put(K.deck[Math.min(3, Math.floor(hrand(u, v, seed, 7) * 4))], u, v, deckZ);
-    put(K.railA, u, vA, deckZ); put(K.railB, u, vB, deckZ);
+    for (let v = v0; v <= lastV; v++) { put(deckTile(u, v), u, v, deckZ); if (masonry) put(S.fill, u, v, deckZ - 10); }
+    if (S.curb) { put(S.curb, u, vA, deckZ); put(S.curb, u, vB, deckZ); put(S.fill, u, vA, deckZ - 10); put(S.fill, u, vB, deckZ - 10); }
+    else if (S.wall) {
+      const wpiece = axis === "x" ? S.wall.ew : S.wall.ns;
+      put(wpiece, u, vA, deckZ); put(wpiece, u, vB, deckZ);
+      if (masonry) put(S.fill, u, vA, deckZ - 10);
+      if ((u - a) % 4 === 0 || u === b) { put(S.wall.post, u, vA, deckZ); put(S.wall.post, u, vB, deckZ); }
+    }
   }
-  // Ramps up at both ends, with their railings; a beam under each but the lowest step.
-  for (let k = 0; k < nLo; k++) {
-    const u = a - nLo + k, z = startLo + 5 * k;
-    for (let v = v0; v < v0 + deckW; v++) { put(K.rampLo, u, v, z); if (k > 0) put(K.beam, u, v, z - 5); }
-    put(K.loRailA, u, vA, z); put(K.loRailB, u, vB, z);
-  }
-  for (let k = 0; k < nHi; k++) {
-    const u = b + 1 + k, z = deckZ - 5 * (k + 1);
-    for (let v = v0; v < v0 + deckW; v++) { put(K.rampHi, u, v, z); if (k < nHi - 1) put(K.beam, u, v, z - 5); }
-    put(K.hiRailA, u, vA, z); put(K.hiRailB, u, vB, z);
-  }
-  // A beam along the front (south or east) edge, and piles down into the water every third tile on both sides.
-  for (let u = a; u <= b; u++) put(K.beam, u, v0 + deckW - 1, deckZ - 5);
-  const span = b - a + 1, every = 3, first = a + Math.floor(((span - 1) % every) / 2);
-  for (let u = first; u <= b; u += every) for (const v of [vA, vB]) for (let z = -5; z <= deckZ - 10; z += 5) put(K.pile, u, v, z);
+  // Ramps (stairs of the same stone, or wooden ramps for planks) over the deck's width.
+  const stairLo = S.ramp ? (axis === "x" ? 0x087C : 0x087D) : S.stairs[climbLo], stairHi = S.ramp ? (axis === "x" ? 0x087A : 0x087B) : S.stairs[climbHi];
+  const rampV0 = S.curb ? vA : v0, rampV1 = S.curb ? vB : lastV;
+  for (let k = 0; k < nLo; k++) { const u = a - nLo + k, z = startLo + 5 * k; for (let v = rampV0; v <= rampV1; v++) { put(stairLo, u, v, z); if (masonry && k > 0) put(S.fill, u, v, z - 10); } }
+  for (let k = 0; k < nHi; k++) { const u = b + 1 + k, z = deckZ - 5 * (k + 1); for (let v = rampV0; v <= rampV1; v++) { put(stairHi, u, v, z); if (masonry && k < nHi - 1) put(S.fill, u, v, z - 10); } }
+  // What holds it up: masonry piers with arches between, or piles for planks.
+  const span = b - a + 1, every = masonry ? 4 : 3, first = a + Math.floor(((span - 1) % every) / 2);
+  for (let u = first; u <= b; u += every)
+    if (masonry) { for (let v = vA; v <= vB; v++) for (let z = deckZ - 20; z >= -15; z -= 10) put(S.fill, u, v, z); }
+    else for (const v of [vA, vB]) for (let z = -5; z <= deckZ - 10; z += 5) put(BRIDGE_KIT.pile, u, v, z);
   return true;
 }
 function addStatic0(id, x, y, z) { if (inMap(x, y) && Number.isInteger(id)) W.objects.statics.push([id, x, y, Math.max(-128, Math.min(127, Math.round(z)))]); }
@@ -2350,6 +2418,7 @@ function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
 
 /** Founds settlements across the map on good sites, joins them with roads and scatters camps, ruins and shrines. */
 OPS.populate_world = o => {
+  W._bridgeStyle = o.bridges || "mixed";
   W._occ = null; W._occ = occupancy();
   try { populateWorld(o); } finally { W._occ = null; }
 };
@@ -3084,7 +3153,7 @@ Ops (JSON objects, applied in order):
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
-- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
+- {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"wood"|"stone"|"sandstone"|"brick"|"marble"|"rustic","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
 Leave space between settlements (two radii or more). Found settlements after shaping the land. Prefer dirt for roads you paint: every terrain border must blend, and dirt blends with nearly everything.
