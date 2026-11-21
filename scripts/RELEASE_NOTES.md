@@ -1,3 +1,11 @@
+## ShardForge 0.9.0
+
+- **No more signposts unless you ask for them.** World features no longer put signposts at crossroads or in front
+  of cave mouths unless you tick **Signposts (crossroads, cave mouths)**, which is now off by default (an old saved
+  tick is reset once). Town signposts were already off.
+- **Remove all signposts.** A new button under World features takes every signpost, post and sign, off the map
+  you have open, so you can clear maps made before this. Undo brings them back.
+
 ## ShardForge 0.8.9
 
 - **Caves made the way the client's own are.** The 0.8.7 caves were cut into the mountains and covered with a flat

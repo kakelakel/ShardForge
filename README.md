@@ -91,7 +91,7 @@ round you in Walk, from a plain request. The server holds the API keys; every re
   seconds. Claude can do all of this too ("a walled city in the central valley and two fishing villages on the coast").
 - **World features** (on by default when populating, or **Add features to this map** later): piers with moored ships
   at harbour towns, waterfalls off high ground into rivers and lakes, fords and stepping stones where small roads
-  cross streams, lighthouses on headlands, fishing huts on lake shores, signposts naming the towns at crossroads,
+  cross streams, lighthouses on headlands, fishing huts on lake shores, signposts at crossroads and cave mouths (off unless ticked),
   watchtowers and forts at mountain passes, castles on sheer crags with one way up, walls and hedges along roads near towns, scarecrows and water mills,
   cave mouths spread over the mountains (walk straight in to a cave or mine under the mountain, made like the
   client's own caves, or teleport into a dungeon map's areas), ruins near dungeon mouths, shipwrecks and driftwood, desert oases, standing stones,

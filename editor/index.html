@@ -234,7 +234,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
           <select id="caveMap"><option value="">Only caves inside this map's mountains</option></select>
           <p class="note" style="margin:2px 0 0">Half the mouths go to that dungeon map's areas, by teleporters both ways (made when you build). Build the dungeon map first.</p>
         </div>
-        <div class="row" style="margin-top:6px"><button id="btnFeatures" title="Add the ticked features to this map as it is now (towns, roads and all)">Add features to this map</button></div>
+        <div class="row" style="margin-top:6px"><button id="btnFeatures" title="Add the ticked features to this map as it is now (towns, roads and all)">Add features to this map</button> <button id="btnNoSigns" title="Take every signpost (post and its sign) off this map. Undo brings them back.">Remove all signposts</button></div>
       </details>
       <p class="note">Pick the <b>Town</b> tool (T), then click for the radius above, or press and <b>drag out</b> to size it (<kbd>[</kbd> <kbd>]</kbd> resize). <b>Reroll</b> lays the last one out again.</p>
       <div class="row" style="margin-top:8px">
@@ -2597,12 +2597,14 @@ function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
 // ---------------------------------------------------------------------------
 const FEATURES = {
   docks: "Docks, piers and moored boats", waterfalls: "Waterfalls", fords: "Fords and stepping stones", lighthouses: "Lighthouses", huts: "Fishing huts by lakes",
-  signs: "Signposts naming the towns", forts: "Watchtowers and forts at passes", castles: "Castles on crags", hedges: "Walls and hedges by towns", farms: "Scarecrows and water mills",
+  signs: "Signposts (crossroads, cave mouths)", forts: "Watchtowers and forts at passes", castles: "Castles on crags", hedges: "Walls and hedges by towns", farms: "Scarecrows and water mills",
   caves: "Cave mouths into caves, mines and dungeons", ruins: "Ruins by dungeon mouths",
   wrecks: "Shipwrecks and driftwood", oases: "Desert oases", stones: "Standing stones",
   life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
 };
-const featOn = k => W._feat?.[k] ?? true;
+/** Off unless ticked: signposts (they end up everywhere). */
+const FEATURES_OFF = { signs: true };
+const featOn = k => W._feat?.[k] ?? !FEATURES_OFF[k];
 const PIER = { plank: [0x07C9, 0x07CA, 0x07CB], post: [[0x03A5, -12], [0x03A5, -7], [0x03AE, -2], [0x03A5, 3], [0x03AA, 8]], pile: 0x03A5, pole: 0x01CD, rope: [0x14F8, 0x14FA], anchor: 0x14F7, nets: [0x0DCA, 0x0DCB, 0x0DD0, 0x0DD1], fish: 0x09CC };
 // Waterfall pieces (animated): a curtain that drops one tile at a time, foam where it hits the water, ripples past it.
 const FALLS = { E: { curtain: 0x34F3, foam: 0x34FF, ripple: 0x3505 }, S: { curtain: 0x3511, foam: 0x351D, ripple: 0x3523 } };
@@ -2971,7 +2973,7 @@ function millsPass(rnd, occ, wb) {
  * Cave mouths: S- or E-facing mountain sides with open, level ground in front, spread out over the map. Each is
  * walked into, along a passage to a cave or mine under the mountain (floor statics beneath the mountain's land, as
  * the client's own caves are), or, when a dungeon map is given, leads by teleporters both ways into one of its
- * areas. A dungeon mouth may have ruins near it; each gets a signpost with its name.
+ * areas. A dungeon mouth may have ruins near it; with signposts ticked, each gets one with its name.
  */
 /** Caves inside mountains, made as the client's own are (the cave north of Britain, say): the mountain's land stays
  *  where it is, high above, and the cave is floor statics laid at the ground level of its mouth underneath it. You
@@ -3165,7 +3167,7 @@ function cavesPass(o, rnd, occ) {
       W.objects.serverItems.push({ kind: "tele", x: X, y: Y, z: h0, link: target.link, back: [ox, oy, h0] });
     }
     markRect(occ, Math.min(...[P(-3, -3)[0], P(3, 3)[0]]), Math.min(...[P(-3, -3)[1], P(3, 3)[1]]), Math.max(...[P(-3, -3)[0], P(3, 3)[0]]), Math.max(...[P(-3, -3)[1], P(3, 3)[1]]), 1);
-    const [sx, sy] = P(3, 2); if (offRoad(sx, sy)) signpost(sx, sy, name, m.face === "E");
+    const [sx, sy] = P(3, 2); if (featOn("signs") && offRoad(sx, sy)) signpost(sx, sy, name, m.face === "E");
     W.places.push({ name: target.link || cave ? name : name + " entrance", kind: "cave", x: ox, y: oy, radius: 4 });
     if (featOn("ruins") && rnd() < (target.link ? 0.75 : 0.25)) {
       const [rx, ry] = P((rnd() < 0.5 ? -1 : 1) * between(6, 10, rnd), between(11, 17, rnd));
@@ -3403,6 +3405,13 @@ function castlesPass(rnd, occ, want) {
 }
 
 /** Adds the world features to a populated map (or a map with towns of its own). */
+/** Takes every signpost off the map: the posts and the signs on them. */
+OPS.remove_signposts = () => {
+  const post = id => id === PROP.signX || id === PROP.signY, before = W.objects.statics.length;
+  W.objects.statics = W.objects.statics.filter(st => !post(st[0]));
+  W.objects.serverItems = W.objects.serverItems.filter(it => !(it.kind === "sign" && post(it.id)));
+  return { removed: before - W.objects.statics.length };
+};
 OPS.world_features = o => (W._lastFeatures = worldFeatures(o));
 function worldFeatures(o) {
   ensureObjects();
@@ -4046,7 +4055,9 @@ function syncFeatSummary() {
 }
 (() => {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("sf.features") || "{}"); } catch {}
-  $("featGrid").innerHTML = Object.entries(FEATURES).map(([k, label]) => `<label class="check"><input type="checkbox" data-feat="${k}" ${saved[k] === false ? "" : "checked"}> ${label}</label>`).join("");
+  // Signposts went from on to off by default (0.9.0): an old saved "on" is not a choice to keep.
+  try { if (!localStorage.getItem("sf.features.v2")) { delete saved.signs; localStorage.setItem("sf.features.v2", "1"); } } catch {}
+  $("featGrid").innerHTML = Object.entries(FEATURES).map(([k, label]) => `<label class="check"><input type="checkbox" data-feat="${k}" ${(saved[k] ?? !FEATURES_OFF[k]) ? "checked" : ""}> ${label}</label>`).join("");
   $("featGrid").onchange = syncFeatSummary; syncFeatSummary();
 })();
 /** On a server: the built maps that have dungeon areas, for cave mouths to lead into. */
@@ -4071,6 +4082,13 @@ function featureReport(r) {
     ["forts", "watchtower or fort", "watchtowers and forts"], ["castles", "castle on a crag", "castles on crags"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
   return parts.filter(([k]) => r[k]).map(([k, one, many]) => k === "linked" ? `${r[k]} ${one}` : `${r[k]} ${r[k] === 1 ? one : many || one + "s"}`).join(", ");
 }
+$("btnNoSigns").onclick = () => {
+  const n = W.objects.statics.filter(st => st[0] === PROP.signX || st[0] === PROP.signY).length;
+  if (!n) { addMsg("claude", "There are no signposts on this map."); return; }
+  const res = applyOps([{ op: "remove_signposts" }])[0];
+  fullRedraw();
+  addMsg("claude", res?.ok ? `Removed ${n} signpost${n === 1 ? "" : "s"}. Undo brings them back.` : "Couldn't remove them: " + escapeHtml(res?.why || "?"), res?.ok ? undefined : "error");
+};
 $("btnFeatures").onclick = () => {
   busy("Adding world features…");
   setTimeout(() => {
@@ -4329,7 +4347,8 @@ Ops (JSON objects, applied in order):
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
 - {"op":"castle_crag","cx","cy","radius"?:14-45,"height"?:30-55,"name"?,"seed"?} raises a sheer-sided crag (grass on top, rock cliffs, scree round the foot) with one way up, a ledge climbing round the cliff to the gate, and builds a castle on top: curtain wall along the edge, towers, a gatehouse, a keep with a tall donjon, a hall and a courtyard; a path joins the nearest road.
-- {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts naming the towns at crossroads, watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) into caves and mines carved inside the mountains with teleporters both ways, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
+- {"op":"remove_signposts"} takes every signpost (post and sign) off the map.
+- {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts at crossroads and cave mouths (only when "signs" is true; off by default), watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) walked into, to caves and mines under the mountains, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"masonry"|"wood"|"stone"|"ironstone"|"arcade"|"sandstone"|"brick"|"marble"|"gargish"|"crystal"|"rustic"|"log","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
