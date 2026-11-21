@@ -1,3 +1,13 @@
+## ShardForge 0.8.2
+
+- **Town decorations when generating.** New map → generated world has a **Town decorations** choice: *Tidy* (no
+  street clutter: no barrels, crates, troughs, hay or hitching posts by the roads; the default), *Bare* (only lamps
+  and signposts), *Full*, or *As ticked under Town → Decorations*. **Populate world** uses the ticks under
+  Town → Decorations. The choices are remembered.
+- Fixed: water troughs were laid with their two halves the wrong way round, so they looked like half troughs.
+- Fixed: a fast brush stroke at low zoom left a string of separate blobs (a painted river came out beaded). Strokes
+  now fill in between pointer positions.
+
 ## ShardForge 0.8.1
 
 - **Export folder.** Walk → Server items → **Put in export folder** writes the map into `export\` in the

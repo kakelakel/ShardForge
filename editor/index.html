@@ -367,6 +367,9 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
         <div><label for="wSeed">Seed</label><input id="wSeed" placeholder="random" inputmode="numeric"></div>
       </div>
       <label class="check"><input type="checkbox" id="wTowns" checked> Found towns, villages and roads in good places</label>
+      <div class="grid2" style="margin-top:4px"><div><label for="wDeco">Town decorations</label><select id="wDeco">
+        <option value="tidy" selected>Tidy: no street clutter</option><option value="bare">Bare: lamps and signposts only</option>
+        <option value="full">Full: barrels, crates, troughs, hay too</option><option value="panel">As ticked under Town → Decorations</option></select></div></div>
       <p class="note">Plates give the land its shape and push up mountain ranges where they meet; wind from the west brings rain to the coasts and leaves dry land behind the mountains; rivers run down to the sea, big ones through deltas, and every lake spills out through a river. Roads between towns follow the valleys and cross rivers on bridges. The same seed and settings give the same world.</p>
     </div>
     <div class="row">
@@ -484,7 +487,7 @@ function newWorld(width, height, start) {
     const o = worldOptions(); W.seed = o.seed;
     const r = applyOps([{ op: "world", ...o }], false)[0];
     if (!r?.ok) addMsg("claude", "Couldn't generate the world: " + escapeHtml(r?.why || "?"), "error");
-    else if ($("wTowns").checked) applyOps([{ op: "populate_world", seed: o.seed, ...featureSettings() }], false);
+    else if ($("wTowns").checked) applyOps([{ op: "populate_world", seed: o.seed, deco: worldDeco(), ...featureSettings() }], false);
     lastWorld = o;
   }
   resetImage(); fitView(); updateStats(); if (typeof renderUnderList === "function") renderUnderList();
@@ -724,7 +727,7 @@ const PROP = {
   bones: [0x0ECA, 0x0ECB, 0x0ECC, 0x0ECD, 0x0ECE, 0x0ECF, 0x0ED0, 0x0ED1, 0x0ED2], brazier: 0x0E31, candelabra: 0x0B26,
   pavers: [1305, 1306, 1307, 1308], planks: [1233, 1228, 1235, 1230], tree: [[0x0CCD, 0x0CCE], [0x0CD0, 0x0CD1], [0x0CD3, 0x0CD4], [0x0CD6, 0x0CD7]],
   crops: { wheat: [0x0C55, 0x0C56, 0x0C58], cabbage: [0x0C7B, 0x0C7C], carrot: [0x0C76], pumpkin: [0x0C6A, 0x0C6B, 0x0C6C], flax: [0x1A9B] },
-  flowerpots: [0x11CA, 0x11CB, 0x11CC], trough: [0x0B41, 0x0B42], troughY: [0x0B43, 0x0B44], hitch: [0x14E7, 0x14E8], statues: [0x12D8, 0x12D9],
+  flowerpots: [0x11CA, 0x11CB, 0x11CC], trough: [0x0B43, 0x0B44], troughY: [0x0B41, 0x0B42], // as the client lays them: B43+B44 along x, B41+B42 along y hitch: [0x14E7, 0x14E8], statues: [0x12D8, 0x12D9],
   palms: [0x0C99, 0x0C9A, 0x0C9B, 0x0C9C, 0x0C9D], flowers: [0x0D2F, 0x0D2D, 0x0D2B, 0x0D29, 0x0C85, 0x0C84],
   // Fieldstone wall pieces (walls.txt "Fieldstone Standard Walls") for city walls.
   wallEW: 28, wallNS: 27, wallCorner: 26, wallPost: 29,
@@ -3378,7 +3381,7 @@ function populateWorld(o) {
         : c.nearWater && rnd() < 0.6 ? "fishing" : rnd() < 0.2 ? "frontier" : "rustic";
       // Towns by the sea or a big lake get a waterfront: docks, a pier, boats.
       const setting = c.nearWater && size !== "hamlet" && (size !== "village" || style === "fishing") && featOn("docks") ? "harbour" : undefined;
-      OPS.town({ cx: c.x, cy: c.y, size, style, setting, seed: Math.floor(rnd() * 1e9) });
+      OPS.town({ cx: c.x, cy: c.y, size, style, setting, deco: o.deco, seed: Math.floor(rnd() * 1e9) });
       chosen.push({ x: c.x, y: c.y, r }); placed++;
     }
   }
@@ -3704,7 +3707,18 @@ function syncPalette() { document.querySelectorAll("#palette button").forEach(b 
 
 let hover = null, painting = false, panning = false, panStart = null, flattenZ = 0, spaceDown = false, strokeDirty = null;
 
+/** A brush stroke follows the pointer without gaps: between two pointer events (a fast drag at low zoom can be tens
+ *  of tiles apart) it stamps along the way, about half a brush apart, so a painted river is one channel, not beads. */
+let lastStamp = null;
+function strokeTo(wx, wy) {
+  if (!lastStamp) { stamp(wx, wy); return; }
+  const d = Math.hypot(wx - lastStamp[0], wy - lastStamp[1]), step = Math.max(0.75, brush.size * 0.5);
+  if (d < step) return;
+  const n = Math.ceil(d / step), [ax, ay] = lastStamp;
+  for (let k = 1; k <= n; k++) stamp(ax + (wx - ax) * k / n, ay + (wy - ay) * k / n);
+}
 function stamp(wx, wy) {
+  lastStamp = [wx, wy];
   const r = brush.size, s = brush.strength, N = W.width;
   const [x0, y0, x1, y1] = bbox(wx - r, wy - r, wx + r, wy + r);
   touch(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
@@ -3779,7 +3793,7 @@ view.addEventListener("pointerdown", e => {
 view.addEventListener("pointermove", e => {
   const p = toWorld(e); hover = p;
   if (panning) { cam.x = panStart.cx - (p.sx - panStart.sx) / cam.z; cam.y = panStart.cy - (p.sy - panStart.sy) / cam.z; }
-  else if (painting) stamp(p.wx, p.wy);
+  else if (painting) strokeTo(p.wx, p.wy);
   else if (underDrag) { underDrag.ex = Math.max(0, Math.min(W.width - 1, Math.floor(p.wx))); underDrag.ey = Math.max(0, Math.min(W.height - 1, Math.floor(p.wy))); }
   else if (townDrag) {
     const d = Math.hypot(p.wx - townDrag.wx, p.wy - townDrag.wy);
@@ -3804,7 +3818,7 @@ const endStroke = () => {
     draw();
   }
   if (townDrag) { const t = townDrag; townDrag = null; foundTown(townOptions(t.x, t.y)); }
-  if (painting) { commitEdit(); if (strokeDirty) updateStats(); } painting = false; panning = false; strokeDirty = null; view.style.cursor = "crosshair"; };
+  if (painting) { commitEdit(); if (strokeDirty) updateStats(); } painting = false; panning = false; strokeDirty = null; lastStamp = null; view.style.cursor = "crosshair"; };
 view.addEventListener("pointerup", endStroke);
 view.addEventListener("pointercancel", endStroke);
 view.addEventListener("pointerleave", () => { hover = null; draw(); });
@@ -3857,11 +3871,30 @@ function setTownRadius(v) {
 $("townSize").onchange = () => { if ($("townSize").value) setTownRadius(TOWN_SIZES[$("townSize").value].r); else setTownRadius(townRadius()); };
 $("townRadius").oninput = () => setTownRadius(townRadius());
 $("townRadius").max = 200;
+/** Decoration presets for towns made while generating: what each leaves in (lamps and signposts always). */
+const DECO_PRESETS = {
+  full: { lamps: true, market: true, square: true, signs: true, street: true, flowers: true, gardens: true, fields: true, graveyard: true },
+  tidy: { lamps: true, market: true, square: true, signs: true, street: false, flowers: true, gardens: true, fields: true, graveyard: true },
+  bare: { lamps: true, market: false, square: false, signs: true, street: false, flowers: false, gardens: false, fields: false, graveyard: false },
+};
+function worldDeco() {
+  const v = $("wDeco").value;
+  return v === "panel" ? { ...decoSettings(), amount: +$("townDecoAmount").value } : { ...DECO_PRESETS[v] || DECO_PRESETS.tidy, amount: +$("townDecoAmount").value };
+}
 function decoSettings() {
   const on = {};
   for (const cb of document.querySelectorAll("[data-deco]")) on[cb.dataset.deco] = cb.checked;
   return on;
 }
+// The decoration choices are remembered between visits.
+(() => {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem("sf.deco") || "{}"); } catch {}
+  for (const cb of document.querySelectorAll("[data-deco]")) if (saved[cb.dataset.deco] != null) cb.checked = saved[cb.dataset.deco];
+  if (saved.amount) $("townDecoAmount").value = saved.amount;
+  if (saved.world) $("wDeco").value = saved.world;
+  const keep = () => { try { localStorage.setItem("sf.deco", JSON.stringify({ ...decoSettings(), amount: $("townDecoAmount").value, world: $("wDeco").value })); } catch {} };
+  document.querySelectorAll("[data-deco], #townDecoAmount, #wDeco").forEach(el => el.addEventListener("change", keep));
+})();
 function syncDecoSummary() {
   const d = decoSettings(), off = Object.values(d).filter(v => !v).length;
   $("decoSummary").textContent = `${off ? `${Object.keys(d).length - off} of ${Object.keys(d).length} on` : "all on"} · ${$("townDecoAmount").selectedOptions[0].text.toLowerCase()}`;
@@ -3960,7 +3993,7 @@ $("btnPopulate").onclick = () => {
   busy("Populating the world: finding sites, founding towns, building roads…");
   setTimeout(() => {
     const t0 = performance.now();
-    applyOps([{ op: "populate_world", seed: Math.floor(Math.random() * 1e9), ...featureSettings() }]);
+    applyOps([{ op: "populate_world", seed: Math.floor(Math.random() * 1e9), deco: { ...decoSettings(), amount: +$("townDecoAmount").value }, ...featureSettings() }]);
     fullRedraw(); busy();
     const kinds = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine"].map(k => [k, W.places.filter(p => p.kind === k).length]).filter(([, n]) => n);
     addMsg("claude", `Populated in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${kinds.map(([k, n]) => `${n} ${k}${n === 1 ? "" : k === "city" ? "" : "s"}`.replace("citys", "cities")).join(", ")}; ${W.objects.lots.length.toLocaleString()} building plots${W._featResult ? "; " + featureReport(W._featResult) : ""}. Build the map and walk it to build on the plots.`);
