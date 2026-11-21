@@ -215,7 +215,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
             <label class="check"><input type="checkbox" data-deco="lamps" checked> Street lamps</label>
             <label class="check"><input type="checkbox" data-deco="market" checked> Market stalls</label>
             <label class="check"><input type="checkbox" data-deco="square" checked> Square: benches, trees, statue</label>
-            <label class="check"><input type="checkbox" data-deco="signs" checked> Signposts</label>
+            <label class="check"><input type="checkbox" data-deco="signs"> Signposts where roads leave</label>
             <label class="check"><input type="checkbox" data-deco="street" checked> Street life: barrels, troughs, posts</label>
             <label class="check"><input type="checkbox" data-deco="flowers" checked> Flowers &amp; flowerpots</label>
             <label class="check"><input type="checkbox" data-deco="gardens" checked> Gardens</label>
@@ -379,7 +379,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
       </div>
       <label class="check"><input type="checkbox" id="wTowns" checked> Found towns, villages and roads in good places</label>
       <div class="grid2" style="margin-top:4px"><div><label for="wDeco">Town decorations</label><select id="wDeco">
-        <option value="tidy" selected>Tidy: no street clutter</option><option value="bare">Bare: lamps and signposts only</option>
+        <option value="tidy" selected>Tidy: no street clutter</option><option value="bare">Bare: lamps only</option>
         <option value="full">Full: barrels, crates, troughs, hay too</option><option value="panel">As ticked under Town → Decorations</option></select></div></div>
       <p class="note">Plates give the land its shape and push up mountain ranges where they meet; wind from the west brings rain to the coasts and leaves dry land behind the mountains; rivers run down to the sea, big ones through deltas, and every lake spills out through a river. Roads between towns follow the valleys and cross rivers on bridges. The same seed and settings give the same world.</p>
     </div>
@@ -1301,7 +1301,7 @@ OPS.town = o => {
   const mainKey = mat(o.mainRoads, ST.main), laneKey = mat(o.lanes, ST.road), squareKey = mat(o.square, ST.square);
   const squareT = TKEY[squareKey];
   const dens = { sparse: 0.6, normal: 1, dense: 1.3 }[o.plots] ?? 1;
-  const D = { lamps: true, market: true, square: true, signs: true, street: true, flowers: true, gardens: true, fields: true, graveyard: true, ...(o.deco || {}) };
+  const D = { lamps: true, market: true, square: true, signs: false, street: true, flowers: true, gardens: true, fields: true, graveyard: true, ...(o.deco || {}) };
   const A = Math.max(0, Math.min(3, +(o.deco?.amount ?? 1)));
   const walled = o.walls ?? S.walls;
   const keep = TERRAINS.map(t => t.key).filter(k => !["water", "lava"].includes(k));
@@ -2851,14 +2851,6 @@ function signsPass(rnd) {
       for (let a = 0; a < 8 && !done; a++) { const x = Math.round(J.x + Math.cos(a / 4 * Math.PI) * r), y = Math.round(J.y + Math.sin(a / 4 * Math.PI) * r); if (offRoad(x, y)) { signpost(x, y, text, rnd() < 0.5); made++; done = true; } }
       if (done) break; }
   }
-  // Where each road leaves its towns: which town it goes to.
-  lines.forEach((L, i) => {
-    const d = dens[i]; if (d.length < 30) return;
-    for (const [k, to] of [[6, L.b], [d.length - 7, L.a]]) {
-      const p = d[k], n = Math.hypot(p.dx, p.dy) || 1, nx = -p.dy / n, ny = p.dx / n;
-      for (const s of [1, -1]) { const x = Math.round(p.x + nx * s * 3), y = Math.round(p.y + ny * s * 3); if (offRoad(x, y)) { signpost(x, y, `To ${to.name}`, Math.abs(p.dx) >= Math.abs(p.dy)); made++; break; } }
-    }
-  });
   return made;
 }
 
@@ -3886,9 +3878,9 @@ $("townRadius").oninput = () => setTownRadius(townRadius());
 $("townRadius").max = 200;
 /** Decoration presets for towns made while generating: what each leaves in (lamps and signposts always). */
 const DECO_PRESETS = {
-  full: { lamps: true, market: true, square: true, signs: true, street: true, flowers: true, gardens: true, fields: true, graveyard: true },
-  tidy: { lamps: true, market: true, square: true, signs: true, street: false, flowers: true, gardens: true, fields: true, graveyard: true },
-  bare: { lamps: true, market: false, square: false, signs: true, street: false, flowers: false, gardens: false, fields: false, graveyard: false },
+  full: { lamps: true, market: true, square: true, signs: false, street: true, flowers: true, gardens: true, fields: true, graveyard: true },
+  tidy: { lamps: true, market: true, square: true, signs: false, street: false, flowers: true, gardens: true, fields: true, graveyard: true },
+  bare: { lamps: true, market: false, square: false, signs: false, street: false, flowers: false, gardens: false, fields: false, graveyard: false },
 };
 function worldDeco() {
   const v = $("wDeco").value;
@@ -3901,11 +3893,11 @@ function decoSettings() {
 }
 // The decoration choices are remembered between visits.
 (() => {
-  let saved = {}; try { saved = JSON.parse(localStorage.getItem("sf.deco") || "{}"); } catch {}
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem("sf.deco2") || "{}"); } catch {}
   for (const cb of document.querySelectorAll("[data-deco]")) if (saved[cb.dataset.deco] != null) cb.checked = saved[cb.dataset.deco];
   if (saved.amount) $("townDecoAmount").value = saved.amount;
   if (saved.world) $("wDeco").value = saved.world;
-  const keep = () => { try { localStorage.setItem("sf.deco", JSON.stringify({ ...decoSettings(), amount: $("townDecoAmount").value, world: $("wDeco").value })); } catch {} };
+  const keep = () => { try { localStorage.setItem("sf.deco2", JSON.stringify({ ...decoSettings(), amount: $("townDecoAmount").value, world: $("wDeco").value })); } catch {} };
   document.querySelectorAll("[data-deco], #townDecoAmount, #wDeco").forEach(el => el.addEventListener("change", keep));
 })();
 function syncDecoSummary() {

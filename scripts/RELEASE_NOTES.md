@@ -1,3 +1,10 @@
+## ShardForge 0.8.4
+
+- **No more signposts in towns.** Towns no longer put a signpost where each main road leaves (they could end up on
+  the road or in a wall), and roads no longer get a "To …" signpost at each end. Signposts at crossroads out in the
+  country stay. The town signposts are still there as a tick (Town → Decorations → *Signposts where roads leave*),
+  off by default.
+
 ## ShardForge 0.8.3
 
 - **Plain names for sites.** Generated sites are called what they are: *Bandit camp*, *Ruins*, *Shrine*, *Cave*,
