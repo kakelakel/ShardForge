@@ -23,6 +23,11 @@ ShardForge designs, the library or the designer bring their doors along as serve
    - `ServUO/Data/ShardForge/<map>.sfitems` every server item and region,
    - `ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs` the import script,
    - `README.txt` these steps in short.
+   On the server there's a shortcut: **Put in export folder** (next to the package button, admins) writes the
+   same things into `export\` in the ShardForge folder: `client\` and `ServUO\`, ready to copy, plus a
+   `README.txt` listing what's there. Each map takes its facet's slot, so a dungeon map on another facet sits
+   beside the overworld, and exporting a newer map for the same facet replaces the older one's files. The
+   folder can be moved with `ShardForge:ExportPath` in `appsettings.json`.
 4. **Install on the shard** (first time):
    1. Stop ServUO and back up its `Saves/` folder and the client files you're about to replace.
    2. Copy `client/*` into the client folder ServUO reads (the folder in `Config/DataPath.cfg`, or wherever

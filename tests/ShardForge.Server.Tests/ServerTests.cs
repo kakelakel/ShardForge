@@ -31,6 +31,7 @@ public sealed class ServerFixture : IDisposable
         {
             ["ShardForge__ClientPath"] = client,
             ["ShardForge__DataPath"] = Path.Combine(Root, "data"),
+            ["ShardForge__ExportPath"] = Path.Combine(Root, "export"),
             ["ShardForge__PasswordIterations"] = "1000",
             ["ShardForge__OpenBrowser"] = "false",
             ["ShardForge__LoginAttemptsPerMinute"] = "10000",
@@ -621,6 +622,24 @@ public class ServerTests(ServerFixture fx) : IClassFixture<ServerFixture>
         Assert.Equal(HttpStatusCode.OK, (await builder.SendAsync(put)).StatusCode);
         await builder.PostAsJsonAsync($"/api/projects/{id}/build", new { facet = 4 });
         Assert.DoesNotContain((await builder.GetFromJsonAsync<JsonElement[]>($"/api/maps/{dmap}/items"))!, i => i.GetProperty("uid").GetString()!.StartsWith($"link-{wmap}-"));
+
+        // The export folder: client\ and ServUO\ ready to copy, one map per facet.
+        var (adm, _) = await As("admin");
+        var ex = await (await adm.PostAsync($"/api/maps/{wmap}/export-folder", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string exportDir = ex.GetProperty("path").GetString()!;
+        Assert.True(File.Exists(Path.Combine(exportDir, "client", "statics4.mul")));
+        Assert.True(File.Exists(Path.Combine(exportDir, "client", "map4LegacyMUL.uop"))); // a built map's own land, unedited
+        Assert.True(File.Exists(Path.Combine(exportDir, "ServUO", "Scripts", "Custom", "ShardForge", "ShardForgeImport.cs")));
+        Assert.True(File.Exists(Path.Combine(exportDir, "ServUO", "Data", "ShardForge", wmap + ".sfitems")));
+        await adm.PostAsync($"/api/maps/{dmap}/export-folder", null);
+        // Another map for the same facet takes its place.
+        string other = await Build(ServerFixture.TinyProject("Overland Two"), 4);
+        var ex2 = await (await adm.PostAsync($"/api/maps/{other}/export-folder", null)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(File.Exists(Path.Combine(exportDir, "ServUO", "Data", "ShardForge", wmap + ".sfitems")));
+        Assert.True(File.Exists(Path.Combine(exportDir, "ServUO", "Data", "ShardForge", dmap + ".sfitems")));
+        Assert.Equal(2, ex2.GetProperty("maps").GetArrayLength());
+        Assert.Contains("Overland Two", File.ReadAllText(Path.Combine(exportDir, "README.txt")));
+        Assert.Equal(HttpStatusCode.Forbidden, (await builder.PostAsync($"/api/maps/{other}/export-folder", null)).StatusCode);
 
         // The moongate goes to ServUO as a visible, named teleporter.
         var (admin, _) = await As("admin");

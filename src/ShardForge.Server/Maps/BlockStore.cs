@@ -386,6 +386,16 @@ public sealed class BlockStore(Db db)
             }
             finally { Directory.Delete(tmp, true); }
         }
+        else if (map.Source == "built")
+        {
+            // A map built from a project has its own land: it goes along even when nobody edited it in Walk.
+            foreach (var path in Directory.GetFiles(map.Dir))
+            {
+                string n = Path.GetFileName(path);
+                if (n.StartsWith($"map{map.Facet}", StringComparison.OrdinalIgnoreCase) && (n.EndsWith(".uop", StringComparison.OrdinalIgnoreCase) || n.EndsWith(".mul", StringComparison.OrdinalIgnoreCase)))
+                    files.Add((n, File.ReadAllBytes(path)));
+            }
+        }
         return files;
     }
 

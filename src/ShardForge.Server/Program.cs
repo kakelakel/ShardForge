@@ -422,6 +422,24 @@ api.MapGet("/maps/{id}/servuo", (string id, HttpContext ctx, MapRegistry maps, B
     return Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), list), "application/zip", $"{id}-servuo.zip");
 }).RequireAuthorization("Admin");
 
+// The export folder in the ShardForge folder: client/ and ServUO/ ready to copy, one map per facet.
+string exportDir = Path.GetFullPath(Path.IsPathRooted(options.ExportPath) ? options.ExportPath : Path.Combine(builder.Environment.ContentRootPath, options.ExportPath));
+api.MapGet("/export-folder", () => Results.Ok(new { path = exportDir, maps = ExportFolder.Read(exportDir).Values.OrderBy(e => e.Facet) })).RequireAuthorization("Admin");
+api.MapPost("/maps/{id}/export-folder", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, ItemStore items, AuditLog audit) =>
+{
+    var m = maps.Get(id);
+    if (m is null) return Results.NotFound();
+    if (m.Facet is < 0 or > 5) return Err(400, "This map has no facet number to export as.");
+    var list = items.All(id);
+    try
+    {
+        var e = ExportFolder.Write(exportDir, m, blocks.MergedFiles(m), list, Current(ctx).Username);
+        audit.Write(Current(ctx), "export.folder", $"put {m.Name} in the export folder as facet {m.Facet} ({list.Count} server items)", target: $"map:{id}", ip: Ip(ctx));
+        return Results.Ok(new { path = exportDir, map = e, maps = ExportFolder.Read(exportDir).Values.OrderBy(x => x.Facet) });
+    }
+    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return Err(500, "Couldn't write the export folder: " + e.Message); }
+}).RequireAuthorization("Admin");
+
 api.MapGet("/servuo/ShardForgeImport.cs", () => Results.Text(ItemStore.ImportScript(), "text/plain")).RequireAuthorization("Admin");
 
 api.MapGet("/maps/{id}/export", (string id, HttpContext ctx, MapRegistry maps, BlockStore blocks, AuditLog audit) =>

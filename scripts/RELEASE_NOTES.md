@@ -1,3 +1,12 @@
+## ShardForge 0.8.1
+
+- **Export folder.** Walk → Server items → **Put in export folder** writes the map into `export\` in the
+  ShardForge folder: `client\` (map and statics files) and `ServUO\` (items, regions and the import script), ready
+  to copy into the client folder and over ServUO. One map per facet: an overworld and a dungeon map sit side by
+  side, and a newer export for the same facet replaces the older files. A `README.txt` lists what's in it.
+- Fixed: a map built from a project now always takes its own land file along in the ServUO package (before, only
+  when the land had been edited in Walk).
+
 ## ShardForge 0.8.0
 
 - **Castles on crags.** A plateau rises sheer out of the land, grass on top and rock cliffs down its sides with

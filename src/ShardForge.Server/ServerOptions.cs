@@ -9,6 +9,9 @@ public sealed class ServerOptions
     /// <summary>Where the server keeps its database, built maps and published files.</summary>
     public string DataPath { get; set; } = "data";
 
+    /// <summary>The export folder: client\ and ServUO\ ready to copy to the shard (relative to the ShardForge folder).</summary>
+    public string ExportPath { get; set; } = "export";
+
     /// <summary>Extra folders holding map files to offer (for example a ShardForge build output).</summary>
     public List<MapSource> Maps { get; set; } = new();
 

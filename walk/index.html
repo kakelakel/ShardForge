@@ -429,6 +429,7 @@ footer b { color: var(--text); font-weight: 500; }
       <div class="row" style="gap:6px;flex-wrap:wrap">
         <button id="itemTowns" class="world-only" hidden title="A guarded region for every town on this map's layout">Regions for the towns</button>
         <button id="itemPackage" class="admin-only" title="Map files, items and regions, with the ServUO import script">ServUO package (.zip)</button>
+        <button id="itemExport" class="admin-only" hidden title="Write this map's files, items and the import script into the export folder in the ShardForge folder: client\ and ServUO\, ready to copy">Put in export folder</button>
       </div>
       <details id="spAll" class="sp-all"><summary>Spawners on this map <span id="spAllCount" class="note"></span></summary>
         <input id="spAllFind" placeholder="Filter: orc, graveyard…" style="width:100%;margin:6px 0"><div id="spAllList"></div></details>
@@ -1103,6 +1104,13 @@ namespace Server.ShardForge
                     Teleporter t = new Teleporter();
                     t.PointDest = new Point3D(I(c[4]), I(c[5]), I(c[6]));
                     t.MapDest = Map.Parse(c[7]);
+                    if (c.Length > 8 && c[8] == "moongate")
+                    {
+                        // A moongate players can see and step into: the teleporter shows the gate art.
+                        t.ItemID = 0xF6C; t.Visible = true;
+                        if (c.Length > 9 && c[9].Length > 0) t.Name = c[9];
+                        Set(t, "SourceEffect", true); Set(t, "DestEffect", true); Set(t, "SoundID", 0x20E);
+                    }
                     return t;
                 }
                 case "spawn":
@@ -3299,6 +3307,15 @@ const ITEMS = {
     }
     return L.join("\n") + "\n";
   },
+  /** On a server: this map into the export folder next to ShardForge (client\ and ServUO\, ready to copy). */
+  async exportFolder() {
+    if (!Server.on || !Server.map) return;
+    try {
+      const r = await Server.api("POST", `/api/maps/${encodeURIComponent(Server.map.id)}/export-folder`);
+      const others = r.maps.filter(m => m.facet !== r.map.facet).map(m => `facet ${m.facet}: ${m.name}`);
+      toast(`${r.map.name} is in the export folder as facet ${r.map.facet} (${r.map.facetName}): ${r.path}${others.length ? ". Also there: " + others.join(", ") : ""}. Copy its client and ServUO folders across, then [SFImport.`, 9000);
+    } catch (e) { toast("Couldn't export: " + e.message, 6000); }
+  },
   async pack() {
     if (!loaded) { toast("Load a map first."); return; }
     if (Server.on) { location.href = `/api/maps/${encodeURIComponent(Server.map.id)}/servuo`; return; }
@@ -3326,7 +3343,7 @@ $("ifUsePicked").onclick = () => { if (!B.sel.length) { toast("Pick a static in 
 document.querySelectorAll(".item-tools button").forEach(b => b.onclick = () => ITEMS.setTool(b.dataset.itool));
 $("ifApply").onclick = () => ITEMS.apply(); $("ifDelete").onclick = () => ITEMS.del();
 $("itemShow").onchange = () => { ITEMS.show = $("itemShow").checked; requestDraw(); };
-$("itemTowns").onclick = () => ITEMS.towns(); $("itemPackage").onclick = () => ITEMS.pack();
+$("itemTowns").onclick = () => ITEMS.towns(); $("itemPackage").onclick = () => ITEMS.pack(); $("itemExport").onclick = () => ITEMS.exportFolder();
 view.addEventListener("mousemove", () => { if (ITEMS.tool) { ITEMS.move(); requestDraw(); } });
 window.addEventListener("mouseup", () => ITEMS.up());
 
@@ -4055,6 +4072,7 @@ const Server = {
     if (this.me.level < 2) document.querySelectorAll(".build-only").forEach(el => el.hidden = true);
     if (this.me.level < 3) { document.querySelectorAll(".world-only").forEach(el => { el.hidden = true; el.classList.add("gated"); }); $("houseLevel").checked = $("houseClear").checked = false; }
     if (this.me.level < 4) document.querySelectorAll(".admin-only").forEach(el => { el.hidden = true; el.classList.add("gated"); });
+    else $("itemExport").hidden = false; // the export folder lives on the server
     WALK_AI.init();
     $("welcome").querySelector(".card").innerHTML = `<h1>Walk your shard together</h1>
       <p>Choose a map at the top and press <b>Load map</b>. Everyone on the same map sees each other, and every static placed or removed appears for everyone at once.</p>
