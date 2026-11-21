@@ -1,3 +1,8 @@
+## ShardForge 0.11.1
+
+- Walk's World map now names only towns and villages unless you tick more, so the picture for your website stays
+  clean. Tick caves, dungeons, moongates or other places when you want them (for ClassicUO's markers, say).
+
 ## ShardForge 0.11.0
 
 - **Dungeon regions in Walk.** Server items → Region now asks what it is: a town, guarded or not, or a dungeon.
