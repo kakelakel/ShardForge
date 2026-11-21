@@ -36,7 +36,9 @@ ShardForge designs, the library or the designer bring their doors along as serve
       `Scripts/Misc/MapDefinitions.cs` (`RegisterMap(...)`). ShardForge's build warns when the size differs.
    4. Copy the package's `ServUO/` folder over your ServUO folder (it only adds `Data/ShardForge/` and
       `Scripts/Custom/ShardForge/`).
-   5. Start ServUO. It compiles the script; the console says how many regions it registered.
+   5. Rebuild ServUO so the script is in: run `Compile.WIN - Release.bat` in the ServUO folder (or
+      `dotnet build -c Release`). Current ServUO compiles its scripts ahead of time, so a new script does nothing
+      until you rebuild. Then start ServUO: the console says how many regions ShardForge registered.
    6. Log in as an Administrator and type **`[SFImport`**. It creates every door, sign, item, teleporter and
       spawner, and tells you how many.
 5. **Give players the same client files**: the ShardForge patcher sends `client/*` to their clients. A player

@@ -1,3 +1,9 @@
+## ShardForge 0.8.6
+
+- Fixed the install steps in the export folder's README, the ServUO package and the docs: current ServUO compiles
+  its scripts ahead of time, so after copying in `ShardForgeImport.cs` you rebuild ServUO once
+  (`Compile.WIN - Release.bat` or `dotnet build -c Release`) before `[SFImport` and `[SFClear` exist.
+
 ## ShardForge 0.8.5
 
 - **Cave mouths in Walk.** Build → Land → **Cave mouth**: click the ground in front of a mountain side that faces

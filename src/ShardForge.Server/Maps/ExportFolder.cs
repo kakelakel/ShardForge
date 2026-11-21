@@ -60,7 +60,9 @@ public static class ExportFolder
                  the client folder you play with. Overwrite.
               2. Copy the ServUO\ folder over your ServUO folder. It only adds Data\ShardForge\ and
                  Scripts\Custom\ShardForge\.
-              3. Start ServUO, log in as an Administrator and type [SFImport
+              3. Rebuild ServUO so it takes the script in: run "Compile.WIN - Release.bat" in the ServUO folder
+                 (or "dotnet build -c Release"). Only the first time and when the script changes.
+              4. Start ServUO, log in as an Administrator and type [SFImport
 
             [SFImport again replaces the earlier import; [SFClear removes it. Regions load at every start.
             If you copied a ServUO package (.zip) before, remove its .sfitems from Data\ShardForge\ so nothing is

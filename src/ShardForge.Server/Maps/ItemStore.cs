@@ -241,7 +241,8 @@ public sealed class ItemStore(Db db)
                           and in every player's client (the ShardForge patcher does this).
                 ServUO/   Copy into your ServUO folder: the import script and this map's items.
 
-                Then start ServUO and, as an Administrator, type [SFImport
+                Rebuild ServUO once so it takes the script in ("Compile.WIN - Release.bat" in the ServUO folder, or
+                "dotnet build -c Release"), then start it and, as an Administrator, type [SFImport
                 It creates {count("door")} doors, {count("sign")} signs, {count("item")} working items, {count("tele")} teleporters
                 and {count("spawn")} spawners, and registers {count("region")} regions (again at every start).
                 [SFImport again replaces the earlier import; [SFClear removes it.

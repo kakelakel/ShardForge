@@ -3385,7 +3385,7 @@ const ITEMS = {
     const slug = M.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
     files.push({ name: `ServUO/Data/ShardForge/${slug}.sfitems`, data: enc(this.sfitems()) });
     files.push({ name: "ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs", data: enc($("servuoScript").textContent.trim() + "\n") });
-    files.push({ name: "README.txt", data: enc(`ShardForge server package: ${M.name}\r\n\r\nclient/   map and statics files, for ServUO's client folder and every player's client.\r\nServUO/   copy into your ServUO folder, start the server and type [SFImport as an Administrator.\r\n          [SFImport again replaces the earlier import; [SFClear removes it. Regions load at every start.\r\n`) });
+    files.push({ name: "README.txt", data: enc(`ShardForge server package: ${M.name}\r\n\r\nclient/   map and statics files, for ServUO's client folder and every player's client.\r\nServUO/   copy into your ServUO folder, rebuild ServUO once (Compile.WIN - Release.bat), start it and type [SFImport as an Administrator.\r\n          [SFImport again replaces the earlier import; [SFClear removes it. Regions load at every start.\r\n`) });
     const blob = zip(files); window.__lastPackage = blob;
     if (!downloads) { toast("Saving files needs the download permission, which this view doesn't have. Open the page on claude.ai.", 5000); return; }
     try { await downloads.save({ filename: `${slug}-servuo.zip`, data: blob }); toast("Saved the ServUO package."); }
