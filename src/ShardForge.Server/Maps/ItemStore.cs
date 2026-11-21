@@ -192,7 +192,7 @@ public sealed class ItemStore(Db db)
     }
 
     /// <summary>The ServUO import file for a map's items (see servuo/ShardForgeImport.cs).</summary>
-    public static string SfItems(string facetName, string mapName, IEnumerable<JsonObject> items)
+    public static string SfItems(string facetName, string mapName, IEnumerable<JsonObject> items, IReadOnlyList<(int Y, string Row)>? ore = null)
     {
         var sb = new StringBuilder();
         sb.Append("# ShardForge items for ").Append(mapName).Append(". Load with [SFImport (see ShardForgeImport.cs).\n");
@@ -213,6 +213,11 @@ public sealed class ItemStore(Db db)
                 _ => "# ?",
             }).Append('\n');
         }
+        if (ore is { Count: > 0 })
+        {
+            sb.Append("# Ore by 8x8 bank (0 iron, 1 dull copper, 2 shadow iron, 3 copper, 4 bronze, 5 gold, 6 agapite, 7 verite, 8 valorite; . none)\n");
+            foreach (var (y, row) in ore) sb.Append("ore\t").Append(y).Append('\t').Append(row).Append('\n');
+        }
         return sb.ToString();
     }
 
@@ -223,7 +228,7 @@ public sealed class ItemStore(Db db)
     }
 
     /// <summary>Everything a ServUO shard needs: the map files, the items and regions, the import script and steps.</summary>
-    public static byte[] ServerPackage(MapInfo map, IEnumerable<(string Name, byte[] Bytes)> mapFiles, IReadOnlyList<JsonObject> items)
+    public static byte[] ServerPackage(MapInfo map, IEnumerable<(string Name, byte[] Bytes)> mapFiles, IReadOnlyList<JsonObject> items, IReadOnlyList<(int Y, string Row)>? ore = null)
     {
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
@@ -231,7 +236,7 @@ public sealed class ItemStore(Db db)
             void Add(string name, byte[] bytes) { using var e = zip.CreateEntry(name, CompressionLevel.Optimal).Open(); e.Write(bytes); }
             foreach (var (name, bytes) in mapFiles) Add("client/" + name, bytes);
             string slug = new string(map.Id.Select(ch => char.IsLetterOrDigit(ch) || ch == '-' ? ch : '-').ToArray());
-            Add($"ServUO/Data/ShardForge/{slug}.sfitems", Encoding.UTF8.GetBytes(SfItems(ServUOMap(map), map.Name, items)));
+            Add($"ServUO/Data/ShardForge/{slug}.sfitems", Encoding.UTF8.GetBytes(SfItems(ServUOMap(map), map.Name, items, ore)));
             Add("ServUO/Scripts/Custom/ShardForge/ShardForgeImport.cs", Encoding.UTF8.GetBytes(ImportScript()));
             int count(string k) => items.Count(o => o["kind"]?.ToJsonString() == $"\"{k}\"");
             Add("README.txt", Encoding.UTF8.GetBytes($"""
@@ -246,6 +251,10 @@ public sealed class ItemStore(Db db)
                 It creates {count("door")} doors, {count("sign")} signs, {count("item")} working items, {count("tele")} teleporters
                 and {count("spawn")} spawners, and registers {count("region")} regions (again at every start).
                 [SFImport again replaces the earlier import; [SFClear removes it.
+
+                Moongates with a ShardForgeMoongate item list all your towns; towns and cities become the starting
+                cities new characters choose from. The map's ore (iron near towns, rare ores deep in the mountains)
+                is set at every start, and veins keep their ore when they refill (on every map).
 
                 """.Replace("\n", "\r\n")));
         }

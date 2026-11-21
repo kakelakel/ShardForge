@@ -419,8 +419,16 @@ api.MapGet("/maps/{id}/servuo", (string id, HttpContext ctx, MapRegistry maps, B
     if (m is null) return Results.NotFound();
     var list = items.All(id);
     audit.Write(Current(ctx), "export.servuo", $"downloaded the ServUO package of {m.Name} ({list.Count} server items)", target: $"map:{id}", ip: Ip(ctx));
-    return Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), list), "application/zip", $"{id}-servuo.zip");
+    return Results.File(ItemStore.ServerPackage(m, blocks.MergedFiles(m), list, OreRows(blocks, m, list)), "application/zip", $"{id}-servuo.zip");
 }).RequireAuthorization("Admin");
+
+// Which ore each bank of mountain gives (OreMap), for the import script to set in ServUO; none for a map without
+// mountains or one that can't be read.
+static IReadOnlyList<(int Y, string Row)>? OreRows(BlockStore blocks, MapInfo m, IReadOnlyList<System.Text.Json.Nodes.JsonObject> list)
+{
+    try { return OreMap.Rows(blocks.Merged(m), list, m.Id); }
+    catch (Exception e) when (e is IOException or InvalidDataException or ArgumentException) { return null; }
+}
 
 // The export folder in the ShardForge folder: client/ and ServUO/ ready to copy, one map per facet.
 string exportDir = Path.GetFullPath(Path.IsPathRooted(options.ExportPath) ? options.ExportPath : Path.Combine(builder.Environment.ContentRootPath, options.ExportPath));
@@ -433,7 +441,7 @@ api.MapPost("/maps/{id}/export-folder", (string id, HttpContext ctx, MapRegistry
     var list = items.All(id);
     try
     {
-        var e = ExportFolder.Write(exportDir, m, blocks.MergedFiles(m), list, Current(ctx).Username);
+        var e = ExportFolder.Write(exportDir, m, blocks.MergedFiles(m), list, Current(ctx).Username, OreRows(blocks, m, list));
         audit.Write(Current(ctx), "export.folder", $"put {m.Name} in the export folder as facet {m.Facet} ({list.Count} server items)", target: $"map:{id}", ip: Ip(ctx));
         return Results.Ok(new { path = exportDir, map = e, maps = ExportFolder.Read(exportDir).Values.OrderBy(x => x.Facet) });
     }

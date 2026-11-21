@@ -1,3 +1,21 @@
+## ShardForge 0.10.0
+
+- **Creatures in the wild, on land and at sea.** A new World feature (on by default) spreads spawners over the
+  land and the open sea, each with a small group that fits where it stands: deer, bears and wolves in forests,
+  scorpions in the desert, polar bears in the snow, harpies and trolls under the mountains, farm animals on
+  farmland, dolphins and sea serpents at sea. Only animals near towns; monsters further out, the dangerous ones far
+  from any town.
+- **Moongates with a list of every town.** Town moongates are now `ShardForgeMoongate`s (in the import script):
+  step in, pick any other town from the list, and go, pets along. They take the town's name from its region.
+- **Your towns are the starting cities.** New characters choose among the towns and cities that have a moongate,
+  and start at it. `[props` a moongate to rename it in the list or take it off (StartCity).
+- **Ore by the map.** The export works out which ore each patch of mountain gives: iron near towns and on low
+  hills, the rare ores deep in the mountains and far from towns, each kind in its own ranges, in ServUO's own
+  shares. The import script sets it at every start (and turns off ServUO's re-rolling of veins so they keep it).
+- Walk shows ShardForge moongates with the gate art and whether their town is a starting city, and has
+  `ShardForgeMoongate` among the item types.
+- Rebuild ServUO after copying in the new `ShardForgeImport.cs`, then `[SFImport` again.
+
 ## ShardForge 0.9.1
 
 - Took out the **Remove all signposts** button from 0.9.0: it could take away signposts you placed yourself.

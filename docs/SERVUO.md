@@ -106,8 +106,33 @@ found (the dungeon map was rebuilt with other names), the build says so and leav
 Populated towns come with what a ServUO town needs: a region with the town's name (guarded, except hamlets), a
 banker and a town crier on the square, a vendor at each market stall, and one in each plot by what it's for
 (innkeeper and barkeeper at the inn, smiths at the smithy, a healer at the chapel, a fisherman and shipwright at the
-docks…). Towns and cities get a moongate on the square; together they make a ring round the map, each gate named
-for where it goes (a teleporter shown as a moongate). Missing classes are skipped with a note in the console.
+docks…). Missing classes are skipped with a note in the console.
+
+### Moongates and starting cities
+
+Towns and cities with room on the square get a moongate (`ShardForgeMoongate`, in the import script). Stepping
+into one opens a list of every other ShardForge moongate, named after the town (the guarded region) it stands in;
+pick one and you go there, pets along. Criminals and people in a fight can't use them, as with ServUO's own gates.
+Every moongate in a town or city marks a **starting city**: when there are any, the character creation list shows
+your towns instead of ServUO's usual cities, and new characters start at that town's moongate. `[props` a
+moongate to change `City` (its name in the list) or `StartCity`. In Walk, Server items → Item with the type
+`ShardForgeMoongate` places one by hand (a start city; an id of 2 makes one that isn't).
+
+### Creatures in the wild
+
+**World features → Creatures in the wild** spreads spawners over the land and the open sea, each with a small group
+that fits where it stands: deer, bears and wolves in forests, scorpions and snakes in the desert, polar bears and
+snow leopards in the snow, goats, harpies, ogres and trolls at the foot of the mountains, farm animals on farmland,
+dolphins and sea serpents at sea. Near towns there are only animals; further out monsters, and the dangerous ones
+(ettins, cyclopes, krakens…) far from any town. Not in towns, on roads or up on the mountains.
+
+### Ore
+
+The export works out which ore every 8x8 patch of mountain (and cave floor) gives, and the import script sets it
+at every start: iron near the towns and on low hills, the rare ores deep in the mountains, high up and far from
+towns, each kind in its own ranges, in the same shares as ServUO's own chances (about half iron, valorite rarest).
+To keep them, ServUO's `RandomizeVeins` is turned off for mining, so a vein keeps its ore when it refills (on every
+map, not just this one).
 
 
 

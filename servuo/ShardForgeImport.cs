@@ -15,6 +15,15 @@
 //   tele    x y z <destX> <destY> <destZ> <destMap>
 //   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <Creature:count,Creature:count,...>
 //   region  x y w h <guarded 1|0> <name>
+//   ore     <bankY> <one character per 8x8 bank: 0 iron .. 8 valorite, '.' none>
+//
+// Moongates: "item ... ShardForgeMoongate <1|2>" lines make ShardForgeMoongate items (below). Stepping into one
+// opens a list of every other ShardForge moongate, named after the town (guarded region) it stands in. 1 marks a
+// town players can start in: when there are any, new characters choose among them instead of the usual cities
+// ([props a gate to change its StartCity or City name).
+// Ore: the ore lines set which ore every bank of mountain gives (mined from the map: iron near towns, the rare
+// ores deep in the mountains). They are set at every start; with them, veins no longer change at random when a
+// bank refills (ServUO's RandomizeVeins is turned off, for every map).
 // Made by ShardForge (https://github.com/kakelakel/ShardForge). Change freely.
 // ===========================================================================
 using System;
@@ -25,8 +34,13 @@ using System.IO;
 using System.Reflection;
 using Server;
 using Server.Commands;
+using Server.Engines.Harvest;
+using Server.Gumps;
 using Server.Items;
+using Server.Mobiles;
+using Server.Network;
 using Server.Regions;
+using Server.Spells;
 
 namespace Server.ShardForge
 {
@@ -41,6 +55,53 @@ namespace Server.ShardForge
             CommandSystem.Register("SFImport", AccessLevel.Administrator, new CommandEventHandler(OnImport));
             CommandSystem.Register("SFClear", AccessLevel.Administrator, new CommandEventHandler(OnClear));
             Timer.DelayCall(TimeSpan.Zero, new TimerCallback(LoadRegions));
+            Timer.DelayCall(TimeSpan.Zero, new TimerCallback(LoadOre));
+            // After the account handler's own (it subscribes earlier), so these cities are the ones sent.
+            EventSink.GameLogin += new GameLoginEventHandler(OnGameLogin);
+        }
+
+        // New characters start in the towns with a ShardForge moongate marked as a starting city.
+        private static void OnGameLogin(GameLoginEventArgs e)
+        {
+            if (!e.Accepted) return;
+            List<CityInfo> cities = new List<CityInfo>();
+            foreach (ShardForgeMoongate g in ShardForgeMoongate.All)
+            {
+                if (g.Deleted || !g.StartCity || g.Map == null || g.Map == Map.Internal) continue;
+                cities.Add(new CityInfo(g.City, "Moongate", g.X, g.Y, g.Z, g.Map));
+                if (cities.Count == 10) break; // the client's list has room for about this many
+            }
+            if (cities.Count > 0) e.CityInfo = cities.ToArray();
+        }
+
+        // Every bank of mountain gives the ore the map says (see "ore" above).
+        private static void LoadOre()
+        {
+            HarvestDefinition def = Mining.System.OreAndStone;
+            if (def.BankWidth != 8 || def.BankHeight != 8) { Console.WriteLine("ShardForge: ore banks aren't 8x8 here; the map's ore left out."); return; }
+            int banks = 0;
+            foreach (string file in Files())
+            {
+                Map map = Map.Felucca;
+                foreach (string[] c in Lines(file))
+                {
+                    if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
+                    if (c[0] != "ore" || c.Length < 3) continue;
+                    Dictionary<Point2D, HarvestBank> byMap;
+                    if (!def.Banks.TryGetValue(map, out byMap)) def.Banks[map] = byMap = new Dictionary<Point2D, HarvestBank>();
+                    int by = I(c[1]);
+                    for (int bx = 0; bx < c[2].Length; bx++)
+                    {
+                        int v = c[2][bx] - '0';
+                        if (v < 0 || v >= def.Veins.Length) continue;
+                        byMap[new Point2D(bx, by)] = new HarvestBank(def, def.Veins[v]);
+                        banks++;
+                    }
+                }
+            }
+            if (banks == 0) return;
+            def.RandomizeVeins = false;
+            Console.WriteLine("ShardForge: ore set for {0} mountain banks.", banks);
         }
 
         private static IEnumerable<string[]> Lines(string file)
@@ -117,7 +178,7 @@ namespace Server.ShardForge
                     try
                     {
                         if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
-                        if (c[0] == "region") continue;
+                        if (c[0] == "region" || c[0] == "ore") continue;
                         Item item = Make(c);
                         if (item == null) { failed++; continue; }
                         item.MoveToWorld(new Point3D(I(c[1]), I(c[2]), I(c[3])), map);
@@ -130,6 +191,7 @@ namespace Server.ShardForge
             Directory.CreateDirectory(Folder);
             File.WriteAllLines(Ledger, ledger.ToArray());
             LoadRegions();
+            LoadOre();
             e.Mobile.SendMessage("ShardForge: removed {0} old items, created {1}{2}, {3} regions.", removed, made, failed > 0 ? " (" + failed + " skipped, see the console)" : "", m_Regions.Count);
         }
 
@@ -226,6 +288,145 @@ namespace Server.ShardForge
         {
             PropertyInfo p = o.GetType().GetProperty(name);
             if (p != null && p.CanWrite && p.PropertyType.IsAssignableFrom(value.GetType())) p.SetValue(o, value, null);
+        }
+    }
+
+    /// <summary>
+    /// A moongate that lists every other ShardForge moongate and takes you to the one you pick, with your pets.
+    /// Named after the town it stands in; StartCity makes the town one new characters can start in.
+    /// </summary>
+    public class ShardForgeMoongate : Item
+    {
+        public static readonly List<ShardForgeMoongate> All = new List<ShardForgeMoongate>();
+        private static readonly Dictionary<Mobile, DateTime> m_Arrived = new Dictionary<Mobile, DateTime>();
+        private string m_City;
+
+        [CommandProperty(AccessLevel.GameMaster)]
+        public string City
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(m_City)) return m_City;
+                for (Region r = Map == null ? null : Region.Find(Location, Map); r != null && !r.IsDefault; r = r.Parent)
+                    if (!string.IsNullOrEmpty(r.Name)) return r.Name;
+                return "Moongate";
+            }
+            set { m_City = value; InvalidateProperties(); }
+        }
+
+        [CommandProperty(AccessLevel.Administrator)]
+        public bool StartCity { get; set; }
+
+        [Constructable]
+        public ShardForgeMoongate() : this(1) { }
+
+        /// <summary>1: a starting city; 2: not.</summary>
+        [Constructable]
+        public ShardForgeMoongate(int kind) : base(0xF6C)
+        {
+            Movable = false;
+            Light = LightType.Circle300;
+            StartCity = kind != 2;
+            All.Add(this);
+        }
+
+        public ShardForgeMoongate(Serial serial) : base(serial) { All.Add(this); }
+
+        public override string DefaultName { get { return "a moongate"; } }
+
+        public override void OnAfterDelete() { base.OnAfterDelete(); All.Remove(this); }
+
+        public override void GetProperties(ObjectPropertyList list)
+        {
+            base.GetProperties(list);
+            list.Add(1060658, "{0}\t{1}", "Town", City); // ~1_val~: ~2_val~
+        }
+
+        public override bool OnMoveOver(Mobile m)
+        {
+            DateTime at;
+            if (m.Player && !(m_Arrived.TryGetValue(m, out at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(3))) Use(m);
+            return true;
+        }
+
+        public override void OnDoubleClick(Mobile m)
+        {
+            if (m.InRange(GetWorldLocation(), 1)) Use(m); else m.SendLocalizedMessage(500446); // That is too far away.
+        }
+
+        public bool CanUse(Mobile m)
+        {
+            if (m.Criminal) { m.SendLocalizedMessage(1005561, "", 0x22); return false; } // Thou'rt a criminal and cannot escape so easily.
+            if (SpellHelper.CheckCombat(m)) { m.SendLocalizedMessage(1005564, "", 0x22); return false; } // Wouldst thou flee during the heat of battle??
+            if (m.Spell != null) { m.SendLocalizedMessage(1049616); return false; } // You are too busy to do that at the moment.
+            return true;
+        }
+
+        private void Use(Mobile m)
+        {
+            if (!CanUse(m)) return;
+            m.CloseGump(typeof(ShardForgeMoongateGump));
+            m.SendGump(new ShardForgeMoongateGump(this));
+        }
+
+        public void Travel(Mobile m, ShardForgeMoongate to)
+        {
+            if (to == null || to.Deleted || to.Map == null || to.Map == Map.Internal || Deleted || m.Map != Map || !m.InRange(GetWorldLocation(), 1) || !CanUse(m)) return;
+            m_Arrived[m] = DateTime.UtcNow;
+            BaseCreature.TeleportPets(m, to.Location, to.Map);
+            m.MoveToWorld(to.Location, to.Map);
+            Effects.PlaySound(to.Location, to.Map, 0x1FE);
+        }
+
+        public override void Serialize(GenericWriter writer)
+        {
+            base.Serialize(writer);
+            writer.Write(0);
+            writer.Write(m_City ?? "");
+            writer.Write(StartCity);
+        }
+
+        public override void Deserialize(GenericReader reader)
+        {
+            base.Deserialize(reader);
+            reader.ReadInt();
+            m_City = reader.ReadString();
+            StartCity = reader.ReadBool();
+        }
+    }
+
+    public class ShardForgeMoongateGump : Gump
+    {
+        private readonly ShardForgeMoongate m_From;
+        private readonly List<ShardForgeMoongate> m_To = new List<ShardForgeMoongate>();
+
+        public ShardForgeMoongateGump(ShardForgeMoongate from) : base(100, 100)
+        {
+            m_From = from;
+            foreach (ShardForgeMoongate g in ShardForgeMoongate.All)
+                if (g != from && !g.Deleted && g.Map != null && g.Map != Map.Internal) m_To.Add(g);
+            m_To.Sort(delegate (ShardForgeMoongate a, ShardForgeMoongate b)
+            {
+                int m = (a.Map == from.Map ? 0 : 1).CompareTo(b.Map == from.Map ? 0 : 1);
+                return m != 0 ? m : string.Compare(a.City, b.City, StringComparison.OrdinalIgnoreCase);
+            });
+            int rows = Math.Max(1, m_To.Count), h = 70 + rows * 26;
+            AddPage(0);
+            AddBackground(0, 0, 300, h, 9270);
+            AddLabel(20, 18, 1153, "Where to?");
+            if (m_To.Count == 0) AddLabel(20, 46, 1150, "No other moongates yet.");
+            for (int i = 0; i < m_To.Count; i++)
+            {
+                ShardForgeMoongate g = m_To[i];
+                AddButton(20, 46 + i * 26, 4005, 4007, i + 1, GumpButtonType.Reply, 0);
+                AddLabel(56, 48 + i * 26, 1150, g.Map == from.Map ? g.City : g.City + " (" + g.Map.Name + ")");
+            }
+        }
+
+        public override void OnResponse(NetState state, RelayInfo info)
+        {
+            int i = info.ButtonID - 1;
+            if (i >= 0 && i < m_To.Count) m_From.Travel(state.Mobile, m_To[i]);
         }
     }
 }

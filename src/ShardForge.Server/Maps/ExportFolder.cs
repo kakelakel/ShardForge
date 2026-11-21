@@ -23,7 +23,7 @@ public static class ExportFolder
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return []; }
     }
 
-    public static Entry Write(string dir, MapInfo map, IEnumerable<(string Name, byte[] Bytes)> files, IReadOnlyList<JsonObject> items, string by)
+    public static Entry Write(string dir, MapInfo map, IEnumerable<(string Name, byte[] Bytes)> files, IReadOnlyList<JsonObject> items, string by, IReadOnlyList<(int Y, string Row)>? ore = null)
     {
         string client = Path.Combine(dir, "client"), data = Path.Combine(dir, "ServUO", "Data", "ShardForge"), scripts = Path.Combine(dir, "ServUO", "Scripts", "Custom", "ShardForge");
         foreach (var d in new[] { client, data, scripts }) Directory.CreateDirectory(d);
@@ -37,7 +37,7 @@ public static class ExportFolder
         }
         if (all.TryGetValue(f, out var old)) File.Delete(Path.Combine(data, Slug(old.MapId) + ".sfitems"));
         foreach (var (name, bytes) in files) File.WriteAllBytes(Path.Combine(client, Path.GetFileName(name)), bytes);
-        File.WriteAllText(Path.Combine(data, Slug(map.Id) + ".sfitems"), ItemStore.SfItems(ItemStore.ServUOMap(map), map.Name, items), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(data, Slug(map.Id) + ".sfitems"), ItemStore.SfItems(ItemStore.ServUOMap(map), map.Name, items, ore), new UTF8Encoding(false));
         File.WriteAllText(Path.Combine(scripts, "ShardForgeImport.cs"), ItemStore.ImportScript(), new UTF8Encoding(false));
         var entry = new Entry(map.Id, map.Name, f, ItemStore.ServUOMap(map), map.Width, map.Height, items.Count, ShardForge.Server.Data.Db.Now(), by);
         all[f] = entry;
@@ -64,7 +64,15 @@ public static class ExportFolder
                  (or "dotnet build -c Release"). Only the first time and when the script changes.
               4. Start ServUO, log in as an Administrator and type [SFImport
 
-            [SFImport again replaces the earlier import; [SFClear removes it. Regions load at every start.
+            [SFImport again replaces the earlier import; [SFClear removes it. Regions and ore load at every start.
+
+            What you get in game:
+              - Moongates in the towns: step in and pick any other town from the list (pets come along).
+              - New characters choose among your towns and cities as starting cities (the ones whose moongate is
+                a start city; [props a moongate to change it).
+              - Ore by the map: iron near towns, the rare ores deep in the mountains. Veins keep their ore when
+                they refill (ServUO stops re-rolling them, on every map).
+              - Creatures in the wild and at sea from the spawners.
             If you copied a ServUO package (.zip) before, remove its .sfitems from Data\ShardForge\ so nothing is
             imported twice: this folder's Data\ShardForge\ is the whole set.
 

@@ -1784,7 +1784,7 @@ function draw() {
       if (sx < -80 || sx > rect.width + 80 || sy < -300 || sy > rect.height + 600) continue;
       if (lc === Infinity || landAt(x, y).z < lc) drawLand(x, y, sx, sy, Z);
       const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
-      let list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
+      let list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: itemArt(i), z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
       if (cz !== Infinity && list.length) list = list.filter(s => s.z < cz);
       if (list.length) list.slice().sort(byDrawDepth).forEach(s => {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
@@ -3152,7 +3152,9 @@ $("dzWindows").onchange = () => { designPush(); DESIGN.plan.windows = $("dzWindo
 // Server items: doors, signs, working items, teleporters, spawners and regions. Shared on the server like statics
 // (with undo), drawn in the world, and exported with the ServUO import script.
 // ===========================================================================
-const ITEM_PRESETS = [["Forge", 0x0FB1], ["Anvil", 0x0FAF], ["Brazier", 0x0E31], ["BrazierTall", 0x19AA], ["PublicMoongate", 0x0F6C], ["BulletinBoard", 0x1E5E]];
+const ITEM_PRESETS = [["Forge", 0x0FB1], ["Anvil", 0x0FAF], ["Brazier", 0x0E31], ["BrazierTall", 0x19AA], ["PublicMoongate", 0x0F6C], ["ShardForgeMoongate", 0x0F6C], ["BulletinBoard", 0x1E5E]];
+/** The art an item shows as. A ShardForge moongate's id says whether its town is a starting city (1 yes, 2 no). */
+const itemArt = i => i.type === "ShardForgeMoongate" ? 0x0F6C : i.id;
 const PLACE_RADIUS = { city: 95, town: 60, village: 36, hamlet: 22, camp: 14, ruins: 18, shrine: 8 };
 const ITEM_HINTS = {
   door: "Click a doorway to put a door there; R turns it. It sits on the wall's own tile.",
@@ -3326,6 +3328,9 @@ const ITEMS = {
         const [sx, t] = diamond(it.x, it.y, it.z, "#e07a5f", "rgba(224,122,95,.25)");
         if (zoom >= 0.8 || it === this.sel) label(SPAWN.summary(it.creatures), sx, t - 4, "#f0a58f");
         if (it === this.sel) { ctx.save(); ctx.globalAlpha = 0.6; regionPath({ x: it.x - it.range, y: it.y - it.range, w: it.range * 2 + 1, h: it.range * 2 + 1 }, "#e07a5f", [3, 4]); ctx.restore(); }
+      } else if (it.type === "ShardForgeMoongate") {
+        const [sx, t] = diamond(it.x, it.y, it.z, "#6ad1e3", "rgba(106,209,227,.25)");
+        if (zoom >= 0.8 || it === this.sel) label(`◯ Moongate${it.id === 2 ? "" : " · start city"}`, sx, t - 4, "#6ad1e3");
       } else if (!it.id) diamond(it.x, it.y, it.z, "#d6aa4c", "rgba(214,170,76,.25)");
       if (it === this.sel && it.kind !== "region") diamond(it.x, it.y, it.z, "#e8c98a", null, 2.5);
       if (it.kind === "sign" && it.name && (zoom >= 1 || it === this.sel)) { const [sx, sy] = at(it.x, it.y); label(it.name, sx, sy - (it.z + 22) * Z, "#e8c98a"); }

@@ -2601,6 +2601,7 @@ const FEATURES = {
   caves: "Cave mouths into caves, mines and dungeons", ruins: "Ruins by dungeon mouths",
   wrecks: "Shipwrecks and driftwood", oases: "Desert oases", stones: "Standing stones",
   life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
+  wildlife: "Creatures in the wild, on land and at sea",
 };
 /** Off unless ticked: signposts (they end up everywhere). */
 const FEATURES_OFF = { signs: true };
@@ -3254,14 +3255,14 @@ function wildsPass(rnd, occ, wb, area) {
 
 /** Moongates: one on each town's and city's square, in a ring that goes round the map, each named for where it goes. */
 function gatesPass() {
+  // A moongate in each town that has room for one: stepping in lists all the others (ShardForgeMoongate in the
+  // ServUO script). Towns and cities are where new characters can start.
   const gates = townsOf().filter(p => p.gate);
   if (gates.length < 2) return 0;
-  const mx = gates.reduce((a, p) => a + p.x, 0) / gates.length, my = gates.reduce((a, p) => a + p.y, 0) / gates.length;
-  gates.sort((a, b) => Math.atan2(a.y - my, a.x - mx) - Math.atan2(b.y - my, b.x - mx));
-  gates.forEach((p, i) => {
-    const q = gates[(i + 1) % gates.length], [x, y, z] = p.gate, [qx, qy, qz] = q.gate;
-    W.objects.serverItems.push({ kind: "tele", look: "moongate", name: `Moongate to ${q.name}`, x, y, z, dx: qx + 1, dy: qy + 1, dz: qz });
-  });
+  for (const p of gates) {
+    const [x, y, z] = p.gate;
+    W.objects.serverItems.push({ kind: "item", type: "ShardForgeMoongate", id: ["town", "city"].includes(p.kind) ? 1 : 2, hue: 0, x, y, z });
+  }
   return gates.length;
 }
 
@@ -3424,9 +3425,77 @@ function worldFeatures(o) {
     if (featOn("caves")) Object.assign(r, cavesPass(o, rnd, occ));
     Object.assign(r, wildsPass(rnd, occ, wb, area));
     if (featOn("gates")) r.gates = gatesPass();
+    if (featOn("wildlife")) Object.assign(r, wildlifePass(rnd, occ, wb));
   } finally { W._quiet = quiet; }
   return r;
 };
+
+/**
+ * Creatures in the wild: spawners spread over the land and the open sea, each with a small group that fits where it
+ * stands (deer and wolves in forests, scorpions in the desert, polar bears in the snow, trolls and harpies under the
+ * mountains, farm animals on farmland, dolphins and sea serpents at sea). Near towns only animals; further out
+ * monsters, and the dangerous ones far from any town. Not in towns, on roads or on the mountains themselves.
+ * Creature names are ServUO classes; a shard missing one leaves it out at import.
+ */
+const WILD_SPAWNS = {
+  // [creatures, tier (0 animals, 1 out in the wild, 2 far from towns), weight]
+  grass: [["Rabbit:3", 0, 3], ["Bird:3", 0, 2], ["Hind:2,GreatHart:1", 0, 3], ["Horse:2", 0, 1], ["GreyWolf:3", 1, 2], ["Eagle:2", 0, 1],
+    ["Brigand:3", 1, 1], ["Orc:3,OrcishMage:1", 1, 1], ["Ettin:1", 2, 1], ["OrcCaptain:1,Orc:3", 2, 1]],
+  forest: [["Hind:2,GreatHart:1", 0, 3], ["Squirrel:2,Bird:2", 0, 2], ["BlackBear:1", 0, 1], ["BrownBear:1", 1, 1], ["TimberWolf:3", 1, 2],
+    ["GrizzlyBear:1", 1, 1], ["Ratman:3,RatmanArcher:1", 1, 1], ["Orc:3,OrcishMage:1", 1, 1], ["Corpser:2", 2, 1], ["Ettin:2", 2, 1]],
+  jungle: [["Bird:3", 0, 2], ["Panther:1", 1, 2], ["Gorilla:2", 1, 2], ["Snake:3", 0, 2], ["GiantSerpent:2", 1, 1], ["Lizardman:3", 1, 2], ["Wisp:1", 2, 1]],
+  sand: [["Scorpion:2", 1, 3], ["Snake:2", 0, 2], ["SandVortex:1", 2, 1], ["Brigand:3", 1, 1], ["Mummy:1", 2, 1]],
+  dirt: [["GiantRat:3", 0, 2], ["Slime:2", 0, 1], ["Brigand:3", 1, 2], ["Orc:3", 1, 1], ["Zombie:2,Skeleton:2", 2, 1]],
+  snow: [["SnowLeopard:1", 1, 2], ["WhiteWolf:3", 1, 2], ["PolarBear:1", 1, 1], ["Walrus:2", 0, 1], ["IceSnake:2", 1, 1],
+    ["FrostSpider:2", 2, 1], ["IceElemental:1", 2, 1], ["SnowElemental:1", 2, 1]],
+  hills: [["MountainGoat:3", 0, 2], ["Mongbat:3", 0, 2], ["Harpy:3", 1, 2], ["Ogre:1", 1, 1], ["Troll:2", 1, 1], ["StoneHarpy:2", 2, 1], ["Ettin:2", 2, 1], ["Cyclops:1", 2, 1]],
+  farmland: [["Cow:2,Bull:1", 0, 2], ["Sheep:3", 0, 2], ["Chicken:4", 0, 2], ["Pig:3", 0, 1], ["Boar:2", 0, 1]],
+  sea: [["Dolphin:3", 0, 3], ["SeaSerpent:2", 1, 3], ["WaterElemental:1", 2, 1], ["DeepSeaSerpent:2", 2, 1], ["Kraken:1", 2, 1]],
+};
+function wildlifePass(rnd, occ, wb) {
+  const N = W.width, H = W.height, towns = townsOf(), out = { wildlife: 0, seaLife: 0 };
+  const townDist = (x, y) => towns.reduce((m, t) => Math.min(m, Math.hypot(t.x - x, t.y - y) - t.radius), Infinity);
+  const tierAt = d => d < 140 ? 0 : d < 380 ? 1 : 2;
+  const pick = (list, tier) => {
+    const ok = list.filter(e => e[1] <= tier), sum = ok.reduce((a, e) => a + e[2] * (e[1] === tier ? 2 : 1), 0);
+    let r = rnd() * sum; for (const e of ok) { r -= e[2] * (e[1] === tier ? 2 : 1); if (r < 0) return e[0]; } return ok[0]?.[0];
+  };
+  const add = (creatures, x, y, z, range) => {
+    const count = creatures.split(",").reduce((a, c) => a + (+c.split(":")[1] || 1), 0);
+    W.objects.serverItems.push({ kind: "spawn", creatures, count, range, min: 8, max: 20, x, y, z });
+  };
+  const keyOf = i => TERRAINS[W.terrain[i]].key;
+  // Land: one try in each 48x48 cell.
+  const S = 48;
+  for (let gy = 0; gy < H; gy += S) for (let gx = 0; gx < N; gx += S) {
+    for (let t = 0; t < 6; t++) {
+      const x = gx + Math.floor(rnd() * S), y = gy + Math.floor(rnd() * S); if (x < 4 || y < 4 || x >= N - 4 || y >= H - 4) continue;
+      const i = x + y * N, k = keyOf(i);
+      if (!WILD_SPAWNS[k] && k !== "rock") break;
+      if (k === "rock" || k === "cobblestone" || occ[i] || isWater(x, y)) continue;
+      const d = townDist(x, y); if (d < 25) continue;
+      let hills = false; for (let j = -6; j <= 6 && !hills; j += 2) for (let q = -6; q <= 6; q += 2) if (inMap(x + q, y + j) && isRockT(W.terrain[x + q + (y + j) * N])) { hills = true; break; }
+      const list = k === "farmland" ? WILD_SPAWNS.farmland : hills && k !== "snow" && rnd() < 0.6 ? WILD_SPAWNS.hills : WILD_SPAWNS[k];
+      const c = pick(list, tierAt(d)); if (!c) break;
+      add(c, x, y, zAt(x, y), 12); out.wildlife++;
+      break;
+    }
+  }
+  // The open sea: one try in each 128x128 cell, well away from the shore.
+  const T = 128;
+  for (let gy = 0; gy < H; gy += T) for (let gx = 0; gx < N; gx += T) {
+    for (let t = 0; t < 6; t++) {
+      const x = gx + Math.floor(rnd() * T), y = gy + Math.floor(rnd() * T); if (x < 8 || y < 8 || x >= N - 8 || y >= H - 8) continue;
+      if (!isWater(x, y) || !wb.sea(wb.at(x, y))) continue;
+      let open = true; for (let j = -8; j <= 8 && open; j += 2) for (let q = -8; q <= 8; q += 2) if (!isWater(x + q, y + j)) { open = false; break; }
+      if (!open) continue;
+      const c = pick(WILD_SPAWNS.sea, tierAt(townDist(x, y))); if (!c) break;
+      add(c, x, y, TERRAINS[TKEY.water].fixedZ ?? -5, 18); out.seaLife++;
+      break;
+    }
+  }
+  return out;
+}
 
 /** Founds settlements across the map on good sites, joins them with roads and scatters camps, ruins and shrines. */
 OPS.populate_world = o => {
@@ -4072,7 +4141,7 @@ async function loadDungeonMaps() {
 function featureReport(r) {
   if (!r) return "";
   const parts = [["mouths", "cave mouth"], ["linked", "into the dungeon map"], ["waterfalls", "waterfall"], ["lighthouses", "lighthouse"], ["huts", "fishing hut"], ["signs", "signpost"],
-    ["forts", "watchtower or fort", "watchtowers and forts"], ["castles", "castle on a crag", "castles on crags"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
+    ["forts", "watchtower or fort", "watchtowers and forts"], ["castles", "castle on a crag", "castles on crags"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"], ["wildlife", "wildlife spawner"], ["seaLife", "sea spawner"]];
   return parts.filter(([k]) => r[k]).map(([k, one, many]) => k === "linked" ? `${r[k]} ${one}` : `${r[k]} ${r[k] === 1 ? one : many || one + "s"}`).join(", ");
 }
 $("btnFeatures").onclick = () => {
@@ -4333,7 +4402,7 @@ Ops (JSON objects, applied in order):
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
 - {"op":"castle_crag","cx","cy","radius"?:14-45,"height"?:30-55,"name"?,"seed"?} raises a sheer-sided crag (grass on top, rock cliffs, scree round the foot) with one way up, a ledge climbing round the cliff to the gate, and builds a castle on top: curtain wall along the edge, towers, a gatehouse, a keep with a tall donjon, a hall and a courtyard; a path joins the nearest road.
-- {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts at crossroads and cave mouths (only when "signs" is true; off by default), watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) walked into, to caves and mines under the mountains, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
+- {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates","wildlife": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts at crossroads and cave mouths (only when "signs" is true; off by default), watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) walked into, to caves and mines under the mountains, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"masonry"|"wood"|"stone"|"ironstone"|"arcade"|"sandstone"|"brick"|"marble"|"gargish"|"crystal"|"rustic"|"log","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.
 - {"op":"camp","cx","cy"}, {"op":"ruins","cx","cy"}, {"op":"shrine","cx","cy"}, {"op":"graveyard","x","y","w"?,"h"?}, {"op":"clear_objects","region"?:{"x","y","w","h"}}.
