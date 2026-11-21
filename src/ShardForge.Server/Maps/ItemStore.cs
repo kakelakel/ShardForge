@@ -116,7 +116,7 @@ public sealed class ItemStore(Db db)
         "item" => $"item {S(o, "type")}",
         "tele" => $"{(S(o, "look") == "moongate" ? "moongate" : "teleporter")} to {N(o, "dx")}, {N(o, "dy")} {S(o, "dmap")}",
         "spawn" => $"spawner: {S(o, "creatures")}",
-        "region" => $"region {S(o, "name")}{(o["guarded"]?.ToJsonString() == "true" ? " (guarded)" : "")} {N(o, "w")}x{N(o, "h")}",
+        "region" => $"region {S(o, "name")}{(S(o, "rtype") == "dungeon" ? " (dungeon)" : o["guarded"]?.ToJsonString() == "true" ? " (guarded)" : "")} {N(o, "w")}x{N(o, "h")}",
         _ => S(o, "kind"),
     };
 
@@ -186,6 +186,9 @@ public sealed class ItemStore(Db db)
                 break;
             case "region":
                 r["w"] = Int(o, "w", 1, 8192); r["h"] = Int(o, "h", 1, 8192); r["name"] = Str(o, "name", 60); r["guarded"] = o["guarded"] is JsonValue g && g.TryGetValue<bool>(out var b) && b;
+                // A town (guarded or not) or a dungeon: dark inside, never guarded. Neither allows houses.
+                string rtype = Str(o, "rtype", 10, false);
+                if (rtype.Length > 0) { if (rtype != "dungeon") throw new ItemException("A region is a town or a dungeon."); r["rtype"] = rtype; r["guarded"] = false; }
                 break;
         }
         return r;
@@ -209,7 +212,7 @@ public sealed class ItemStore(Db db)
                 "item" => $"item\t{at}\t{S(o, "type")}\t{I(o, "id")}\t{I(o, "hue")}",
                 "tele" => $"tele\t{at}\t{I(o, "dx")}\t{I(o, "dy")}\t{I(o, "dz")}\t{S(o, "dmap")}" + (S(o, "look").Length > 0 ? $"\t{S(o, "look")}\t{S(o, "name")}" : ""),
                 "spawn" => $"spawn\t{at}\t{I(o, "count")}\t{I(o, "range")}\t{I(o, "min")}\t{I(o, "max")}\t{S(o, "creatures")}",
-                "region" => $"region\t{I(o, "x")}\t{I(o, "y")}\t{I(o, "w")}\t{I(o, "h")}\t{(o["guarded"]?.ToJsonString() == "true" ? 1 : 0)}\t{S(o, "name")}",
+                "region" => $"region\t{I(o, "x")}\t{I(o, "y")}\t{I(o, "w")}\t{I(o, "h")}\t{(o["guarded"]?.ToJsonString() == "true" ? 1 : 0)}\t{S(o, "name")}" + (S(o, "rtype") == "dungeon" ? "\tdungeon" : ""),
                 _ => "# ?",
             }).Append('\n');
         }

@@ -5,7 +5,8 @@
 // Install: copy this file to Scripts/Custom/ShardForge/ and the .sfitems files to Data/ShardForge/, restart.
 //   [SFImport   (Administrator) creates everything in Data/ShardForge/*.sfitems, replacing an earlier import.
 //   [SFClear    (Administrator) deletes everything an earlier import created.
-// Regions are registered at every start from the same files (they are not saved with the world).
+// Regions are registered at every start from the same files (they are not saved with the world). No houses can be
+// placed in any of them: towns (guarded or not) and dungeons alike. Dungeon regions are dark inside, like ServUO's.
 //
 // File format: tab-separated lines, '#' starts a comment.
 //   map     <MapName>                                     the facet for the lines that follow
@@ -14,7 +15,7 @@
 //   item    x y z <TypeName> <itemID or 0> <hue>
 //   tele    x y z <destX> <destY> <destZ> <destMap>
 //   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <Creature:count,Creature:count,...>
-//   region  x y w h <guarded 1|0> <name>
+//   region  x y w h <guarded 1|0> <name> [dungeon]
 //   ore     <bankY> <one character per 8x8 bank: 0 iron .. 8 valorite, '.' none>
 //
 // Moongates: "item ... ShardForgeMoongate <1|2>" lines make ShardForgeMoongate items (below). Stepping into one
@@ -135,7 +136,8 @@ namespace Server.ShardForge
                         if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
                         if (c[0] != "region" || c.Length < 7) continue;
                         Rectangle3D[] area = Region.ConvertTo3D(new Rectangle2D[] { new Rectangle2D(I(c[1]), I(c[2]), I(c[3]), I(c[4])) });
-                        Region region = c[5] == "1" ? new GuardedRegion(c[6], map, Region.DefaultPriority, area) : new Region(c[6], map, Region.DefaultPriority, area);
+                        Region region = c.Length > 7 && c[7] == "dungeon" ? new ShardForgeDungeonRegion(c[6], map, area)
+                            : c[5] == "1" ? new GuardedRegion(c[6], map, Region.DefaultPriority, area) : (Region)new ShardForgeTownRegion(c[6], map, area);
                         region.GoLocation = new Point3D(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2, map.GetAverageZ(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2));
                         region.Register();
                         m_Regions.Add(region);
@@ -428,5 +430,22 @@ namespace Server.ShardForge
             int i = info.ButtonID - 1;
             if (i >= 0 && i < m_To.Count) m_From.Travel(state.Mobile, m_To[i]);
         }
+    }
+
+    /// <summary>An unguarded town (a hamlet, say): no houses inside. Guarded towns are ServUO's GuardedRegion, which
+    /// allows none either.</summary>
+    public class ShardForgeTownRegion : Region
+    {
+        public ShardForgeTownRegion(string name, Map map, Rectangle3D[] area) : base(name, map, Region.DefaultPriority, area) { }
+        public override bool AllowHousing(Mobile from, Point3D p) { return false; }
+    }
+
+    /// <summary>A dungeon placed in ShardForge: dark inside, no houses, no young-player protection, like ServUO's.</summary>
+    public class ShardForgeDungeonRegion : BaseRegion
+    {
+        public ShardForgeDungeonRegion(string name, Map map, Rectangle3D[] area) : base(name, map, Region.DefaultPriority, area) { }
+        public override bool YoungProtected { get { return false; } }
+        public override bool AllowHousing(Mobile from, Point3D p) { return false; }
+        public override void AlterLightLevel(Mobile m, ref int global, ref int personal) { global = LightCycle.DungeonLevel; }
     }
 }

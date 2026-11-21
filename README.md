@@ -96,8 +96,9 @@ round you in Walk, from a plain request. The server holds the API keys; every re
   cave mouths spread over the mountains (walk straight in to a cave or mine under the mountain, made like the
   client's own caves, or teleport into a dungeon map's areas), ruins near dungeon mouths, shipwrecks and driftwood, desert oases, standing stones,
   creatures in the wild and at sea, and towns that work on ServUO: guarded regions, bankers, criers, vendors by
-  plot, moongates with a list of every town, your towns as the starting cities, and ore by the map (iron near
-  towns, the rare ores deep in the mountains).
+  plot, moongates with a list of every town, your towns as the starting cities, ore by the map (iron near
+  towns, the rare ores deep in the mountains), healers' shrines with ankhs, and town and dungeon regions where no
+  houses can be built. Walk exports a world map picture with the names on it and markers for ClassicUO.
 - **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
 - Sizes from 512 x 512 up to 7168 x 4096, including every standard facet size.
 

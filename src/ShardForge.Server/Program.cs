@@ -327,6 +327,24 @@ api.MapGet("/maps/{id}/files/{name}", (string id, string name, MapRegistry maps)
     return path is null ? Results.NotFound() : Results.File(path, name.EndsWith(".json") ? "application/json" : "application/octet-stream", enableRangeProcessing: true);
 }).RequireAuthorization("Viewer");
 
+// A top-down picture of the whole map in the client's radar colours, statics included (Walk's World map draws the
+// names on it). scale 1 = a pixel a tile; 2 and 4 make it smaller.
+api.MapGet("/maps/{id}/worldmap.png", (string id, int? scale, MapRegistry maps, BlockStore blocks) =>
+{
+    var m = maps.Get(id);
+    if (m is null) return Results.NotFound();
+    string? radar = MapRegistry.FindFile(options.ClientPath, "radarcol.mul"), td = MapRegistry.FindFile(options.ClientPath, "tiledata.mul");
+    if (radar is null) return Err(409, "The server has no radarcol.mul in its client folder.");
+    int s = scale is 2 or 4 or 8 ? scale.Value : 1;
+    while (Math.Max(m.Width, m.Height) / s > 8192) s *= 2;
+    var facet = blocks.Merged(m);
+    var (w, h, rgb) = ShardForge.Core.Rendering.RadarRenderer.Render(facet, ShardForge.Core.Data.RadarColors.Load(radar),
+        td is null ? null : ShardForge.Core.Data.TileData.Load(td), new ShardForge.Core.Rendering.RadarRenderOptions { Scale = s });
+    var ms = new MemoryStream();
+    ShardForge.Core.Imaging.PngWriter.WriteRgb(ms, w, h, rgb);
+    return Results.File(ms.ToArray(), "image/png", $"{id}-worldmap.png");
+}).RequireAuthorization("Viewer");
+
 api.MapGet("/maps/{id}/blocks", (string id, MapRegistry maps, BlockStore blocks) =>
 {
     if (maps.Get(id) is null) return Results.NotFound();

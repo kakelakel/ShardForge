@@ -1,3 +1,17 @@
+## ShardForge 0.11.0
+
+- **Dungeon regions in Walk.** Server items → Region now asks what it is: a town, guarded or not, or a dungeon.
+  A dungeon region is dark inside, like ServUO's own dungeons.
+- **No houses in towns or dungeons.** No region ShardForge makes allows houses, guarded or not; players build
+  outside them. (Townhouses are left to their own scripts.)
+- **Healers' shrines.** The shrines out in the wild each get an ankh where ghosts can come back to life and a
+  wandering healer nearby, and there are more of them (about two per million tiles, at least two).
+- **World map from Walk.** World → World map: the whole map as a picture with the names of towns, caves and
+  dungeons (and other places if you like) for your website, in full, half or quarter size, and the same places as
+  markers for ClassicUO's world map (put the .csv in ClassicUO's `Data\Client\` folder and reload markers).
+  On the ShardForge server the picture shows trees and buildings too.
+- Rebuild ServUO after copying in the new `ShardForgeImport.cs`, then `[SFImport` again.
+
 ## ShardForge 0.10.0
 
 - **Creatures in the wild, on land and at sea.** A new World feature (on by default) spreads spawners over the

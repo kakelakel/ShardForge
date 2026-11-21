@@ -257,6 +257,23 @@ footer b { color: var(--text); font-weight: 500; }
         <span class="note" id="plotCount" style="margin:0"></span>
       </div>
     </section>
+    <section aria-label="World map" id="worldMapSection">
+      <h2>World map</h2>
+      <p class="note" style="margin-top:0">The whole map as one picture with the names on it, for your website, and markers for ClassicUO's world map.</p>
+      <label for="wmScale">Size</label>
+      <select id="wmScale" style="width:100%"><option value="1">Full (a pixel a tile)</option><option value="2" selected>Half</option><option value="4">Quarter</option></select>
+      <div style="margin-top:6px">
+        <label class="check"><input type="checkbox" id="wmTowns" checked> Towns</label>
+        <label class="check"><input type="checkbox" id="wmDungeons" checked> Caves and dungeons</label>
+        <label class="check"><input type="checkbox" id="wmGates" checked> Moongates</label>
+        <label class="check"><input type="checkbox" id="wmOther"> Other places (ruins, forts, lighthouses…)</label>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+        <button id="wmPicture" title="A PNG of the whole map with the ticked names on it">Picture (.png)</button>
+        <button id="wmMarkers" title="A marker file for ClassicUO's world map">ClassicUO markers (.csv)</button>
+      </div>
+      <p class="note" id="wmNote">Markers: put the .csv in ClassicUO's <code>Data\Client\</code> folder, then in the game's world map right-click → Map marker options → Reload markers.</p>
+    </section>
     <section aria-label="Builder palette" class="build-only">
       <h2>Builder</h2>
       <input type="text" id="search" placeholder="Search all statics: tree, fence, 0x0CD6…" aria-label="Search statics by name or hex id">
@@ -393,7 +410,7 @@ footer b { color: var(--text); font-weight: 500; }
         <button data-itool="item" title="A working item: forge, anvil, moongate…">Item</button>
         <button data-itool="tele" class="world-only" title="Click where it stands, then where it takes you">Teleporter</button>
         <button data-itool="spawn" title="Creatures that come back after they die">Spawner</button>
-        <button data-itool="region" class="world-only" title="Drag out a named area, guarded or not">Region</button>
+        <button data-itool="region" class="world-only" title="Drag out a named area: a town (guarded or not) or a dungeon. No houses in either.">Region</button>
         <button data-itool="pick" title="Click a server item to change or delete it">Edit</button>
       </div>
       <div id="itemForm" hidden>
@@ -422,7 +439,9 @@ footer b { color: var(--text); font-weight: 500; }
           <label class="check" id="spPerSpotRow" hidden><input type="checkbox" id="spPerSpot" checked> Let each spot suggest its own creatures</label>
         </div>
         <input class="if" data-k="region" id="ifName" placeholder="Region name, e.g. Britain" style="width:100%">
-        <label class="check if" data-k="region"><input type="checkbox" id="ifGuarded" checked> Guarded</label>
+        <select class="if" data-k="region" id="ifRegionType" aria-label="Kind of region" style="width:100%;margin-top:4px" title="No houses can be built in any region">
+          <option value="guarded">Town, guarded</option><option value="town">Town, not guarded</option><option value="dungeon">Dungeon (dark inside)</option>
+        </select>
         <div class="row" id="ifEditRow" style="gap:6px" hidden><button id="ifApply" class="primary">Apply</button><button id="ifDelete" class="danger">Delete</button></div>
       </div>
       <p class="note" id="itemHint">Server items become real objects on your shard: doors that open, signs, teleporters, spawners and regions. Houses bring their own doors.</p>
@@ -945,7 +964,8 @@ function recipePlan(r, door = "S") {
 // Install: copy this file to Scripts/Custom/ShardForge/ and the .sfitems files to Data/ShardForge/, restart.
 //   [SFImport   (Administrator) creates everything in Data/ShardForge/*.sfitems, replacing an earlier import.
 //   [SFClear    (Administrator) deletes everything an earlier import created.
-// Regions are registered at every start from the same files (they are not saved with the world).
+// Regions are registered at every start from the same files (they are not saved with the world). No houses can be
+// placed in any of them: towns (guarded or not) and dungeons alike. Dungeon regions are dark inside, like ServUO's.
 //
 // File format: tab-separated lines, '#' starts a comment.
 //   map     <MapName>                                     the facet for the lines that follow
@@ -954,7 +974,16 @@ function recipePlan(r, door = "S") {
 //   item    x y z <TypeName> <itemID or 0> <hue>
 //   tele    x y z <destX> <destY> <destZ> <destMap>
 //   spawn   x y z <count> <homeRange> <minDelayMinutes> <maxDelayMinutes> <Creature:count,Creature:count,...>
-//   region  x y w h <guarded 1|0> <name>
+//   region  x y w h <guarded 1|0> <name> [dungeon]
+//   ore     <bankY> <one character per 8x8 bank: 0 iron .. 8 valorite, '.' none>
+//
+// Moongates: "item ... ShardForgeMoongate <1|2>" lines make ShardForgeMoongate items (below). Stepping into one
+// opens a list of every other ShardForge moongate, named after the town (guarded region) it stands in. 1 marks a
+// town players can start in: when there are any, new characters choose among them instead of the usual cities
+// ([props a gate to change its StartCity or City name).
+// Ore: the ore lines set which ore every bank of mountain gives (mined from the map: iron near towns, the rare
+// ores deep in the mountains). They are set at every start; with them, veins no longer change at random when a
+// bank refills (ServUO's RandomizeVeins is turned off, for every map).
 // Made by ShardForge (https://github.com/kakelakel/ShardForge). Change freely.
 // ===========================================================================
 using System;
@@ -965,8 +994,13 @@ using System.IO;
 using System.Reflection;
 using Server;
 using Server.Commands;
+using Server.Engines.Harvest;
+using Server.Gumps;
 using Server.Items;
+using Server.Mobiles;
+using Server.Network;
 using Server.Regions;
+using Server.Spells;
 
 namespace Server.ShardForge
 {
@@ -981,6 +1015,53 @@ namespace Server.ShardForge
             CommandSystem.Register("SFImport", AccessLevel.Administrator, new CommandEventHandler(OnImport));
             CommandSystem.Register("SFClear", AccessLevel.Administrator, new CommandEventHandler(OnClear));
             Timer.DelayCall(TimeSpan.Zero, new TimerCallback(LoadRegions));
+            Timer.DelayCall(TimeSpan.Zero, new TimerCallback(LoadOre));
+            // After the account handler's own (it subscribes earlier), so these cities are the ones sent.
+            EventSink.GameLogin += new GameLoginEventHandler(OnGameLogin);
+        }
+
+        // New characters start in the towns with a ShardForge moongate marked as a starting city.
+        private static void OnGameLogin(GameLoginEventArgs e)
+        {
+            if (!e.Accepted) return;
+            List<CityInfo> cities = new List<CityInfo>();
+            foreach (ShardForgeMoongate g in ShardForgeMoongate.All)
+            {
+                if (g.Deleted || !g.StartCity || g.Map == null || g.Map == Map.Internal) continue;
+                cities.Add(new CityInfo(g.City, "Moongate", g.X, g.Y, g.Z, g.Map));
+                if (cities.Count == 10) break; // the client's list has room for about this many
+            }
+            if (cities.Count > 0) e.CityInfo = cities.ToArray();
+        }
+
+        // Every bank of mountain gives the ore the map says (see "ore" above).
+        private static void LoadOre()
+        {
+            HarvestDefinition def = Mining.System.OreAndStone;
+            if (def.BankWidth != 8 || def.BankHeight != 8) { Console.WriteLine("ShardForge: ore banks aren't 8x8 here; the map's ore left out."); return; }
+            int banks = 0;
+            foreach (string file in Files())
+            {
+                Map map = Map.Felucca;
+                foreach (string[] c in Lines(file))
+                {
+                    if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
+                    if (c[0] != "ore" || c.Length < 3) continue;
+                    Dictionary<Point2D, HarvestBank> byMap;
+                    if (!def.Banks.TryGetValue(map, out byMap)) def.Banks[map] = byMap = new Dictionary<Point2D, HarvestBank>();
+                    int by = I(c[1]);
+                    for (int bx = 0; bx < c[2].Length; bx++)
+                    {
+                        int v = c[2][bx] - '0';
+                        if (v < 0 || v >= def.Veins.Length) continue;
+                        byMap[new Point2D(bx, by)] = new HarvestBank(def, def.Veins[v]);
+                        banks++;
+                    }
+                }
+            }
+            if (banks == 0) return;
+            def.RandomizeVeins = false;
+            Console.WriteLine("ShardForge: ore set for {0} mountain banks.", banks);
         }
 
         private static IEnumerable<string[]> Lines(string file)
@@ -1014,7 +1095,8 @@ namespace Server.ShardForge
                         if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
                         if (c[0] != "region" || c.Length < 7) continue;
                         Rectangle3D[] area = Region.ConvertTo3D(new Rectangle2D[] { new Rectangle2D(I(c[1]), I(c[2]), I(c[3]), I(c[4])) });
-                        Region region = c[5] == "1" ? new GuardedRegion(c[6], map, Region.DefaultPriority, area) : new Region(c[6], map, Region.DefaultPriority, area);
+                        Region region = c.Length > 7 && c[7] == "dungeon" ? new ShardForgeDungeonRegion(c[6], map, area)
+                            : c[5] == "1" ? new GuardedRegion(c[6], map, Region.DefaultPriority, area) : (Region)new ShardForgeTownRegion(c[6], map, area);
                         region.GoLocation = new Point3D(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2, map.GetAverageZ(I(c[1]) + I(c[3]) / 2, I(c[2]) + I(c[4]) / 2));
                         region.Register();
                         m_Regions.Add(region);
@@ -1057,7 +1139,7 @@ namespace Server.ShardForge
                     try
                     {
                         if (c[0] == "map") { map = Map.Parse(c[1]) ?? map; continue; }
-                        if (c[0] == "region") continue;
+                        if (c[0] == "region" || c[0] == "ore") continue;
                         Item item = Make(c);
                         if (item == null) { failed++; continue; }
                         item.MoveToWorld(new Point3D(I(c[1]), I(c[2]), I(c[3])), map);
@@ -1070,6 +1152,7 @@ namespace Server.ShardForge
             Directory.CreateDirectory(Folder);
             File.WriteAllLines(Ledger, ledger.ToArray());
             LoadRegions();
+            LoadOre();
             e.Mobile.SendMessage("ShardForge: removed {0} old items, created {1}{2}, {3} regions.", removed, made, failed > 0 ? " (" + failed + " skipped, see the console)" : "", m_Regions.Count);
         }
 
@@ -1167,6 +1250,162 @@ namespace Server.ShardForge
             PropertyInfo p = o.GetType().GetProperty(name);
             if (p != null && p.CanWrite && p.PropertyType.IsAssignableFrom(value.GetType())) p.SetValue(o, value, null);
         }
+    }
+
+    /// <summary>
+    /// A moongate that lists every other ShardForge moongate and takes you to the one you pick, with your pets.
+    /// Named after the town it stands in; StartCity makes the town one new characters can start in.
+    /// </summary>
+    public class ShardForgeMoongate : Item
+    {
+        public static readonly List<ShardForgeMoongate> All = new List<ShardForgeMoongate>();
+        private static readonly Dictionary<Mobile, DateTime> m_Arrived = new Dictionary<Mobile, DateTime>();
+        private string m_City;
+
+        [CommandProperty(AccessLevel.GameMaster)]
+        public string City
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(m_City)) return m_City;
+                for (Region r = Map == null ? null : Region.Find(Location, Map); r != null && !r.IsDefault; r = r.Parent)
+                    if (!string.IsNullOrEmpty(r.Name)) return r.Name;
+                return "Moongate";
+            }
+            set { m_City = value; InvalidateProperties(); }
+        }
+
+        [CommandProperty(AccessLevel.Administrator)]
+        public bool StartCity { get; set; }
+
+        [Constructable]
+        public ShardForgeMoongate() : this(1) { }
+
+        /// <summary>1: a starting city; 2: not.</summary>
+        [Constructable]
+        public ShardForgeMoongate(int kind) : base(0xF6C)
+        {
+            Movable = false;
+            Light = LightType.Circle300;
+            StartCity = kind != 2;
+            All.Add(this);
+        }
+
+        public ShardForgeMoongate(Serial serial) : base(serial) { All.Add(this); }
+
+        public override string DefaultName { get { return "a moongate"; } }
+
+        public override void OnAfterDelete() { base.OnAfterDelete(); All.Remove(this); }
+
+        public override void GetProperties(ObjectPropertyList list)
+        {
+            base.GetProperties(list);
+            list.Add(1060658, "{0}\t{1}", "Town", City); // ~1_val~: ~2_val~
+        }
+
+        public override bool OnMoveOver(Mobile m)
+        {
+            DateTime at;
+            if (m.Player && !(m_Arrived.TryGetValue(m, out at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(3))) Use(m);
+            return true;
+        }
+
+        public override void OnDoubleClick(Mobile m)
+        {
+            if (m.InRange(GetWorldLocation(), 1)) Use(m); else m.SendLocalizedMessage(500446); // That is too far away.
+        }
+
+        public bool CanUse(Mobile m)
+        {
+            if (m.Criminal) { m.SendLocalizedMessage(1005561, "", 0x22); return false; } // Thou'rt a criminal and cannot escape so easily.
+            if (SpellHelper.CheckCombat(m)) { m.SendLocalizedMessage(1005564, "", 0x22); return false; } // Wouldst thou flee during the heat of battle??
+            if (m.Spell != null) { m.SendLocalizedMessage(1049616); return false; } // You are too busy to do that at the moment.
+            return true;
+        }
+
+        private void Use(Mobile m)
+        {
+            if (!CanUse(m)) return;
+            m.CloseGump(typeof(ShardForgeMoongateGump));
+            m.SendGump(new ShardForgeMoongateGump(this));
+        }
+
+        public void Travel(Mobile m, ShardForgeMoongate to)
+        {
+            if (to == null || to.Deleted || to.Map == null || to.Map == Map.Internal || Deleted || m.Map != Map || !m.InRange(GetWorldLocation(), 1) || !CanUse(m)) return;
+            m_Arrived[m] = DateTime.UtcNow;
+            BaseCreature.TeleportPets(m, to.Location, to.Map);
+            m.MoveToWorld(to.Location, to.Map);
+            Effects.PlaySound(to.Location, to.Map, 0x1FE);
+        }
+
+        public override void Serialize(GenericWriter writer)
+        {
+            base.Serialize(writer);
+            writer.Write(0);
+            writer.Write(m_City ?? "");
+            writer.Write(StartCity);
+        }
+
+        public override void Deserialize(GenericReader reader)
+        {
+            base.Deserialize(reader);
+            reader.ReadInt();
+            m_City = reader.ReadString();
+            StartCity = reader.ReadBool();
+        }
+    }
+
+    public class ShardForgeMoongateGump : Gump
+    {
+        private readonly ShardForgeMoongate m_From;
+        private readonly List<ShardForgeMoongate> m_To = new List<ShardForgeMoongate>();
+
+        public ShardForgeMoongateGump(ShardForgeMoongate from) : base(100, 100)
+        {
+            m_From = from;
+            foreach (ShardForgeMoongate g in ShardForgeMoongate.All)
+                if (g != from && !g.Deleted && g.Map != null && g.Map != Map.Internal) m_To.Add(g);
+            m_To.Sort(delegate (ShardForgeMoongate a, ShardForgeMoongate b)
+            {
+                int m = (a.Map == from.Map ? 0 : 1).CompareTo(b.Map == from.Map ? 0 : 1);
+                return m != 0 ? m : string.Compare(a.City, b.City, StringComparison.OrdinalIgnoreCase);
+            });
+            int rows = Math.Max(1, m_To.Count), h = 70 + rows * 26;
+            AddPage(0);
+            AddBackground(0, 0, 300, h, 9270);
+            AddLabel(20, 18, 1153, "Where to?");
+            if (m_To.Count == 0) AddLabel(20, 46, 1150, "No other moongates yet.");
+            for (int i = 0; i < m_To.Count; i++)
+            {
+                ShardForgeMoongate g = m_To[i];
+                AddButton(20, 46 + i * 26, 4005, 4007, i + 1, GumpButtonType.Reply, 0);
+                AddLabel(56, 48 + i * 26, 1150, g.Map == from.Map ? g.City : g.City + " (" + g.Map.Name + ")");
+            }
+        }
+
+        public override void OnResponse(NetState state, RelayInfo info)
+        {
+            int i = info.ButtonID - 1;
+            if (i >= 0 && i < m_To.Count) m_From.Travel(state.Mobile, m_To[i]);
+        }
+    }
+
+    /// <summary>An unguarded town (a hamlet, say): no houses inside. Guarded towns are ServUO's GuardedRegion, which
+    /// allows none either.</summary>
+    public class ShardForgeTownRegion : Region
+    {
+        public ShardForgeTownRegion(string name, Map map, Rectangle3D[] area) : base(name, map, Region.DefaultPriority, area) { }
+        public override bool AllowHousing(Mobile from, Point3D p) { return false; }
+    }
+
+    /// <summary>A dungeon placed in ShardForge: dark inside, no houses, no young-player protection, like ServUO's.</summary>
+    public class ShardForgeDungeonRegion : BaseRegion
+    {
+        public ShardForgeDungeonRegion(string name, Map map, Rectangle3D[] area) : base(name, map, Region.DefaultPriority, area) { }
+        public override bool YoungProtected { get { return false; } }
+        public override bool AllowHousing(Mobile from, Point3D p) { return false; }
+        public override void AlterLightLevel(Mobile m, ref int global, ref int personal) { global = LightCycle.DungeonLevel; }
     }
 }
 
@@ -3228,7 +3467,7 @@ const ITEMS = {
     if (it.kind === "item") v("ifType", it.type);
     if (it.kind === "tele") { v("ifDx", it.dx); v("ifDy", it.dy); v("ifDz", it.dz); v("ifDmap", it.dmap); $("ifTmap").value = it.dmapId || ""; $("ifTplace").hidden = true; }
     if (it.kind === "spawn") SPAWN.fill(it);
-    if (it.kind === "region") { v("ifName", it.name); $("ifGuarded").checked = !!it.guarded; }
+    if (it.kind === "region") { v("ifName", it.name); $("ifRegionType").value = it.rtype === "dungeon" ? "dungeon" : it.guarded ? "guarded" : "town"; }
   },
   /** The form's fields as an item of the given kind (for a new item, or to apply to the selected one). */
   fields(kind, base) {
@@ -3240,7 +3479,7 @@ const ITEMS = {
     if (kind === "tele") { it.dx = num("ifDx", it.dx ?? 0); it.dy = num("ifDy", it.dy ?? 0); it.dz = num("ifDz", it.dz ?? 0); it.dmap = $("ifDmap").value;
       if (TELE.other()) it.dmapId = $("ifTmap").value; else delete it.dmapId; }
     if (kind === "spawn") { Object.assign(it, SPAWN.value()); }
-    if (kind === "region") { it.name = $("ifName").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 60) || "Unnamed"; it.guarded = $("ifGuarded").checked; }
+    if (kind === "region") { const t = $("ifRegionType").value; it.name = $("ifName").value.trim().replace(/[\t\r\n]/g, " ").slice(0, 60) || "Unnamed"; it.guarded = t === "guarded"; if (t === "dungeon") it.rtype = "dungeon"; else delete it.rtype; }
     return it;
   },
   /** Where a new item stands: a door on its wall's base, other things on top of what's there. */
@@ -3316,8 +3555,9 @@ const ITEMS = {
     if (this.show) for (const it of this.map.values()) {
       if (it.kind === "region") {
         if (P.x < it.x - 120 || P.x > it.x + it.w + 120 || P.y < it.y - 120 || P.y > it.y + it.h + 120) continue;
-        const pts = regionPath(it, it === this.sel ? "#e8c98a" : it.guarded ? "rgba(120,170,230,.9)" : "rgba(200,200,200,.7)", [8, 6]);
-        label(`${it.name}${it.guarded ? " · guarded" : ""}`, (pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2, it.guarded ? "#9cc3ee" : "#ddd");
+        const dg = it.rtype === "dungeon";
+        const pts = regionPath(it, it === this.sel ? "#e8c98a" : dg ? "rgba(200,120,230,.9)" : it.guarded ? "rgba(120,170,230,.9)" : "rgba(200,200,200,.7)", [8, 6]);
+        label(`${it.name}${dg ? " · dungeon" : it.guarded ? " · guarded" : ""}`, (pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2, dg ? "#d9a6ee" : it.guarded ? "#9cc3ee" : "#ddd");
       } else if (!near(it.x, it.y)) continue;
       else if (it.kind === "tele") {
         const [sx, t] = diamond(it.x, it.y, it.z, "#6ad1e3", "rgba(106,209,227,.25)");
@@ -3374,7 +3614,7 @@ const ITEMS = {
       L.push({ door: () => `door\t${at}\t${o.type}\t${o.facing}`, sign: () => `sign\t${at}\t${o.id}\t${o.hue || 0}\t${o.name || ""}`,
         item: () => `item\t${at}\t${o.type}\t${o.id || 0}\t${o.hue || 0}`, tele: () => `tele\t${at}\t${o.dx}\t${o.dy}\t${o.dz}\t${o.dmap}` + (o.look ? `\t${o.look}\t${o.name || ""}` : ""),
         spawn: () => `spawn\t${at}\t${o.count}\t${o.range}\t${o.min}\t${o.max}\t${o.creatures}`,
-        region: () => `region\t${o.x}\t${o.y}\t${o.w}\t${o.h}\t${o.guarded ? 1 : 0}\t${o.name}` }[o.kind]());
+        region: () => `region\t${o.x}\t${o.y}\t${o.w}\t${o.h}\t${o.guarded ? 1 : 0}\t${o.name}${o.rtype === "dungeon" ? "\tdungeon" : ""}` }[o.kind]());
     }
     return L.join("\n") + "\n";
   },
@@ -3748,6 +3988,94 @@ const MINE = {
 // ===========================================================================
 // Minimap: the whole map's land in the client's radar colours, with you, your team and the view.
 // ===========================================================================
+// ===========================================================================
+// World map: the whole map as one picture (the client's radar colours, statics included when the ShardForge
+// server draws it) with the names of towns, caves, dungeons and moongates on it, and the same places as a marker
+// file for ClassicUO's world map (x,y,map,name,icon,colour,zoom per line).
+// ===========================================================================
+const WORLDMAP = {
+  places() {
+    const out = [], lay = M.layout?.places;
+    if (lay) for (const p of lay) out.push({ name: p.name, x: p.x, y: p.y, kind: p.kind });
+    else for (const [name, x, y] of PLACES[M.facet] || []) out.push({ name, x, y, kind: "town" });
+    for (const it of (ITEMS.map?.values?.() || [])) {
+      if (it.type === "ShardForgeMoongate" || it.kind === "tele" && it.look === "moongate") {
+        const town = out.filter(p => ["city", "town", "village", "hamlet"].includes(p.kind)).sort((a, b) => Math.hypot(a.x - it.x, a.y - it.y) - Math.hypot(b.x - it.x, b.y - it.y))[0];
+        out.push({ name: town && Math.hypot(town.x - it.x, town.y - it.y) < 120 ? `${town.name} moongate` : "Moongate", x: it.x, y: it.y, kind: "moongate" });
+      }
+    }
+    return out;
+  },
+  group(kind) {
+    return ["city", "town", "village", "hamlet"].includes(kind) ? "towns" : ["cave", "dungeon"].includes(kind) ? "dungeons" : kind === "moongate" ? "gates" : "other";
+  },
+  chosen() {
+    const on = { towns: $("wmTowns").checked, dungeons: $("wmDungeons").checked, gates: $("wmGates").checked, other: $("wmOther").checked };
+    return this.places().filter(p => on[this.group(p.kind)] && p.x >= 0 && p.y >= 0 && p.x < M.w && p.y < M.h);
+  },
+  style(kind) {
+    const g = this.group(kind);
+    return { city: [24, "#ffe08a", "yellow", 2], town: [20, "#ffe08a", "yellow", 2], village: [16, "#fff1c4", "yellow", 3], hamlet: [14, "#fff1c4", "yellow", 3] }[kind]
+      || (g === "dungeons" ? [14, "#ff9a8a", "red", 3] : g === "gates" ? [13, "#8fd6ff", "blue", 3] : [12, "#f2f2f2", "white", 4]);
+  },
+  save(blob, name) {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  },
+  fileName(ext) { return (M.name || "map").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() + ext; },
+  async picture() {
+    if (!loaded) { toast("Load a map first."); return; }
+    const s = +$("wmScale").value, btn = $("wmPicture");
+    btn.disabled = true; $("wmNote").textContent = "Drawing the map…";
+    try {
+      let img = null;
+      if (Server.on && Server.map) {
+        const r = await fetch(`/api/maps/${encodeURIComponent(Server.map.id)}/worldmap.png?scale=${s}`, { credentials: "same-origin" });
+        if (r.ok) img = await createImageBitmap(await r.blob());
+      }
+      if (!img) img = this.landOnly(s);
+      const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+      const c = cv.getContext("2d"); c.drawImage(img, 0, 0);
+      const k = img.width / M.w, f = Math.max(0.75, 1.6 / Math.sqrt(s));
+      c.textAlign = "left"; c.textBaseline = "middle"; c.lineJoin = "round";
+      for (const p of this.chosen().sort((a, b) => this.style(a.kind)[0] - this.style(b.kind)[0])) {
+        const [size, col] = this.style(p.kind), px = p.x * k, py = p.y * k, r = Math.max(2.5, size * f / 5);
+        c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fillStyle = col; c.fill(); c.lineWidth = 1.5; c.strokeStyle = "#000"; c.stroke();
+        if (p.kind === "moongate") continue; // a blue dot by its town's name says enough
+        c.font = `600 ${Math.round(size * f)}px system-ui, sans-serif`;
+        c.lineWidth = Math.max(3, size * f / 4); c.strokeStyle = "rgba(0,0,0,.85)"; c.strokeText(p.name, px + r + 4, py);
+        c.fillStyle = col; c.fillText(p.name, px + r + 4, py);
+      }
+      const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+      this.save(blob, this.fileName("-worldmap.png"));
+      $("wmNote").textContent = `Saved a ${cv.width} × ${cv.height} picture${Server.on ? "" : " (ground only: on the ShardForge server it shows trees and buildings too)"}.`;
+    } catch (e) { $("wmNote").textContent = "Couldn't draw the map: " + e.message; }
+    finally { btn.disabled = false; }
+  },
+  /** Without the server: the ground in radar colours, read from the map Walk has loaded. */
+  landOnly(s) {
+    const w = Math.ceil(M.w / s), h = Math.ceil(M.h / s), cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const c = cv.getContext("2d"), im = c.createImageData(w, h), d = im.data, colors = Minimap.colors || new Uint16Array(0x8000);
+    for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+      const o = landOff(px * s, py * s), id = M.land[o] | (M.land[o + 1] << 8), z = (M.land[o + 2] << 24) >> 24;
+      const col = colors[id & 0x3FFF] ?? 0, kk = (px + py * w) * 4, shade = Math.max(0.65, Math.min(1.35, 1 + z / 160));
+      d[kk] = Math.min(255, ((col >> 10) & 31) * 8.2 * shade); d[kk + 1] = Math.min(255, ((col >> 5) & 31) * 8.2 * shade); d[kk + 2] = Math.min(255, (col & 31) * 8.2 * shade); d[kk + 3] = 255;
+    }
+    c.putImageData(im, 0, 0);
+    return cv;
+  },
+  markers() {
+    if (!loaded) { toast("Load a map first."); return; }
+    const list = this.chosen();
+    if (!list.length) { $("wmNote").textContent = "There are no places of the ticked kinds on this map."; return; }
+    const lines = list.map(p => { const [, , colour, zoom] = this.style(p.kind); return `${p.x},${p.y},${M.facet ?? 0},${p.name.replace(/[,\r\n]+/g, " ")},,${colour},${zoom}`; });
+    this.save(new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv" }), this.fileName(".csv"));
+    $("wmNote").innerHTML = `Saved ${list.length} markers. Put the .csv in ClassicUO's <code>Data\\Client\\</code> folder, then in the world map right-click → Map marker options → Reload markers.`;
+  },
+};
+$("wmPicture").onclick = () => WORLDMAP.picture();
+$("wmMarkers").onclick = () => WORLDMAP.markers();
+
 const Minimap = {
   colors: null, base: null, scale: 1, dirty: false, timer: null, on: true,
   async load() {
@@ -4280,6 +4608,7 @@ const WIN = {
   defs: {
     "movement": ["World", "Movement", ["left", 0]],
     "go-to": ["World", "Go to", ["left", 1]],
+    "worldMapSection": ["World", "World map", null],
     "liveSection": ["World", "Here now", ["left", 2], true, "Shows who's here when Walk runs on the ShardForge server."],
     "builder-palette": ["Build", "Builder", ["right", 0]],
     "selected-item": ["Build", "Selected item", ["right", 1]],

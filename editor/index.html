@@ -2218,7 +2218,13 @@ OPS.shrine = o => {
     if (Math.hypot(x - cx, y - cy) <= 3.2) addStatic(PROP.pavers[(x + y) & 3], x, y, z);
   }
   for (const [dx, dy] of [[-3, 0], [3, 0], [0, -3], [0, 3]]) addStatic(PROP.brazier, cx + dx, cy + dy, z);
-  addStatic(PROP.candelabra, cx, cy, z);
+  // Where the dead come back: an ankh to pray at (ServUO's AnkhWest or AnkhNorth resurrect ghosts) and a
+  // wandering healer nearby, so a death far from town needn't mean the long walk back.
+  if (featOn("shrines")) {
+    const north = rnd() < 0.5;
+    W.objects.serverItems.push({ kind: "item", type: north ? "AnkhNorth" : "AnkhWest", id: north ? 0x0004 : 0x0003, hue: 0, x: cx, y: cy, z });
+    W.objects.serverItems.push({ kind: "spawn", creatures: "WanderingHealer:1", count: 1, range: 4, min: 5, max: 10, x: cx + 2, y: cy + 2, z });
+  } else addStatic(PROP.candelabra, cx, cy, z);
   W.places.push({ name: o.name || "Shrine", kind: "shrine", x: cx, y: cy, radius: 5 });
 };
 OPS.clear_objects = o => {
@@ -2601,7 +2607,7 @@ const FEATURES = {
   caves: "Cave mouths into caves, mines and dungeons", ruins: "Ruins by dungeon mouths",
   wrecks: "Shipwrecks and driftwood", oases: "Desert oases", stones: "Standing stones",
   life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
-  wildlife: "Creatures in the wild, on land and at sea",
+  wildlife: "Creatures in the wild, on land and at sea", shrines: "Healers' shrines: an ankh and a wandering healer",
 };
 /** Off unless ticked: signposts (they end up everywhere). */
 const FEATURES_OFF = { signs: true };
@@ -3549,7 +3555,7 @@ function populateWorld(o) {
   }
   if (o.roads !== false) OPS.roads({});
   if (o.wilderness !== false) {
-    const sites = { camp: Math.round(area * (o.camps ?? 4)), ruins: Math.round(area * (o.ruins ?? 3)), shrine: Math.round(area * (o.shrines ?? 1.2)) };
+    const sites = { camp: Math.round(area * (o.camps ?? 4)), ruins: Math.round(area * (o.ruins ?? 3)), shrine: Math.max(2, Math.round(area * (o.shrines ?? 2))) };
     const occ = occupancy();
     for (const [kind, n] of Object.entries(sites)) for (let k = 0, tries = 0; k < n && tries < n * 60; tries++) {
       const x = 20 + Math.floor(rnd() * (W.width - 40)), y = 20 + Math.floor(rnd() * (W.height - 40)), t = W.terrain[x + y * W.width];

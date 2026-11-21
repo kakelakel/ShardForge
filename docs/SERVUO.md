@@ -6,7 +6,7 @@ ShardForge makes two kinds of things, and they reach ServUO in two different way
 |---|---|---|---|
 | Land, statics, houses (walls, roofs, floors), decoration | Editor (build) and Walk | Client files: `map#`, `staidx#`, `statics#` (`.mul` or `.uop`) | ServUO **and every player** (same files) |
 | Doors, signs, working items (forge, anvil, moongate…), teleporters, spawners | Walk → Server items | Live objects created by `[SFImport` | ServUO only |
-| Regions (towns, guarded or not) | Walk → Server items (or "Regions for the towns") | Regions registered at every start | ServUO only |
+| Regions (towns, guarded or not, and dungeons) | Walk → Server items (or "Regions for the towns") | Regions registered at every start; no houses in any of them | ServUO only |
 
 Statics never open, talk or spawn: anything that has to *do* something is a server item. Houses placed from
 ShardForge designs, the library or the designer bring their doors along as server items.
@@ -107,6 +107,19 @@ Populated towns come with what a ServUO town needs: a region with the town's nam
 banker and a town crier on the square, a vendor at each market stall, and one in each plot by what it's for
 (innkeeper and barkeeper at the inn, smiths at the smithy, a healer at the chapel, a fisherman and shipwright at the
 docks…). Missing classes are skipped with a note in the console.
+
+### Regions: towns, dungeons and where houses go
+
+A region in Walk (Server items → Region, drag out the area) is one of three kinds: **Town, guarded**, **Town, not
+guarded** or **Dungeon**. No houses can be placed in any of them; players build outside. A dungeon region is dark
+inside, like ServUO's own dungeons, and young players aren't protected there. Townhouses are left to their own
+scripts.
+
+### Shrines
+
+The shrines Populate world puts out in the wild each get an ankh (ServUO's `AnkhWest` or `AnkhNorth`: a ghost
+prays there to come back) and a wandering healer nearby, so a death far from town needn't mean the walk back. Two
+or more on any map, about two per million tiles (World features → *Healers' shrines* switches it off).
 
 ### Moongates and starting cities
 
