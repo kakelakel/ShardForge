@@ -91,10 +91,13 @@ creating anything.
 
 ### Cave mouths from Populate world
 
-**World features** puts cave mouths in the mountains (the client's own mouth tiles, facing south or east). Each
-leads by teleporters, both ways, into a cave or mine carved inside a mountain on the same map, or, if you pick a
-dungeon map under **Cave mouths also lead into** (on a server, once that map is built), into one of its areas:
-half the mouths go there, one area each. Building the overworld points them at the areas and places the
+**World features** puts cave mouths in the mountains (the client's own mouth tiles, facing south or east). Most
+are walked into: behind the mouth a tunnel slopes down through the rock to a cave or mine deep inside the
+mountain, with no teleporter. Inside, a hidden marker above the floor makes the client draw nothing higher, so you
+see only the cave and the dark round it; from outside a flat lid of snow or stone at the mountain's height closes
+the mountain over it. Where no way through the rock is found, the mouth leads in by teleporters instead. If you
+pick a dungeon map under **Cave mouths also lead into** (on a server, once that map is built), half the mouths
+lead into its areas instead, by teleporters both ways, one area each. Building the overworld points them at the areas and places the
 teleporters back out on the dungeon map (ids start with `link-`); rebuilding replaces them. If an area can't be
 found (the dungeon map was rebuilt with other names), the build says so and leaves that mouth unlinked.
 

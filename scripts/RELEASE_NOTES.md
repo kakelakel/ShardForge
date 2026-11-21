@@ -1,3 +1,15 @@
+## ShardForge 0.8.7
+
+- **Walk into the caves.** The caves and mines that World features carves inside mountains are now reached on
+  foot: behind each mouth a tunnel winds down through the rock to the cave, no teleporter. (A mouth falls back to
+  teleporters only when there's no way through the rock; mouths into a dungeon map still teleport, and Walk's
+  Cave mouth tool is still the way to put a hidden teleporter to a dungeon on another facet.)
+- **Caves are covered.** The cave lies deep, and a hidden marker over every floor tile tells the client there is a
+  roof, so inside you see the cave and the dark round it, not the mountainside, snow and sky above. From outside,
+  a flat lid of snow or stone at the mountain's height closes the mountain over the cave and tunnel, and the void
+  that used to be left round a cave goes back to mountain, so there's no black hole on the radar.
+- Caves are placed deeper inside the mountains (at least 7 tiles in), so the lid has mountain all round it.
+
 ## ShardForge 0.8.6
 
 - Fixed the install steps in the export folder's README, the ServUO package and the docs: current ServUO compiles
