@@ -1627,10 +1627,16 @@ const topSurface = (x, y) => { const s = surfacesAt(x, y); return s.length ? s[0
 // shows everything. Whatever is hidden can't be clicked, removed or built on either.
 // ===========================================================================
 const CUT = { mode: (() => { try { return localStorage.getItem("sf.walk.cut") || "auto"; } catch { return "auto"; } })() };
+/** Under land at least 16 over your head (a cave inside a mountain, made as the client's own are), the client
+ *  draws nothing from there up, land included. */
+function landCut() {
+  if (CUT.mode === "off" || !loaded || P.x < 0 || P.y < 0 || P.x >= M.w || P.y >= M.h) return Infinity;
+  return landAvg(P.x, P.y) >= P.z + 16 ? P.z + 16 : Infinity;
+}
 function cutZ() {
   if (CUT.mode === "off" || !loaded) return Infinity;
-  if (CUT.mode === "on") return P.z + 15;
-  let z = Infinity;
+  if (CUT.mode === "on") return Math.min(P.z + 15, landCut());
+  let z = landCut();
   for (const [x, y] of [[P.x, P.y], [P.x + 1, P.y + 1]])
     if (x >= 0 && y >= 0 && x < M.w && y < M.h) for (const s of staticsAt(x, y)) if (s.z >= P.z + 14 && s.z < z) z = s.z;
   return z;
@@ -1767,7 +1773,7 @@ function draw() {
   ctx.imageSmoothingEnabled = zoom < 1;
   const Z = 4 * zoom, cx = rect.width / 2, cy = rect.height / 2 - 22 * zoom + P.z * Z;
   const R = Math.ceil(Math.max(rect.width, rect.height + 400) / (22 * zoom) / 2) + 3;
-  const cz = cutZ();
+  const cz = cutZ(), lc = landCut();
   const peerAt = new Map();
   for (const p of Server.peers.values()) { const k = p.x + "," + p.y; if (!peerAt.has(k)) peerAt.set(k, []); peerAt.get(k).push(p); }
   for (let sum = -2 * R; sum <= 2 * R; sum++) {
@@ -1776,7 +1782,7 @@ function draw() {
       if (x < 0 || y < 0 || x >= M.w || y >= M.h) continue;
       const sx = cx + (dx - dy) * 22 * zoom, sy = cy + (dx + dy) * 22 * zoom;
       if (sx < -80 || sx > rect.width + 80 || sy < -300 || sy > rect.height + 600) continue;
-      drawLand(x, y, sx, sy, Z);
+      if (lc === Infinity || landAt(x, y).z < lc) drawLand(x, y, sx, sy, Z);
       const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
       let list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: i.id, z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
       if (cz !== Infinity && list.length) list = list.filter(s => s.z < cz);

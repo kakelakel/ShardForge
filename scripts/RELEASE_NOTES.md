@@ -1,3 +1,16 @@
+## ShardForge 0.8.9
+
+- **Caves made the way the client's own are.** The 0.8.7 caves were cut into the mountains and covered with a flat
+  lid, which still looked like a cutout from above. Now a cave is built like the one north of Britain: the
+  mountain's land stays exactly where it was, and the cave is cave-floor statics laid underneath it at the height
+  of the ground in front of the mouth, with rounded edges chosen from a table mined from Trammel and Ilshenar. You
+  walk straight in from the mouth, along a passage, into the cave. Inside, the client hides the mountain over your
+  head and you see the cave and darkness; from outside the mountain is whole. The land over a cave is raised where
+  needed so there's always room to stand. Mouths into a dungeon map still teleport.
+- **Walk hides the mountain over you too.** Standing under land at least 16 above you, Walk now hides everything
+  from there up, land included, as the client does, so you can walk around inside these caves (and the client's
+  own) and see them.
+
 ## ShardForge 0.8.8
 
 - **Shores the way the client's own coasts are made.** Water land tiles next to higher ground stretch into a

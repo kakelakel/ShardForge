@@ -11,7 +11,7 @@ namespace ShardForge.Core.Rendering;
 public static class IsoRenderer
 {
     public static (int Width, int Height, byte[] Rgb) Render(Facet facet, ArtReader art, TileData? tiles,
-        int cx, int cy, int radius, bool statics = true)
+        int cx, int cy, int radius, bool statics = true, int maxZ = 1000)
     {
         int x0 = Math.Max(0, cx - radius), x1 = Math.Min(facet.Width - 1, cx + radius);
         int y0 = Math.Max(0, cy - radius), y1 = Math.Min(facet.Height - 1, cy + radius);
@@ -33,7 +33,7 @@ public static class IsoRenderer
                 int sy = originY + (x - x0 + (y - y0)) * 22;
 
                 var land = facet.GetLand(x, y);
-                if (art.Land(land.TileId) is { } ls)
+                if (land.Z < maxZ && art.Land(land.TileId) is { } ls)
                 {
                     int zE = facet.GetLand(Math.Min(x + 1, facet.Width - 1), y).Z;
                     int zS = facet.GetLand(x, Math.Min(y + 1, facet.Height - 1)).Z;
@@ -49,7 +49,7 @@ public static class IsoRenderer
                 foreach (var s in block.Where(s => s.X == (x & 7) && s.Y == (y & 7))
                              .OrderBy(s => s.Z).ThenBy(s => tiles is null ? 0 : tiles.Statics[s.TileId].Height))
                 {
-                    if (art.Static(s.TileId) is not { } ss) continue;
+                    if (s.Z >= maxZ || art.Static(s.TileId) is not { } ss) continue;
                     Blit(buf, width, height, ss, sx + 22 - ss.Width / 2, sy + 44 - ss.Height - s.Z * 4);
                 }
             }

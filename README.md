@@ -93,8 +93,8 @@ round you in Walk, from a plain request. The server holds the API keys; every re
   at harbour towns, waterfalls off high ground into rivers and lakes, fords and stepping stones where small roads
   cross streams, lighthouses on headlands, fishing huts on lake shores, signposts naming the towns at crossroads,
   watchtowers and forts at mountain passes, castles on sheer crags with one way up, walls and hedges along roads near towns, scarecrows and water mills,
-  cave mouths spread over the mountains (walk straight in down a tunnel to a cave or mine inside the mountain, or
-  teleport into a dungeon map's areas), ruins near dungeon mouths, shipwrecks and driftwood, desert oases, standing stones,
+  cave mouths spread over the mountains (walk straight in to a cave or mine under the mountain, made like the
+  client's own caves, or teleport into a dungeon map's areas), ruins near dungeon mouths, shipwrecks and driftwood, desert oases, standing stones,
   and towns that work on ServUO: guarded regions, bankers, criers, vendors by plot, and moongates linking the towns.
 - **Export** a `.shardforge.json` project (layers gzip-compressed; a full 7168 x 4096 world is about 1 MB).
 - Sizes from 512 x 512 up to 7168 x 4096, including every standard facet size.

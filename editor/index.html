@@ -2056,7 +2056,7 @@ OPS.underground = o => {
     if (!open[x + y * w]) continue;
     const i = (x0 + x) + (y0 + y) * W.width;
     W.terrain[i] = liq[x + y * w] ? L : Fl; n++;
-    W.height_[i] = floorKey === "dungeon" ? z0 : z0 + Math.round((vnoise((x0 + x) / 9, (y0 + y) / 9, 77) - 0.5) * 4);
+    W.height_[i] = floorKey === "dungeon" || o.flat ? z0 : z0 + Math.round((vnoise((x0 + x) / 9, (y0 + y) / 9, 77) - 0.5) * 4);
     if (theme !== "plain") W.density[i] = theme === "ice" ? 60 : 90; // a little less of the usual litter: the theme brings its own
   }
   entry = [x0 + entry[0], y0 + entry[1]];
@@ -2968,68 +2968,60 @@ function millsPass(rnd, occ, wb) {
 }
 
 /**
- * Cave mouths: S- or E-facing mountain sides with open, level ground in front, spread out over the map. Each leads,
- * by real teleporters both ways, into a cave or mine carved inside a mountain (void around cave floor, as the
- * client's Minoc caves are) or, when a dungeon map is given, into one of its areas. A dungeon mouth may have ruins
- * near it; each gets a signpost with its name.
+ * Cave mouths: S- or E-facing mountain sides with open, level ground in front, spread out over the map. Each is
+ * walked into, along a passage to a cave or mine under the mountain (floor statics beneath the mountain's land, as
+ * the client's own caves are), or, when a dungeon map is given, leads by teleporters both ways into one of its
+ * areas. A dungeon mouth may have ruins near it; each gets a signpost with its name.
  */
-/** Inner caves lie deep (far below anything on the surface), so a hidden marker above the floor makes the client
- *  draw nothing higher while you are inside: no mountainsides or sky, only the cave and the dark around it. Outside,
- *  the mountain closes over it again: the void left round the cave goes back to rock at its old heights, so only the
- *  cave's own footprint is left open. */
-const CAVE_Z = -100, CAVE_ROOF = 0x219A /* no-draw, no flags: blocks nothing, only tells the client "a roof here" */;
-function coverCave(plan, extra, h0, rnd) {
-  const N = W.width, V = TKEY.void, { room, keepZ, keepT } = plan;
-  // Cells taken from the mountain: the room's, and a tunnel's (extra: index -> [z, terrain], plus cells not to lid).
-  const was = new Map();
-  for (let y = 0; y < room.h; y++) for (let x = 0; x < room.w; x++) was.set(room.x + x + (room.y + y) * N, [keepZ[x + y * room.w], keepT[x + y * room.w]]);
-  if (extra) for (const [i, v] of extra.cells) if (!was.has(i)) was.set(i, v);
-  // Void far from any floor goes back to mountain, so only the cave's own footprint is left open.
-  const floor = i => W.terrain[i] !== V && W.terrain[i] !== TKEY.rock && W.terrain[i] !== TKEY.snow;
-  for (const [i, [z, t]] of was) {
-    if (W.terrain[i] !== V) continue;
-    const x = i % N, y = (i / N) | 0; let near = false;
-    for (let j = -4; j <= 4 && !near; j++) for (let k = -4; k <= 4; k++) { const q = x + k + (y + j) * N; if (was.has(q) && floor(q)) { near = true; break; } }
-    if (!near) { W.terrain[i] = t; W.height_[i] = z; }
+/** Caves inside mountains, made as the client's own are (the cave north of Britain, say): the mountain's land stays
+ *  where it is, high above, and the cave is floor statics laid at the ground level of its mouth underneath it. You
+ *  walk straight in. Standing under land at least 16 above you, the client draws nothing higher, so inside you see
+ *  the cave floor and darkness; outside, the mountain covers it. Which floor piece goes on a tile (whole, or one of
+ *  the rounded edge pieces) depends on which neighbours are cave floor; the table is mined from Trammel and
+ *  Ilshenar: pattern (N NE E SE S SW W NW, 1 = floor) -> [tile, count]. */
+const CAVE_FLOOR = {"00111100":[[1353,67],[1339,5],[1343,4]],"00111000":[[1353,56],[1340,14],[1339,11],[1341,7],[1343,6]],"01111110":[[1359,33],[1343,23],[1339,14],[1342,12],[1341,10],[1340,7],[1357,5],[1353,5],[1358,5]],"11111110":[[1339,108],[1343,107],[1340,92],[1341,85],[1342,40]],"11111100":[[1355,47],[1339,24],[1343,20],[1341,14],[1354,11],[1340,10],[1356,9]],"11111111":[[1341,3666],[1339,3355],[1343,2966],[1340,2620],[1342,2532]],"01111100":[[1353,148],[1339,10]],"01111000":[[1353,92],[1339,6]],"11111000":[[1339,153],[1341,119],[1354,116],[1343,115],[1340,80],[1355,78],[1356,76]],"11110000":[[1351,82],[1362,8]],"11111011":[[1343,112],[1340,105],[1339,99],[1341,89],[1342,53]],"11111001":[[1356,60],[1354,22],[1355,8],[1339,6]],"11100000":[[1351,40],[1339,8],[1346,7],[1343,7],[1354,4],[1362,4]],"11100011":[[1345,190],[1347,107],[1346,93],[1343,58],[1339,52]],"00111110":[[1341,161],[1357,120],[1340,115],[1343,111],[1342,108],[1339,86],[1359,73],[1358,70]],"00001110":[[1352,31],[1343,9],[1350,6],[1363,5],[1358,5],[1339,4],[1348,3],[1341,3]],"10001111":[[1348,165],[1349,83],[1339,79],[1343,73],[1350,51],[1342,35],[1341,30]],"10000011":[[1344,67],[1361,9],[1343,9],[1339,5],[1349,5]],"00011110":[[1352,64],[1363,11],[1339,4]],"00000000":[[1339,5],[1343,4],[1358,4],[1354,4],[1344,2],[1341,2]],"10111111":[[1343,129],[1339,115],[1341,72],[1342,70],[1340,69]],"00111111":[[1358,51],[1357,14],[1343,11],[1359,7],[1339,6],[1342,5]],"01111111":[[1340,10],[1339,9],[1343,7],[1341,7],[1357,3],[1359,3],[1353,2],[1342,2]],"11110011":[[1347,78],[1345,19],[1351,12],[1346,8],[1362,7]],"11110001":[[1351,113],[1362,48]],"11100001":[[1351,140],[1362,7]],"11101111":[[1343,164],[1339,125],[1341,96],[1342,86],[1340,78]],"11001111":[[1350,78],[1348,38],[1349,18],[1344,12]],"11100111":[[1346,89],[1347,34],[1345,23],[1344,19]],"10000111":[[1344,129],[1361,13]],"11000111":[[1344,137],[1361,49]],"11011111":[[1348,21],[1350,12],[1349,7],[1352,4],[1340,4],[1343,4],[1341,3]],"00001111":[[1352,137],[1363,11]],"10011111":[[1349,70],[1348,36],[1350,12],[1363,6]],"11000011":[[1344,146],[1361,18]],"00011111":[[1352,121],[1363,48]],"00100000":[[1339,9],[1342,4],[1341,2],[1340,2],[1343,1]],"00100010":[[1339,23],[1340,13],[1341,8],[1343,6]],"00000010":[[1339,11],[1340,3],[1342,2],[1341,2],[1343,2],[1344,1]],"11110111":[[1345,22],[1347,14],[1346,9],[1351,6],[1342,3],[1341,3],[1339,3]],"11111101":[[1339,9],[1342,7],[1340,7],[1356,6],[1343,5],[1341,5],[1355,3],[1354,2]],"00011100":[[1352,6],[1343,1],[1353,1],[1363,1]],"10111110":[[1343,3],[1339,3],[1340,2],[1341,2],[1348,1]],"10111000":[[1339,3],[1341,2],[1354,1],[1343,1],[1342,1],[1340,1]],"00001000":[[1343,6],[1342,5],[1339,3],[1341,2],[1350,1]],"10001000":[[1341,9],[1339,5],[1340,5],[1343,3],[1348,1]],"10000000":[[1343,6],[1340,4],[1339,3],[1341,1],[1363,1]],"00101110":[[1341,3],[1340,2],[1342,2],[1339,1],[1343,1]],"00000110":[[1344,3],[1342,2],[1362,2],[1341,1]]};
+const CAVE_FLOOR_PLAIN = [0x053B, 0x053C, 0x053D, 0x053E, 0x053F];
+function caveFloorPiece(mask, rnd) {
+  let p = CAVE_FLOOR[mask];
+  if (!p) {
+    let best = 99;
+    for (const [m, q] of Object.entries(CAVE_FLOOR)) { let d = 0; for (let i = 0; i < 8; i++) if (m[i] !== mask[i]) d += i % 2 ? 1 : 3; if (d < best) { best = d; p = q; } }
+    if (best > 2) p = null;
   }
-  // Where you can stand inside: a hidden marker 30 above the floor tells the client "a roof here", so it draws
-  // nothing higher: no mountainside or sky, only the cave and the dark round it.
-  const lidMin = new Map();
-  for (const [i] of was) if (floor(i)) { const zr = W.height_[i] + 30; addStatic0(CAVE_ROOF, i % N, (i / N) | 0, zr); lidMin.set(i, zr); }
-  // A lid of flat ground statics at the mountain's old heights (snow where it was snow) over the open part and the
-  // rock just round it: from outside, and on the radar, the mountain looks whole. It is never below the marker
-  // under it, so from inside it is never drawn.
-  const open = new Set(); for (const [i] of was) if (W.terrain[i] === V || floor(i)) open.add(i);
-  const lid = new Set();
-  for (const i of open) { const x = i % N, y = (i / N) | 0; for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) if (inMap(x + k, y + j)) lid.add(x + k + (y + j) * N); }
-  // Flat tiles at uneven heights show every step, so the lid is one level: a snowfield or stony hollow among the
-  // peaks, as low as the mountain round it allows (so nothing floats), and never below a roof marker.
-  let edge = Infinity, need = CAVE_Z + 50;
-  for (const i of lid) {
-    if (extra?.noLid.has(i)) continue;
-    const x = i % N, y = (i / N) | 0, z0 = (was.get(i) ?? [W.height_[i]])[0];
-    need = Math.max(need, lidMin.get(i) ?? -128, h0 != null ? Math.min(h0 + 30, z0 + 40) : -128);
-    for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) { const q = x + k + (y + j) * N; if (inMap(x + k, y + j) && !lid.has(q) && !extra?.noLid.has(q) && isRockT(W.terrain[q])) edge = Math.min(edge, W.height_[q]); }
-  }
-  const level = Math.max(need, edge === Infinity ? need : edge);
-  for (const i of lid) {
-    if (extra?.noLid.has(i)) continue;
-    const z = level, t0 = (was.get(i) ?? [0, W.terrain[i]])[1];
-    addStatic0(t0 === TKEY.snow ? 0x17BD + Math.floor(rnd() * 4) : 0x053B + Math.floor(rnd() * 4), i % N, (i / N) | 0, z);
+  if (!p) return pickOf(CAVE_FLOOR_PLAIN, rnd);
+  let r = rnd() * p.reduce((a, q) => a + q[1], 0);
+  for (const [id, n] of p) { r -= n; if (r < 0) return id; }
+  return p[0][0];
+}
+
+/** Lays a cave as floor statics: `floor` maps tile index -> floor z. The land over and round it is raised to at
+ *  least 22 above the floor, so you fit under it and the client hides it while you're inside. Cells in `keepLand`
+ *  (the mouth) are left alone. */
+function layCaveFloor(floor, keepLand, rnd) {
+  const N = W.width, D8 = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
+  for (const [i, z] of floor) {
+    const x = i % N, y = (i / N) | 0;
+    let mask = ""; for (const [dx, dy] of D8) mask += floor.has(x + dx + (y + dy) * N) ? "1" : "0";
+    addStatic0(caveFloorPiece(mask, rnd), x, y, z);
+    for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
+      const X = x + k, Y = y + j, q = X + Y * N; if (!inMap(X, Y) || keepLand.has(q)) continue;
+      const want = z + 22 + ((X * 7 + Y * 13) % 5);
+      if (W.height_[q] < want) W.height_[q] = clampZ(want);
+      W.density[q] = 0;
+    }
   }
 }
 
-/** The walk in: from just behind the mouth a 3-wide tunnel runs straight into the rock, then winds through deep
- *  rock (a cheapest path with a little noise, so it meanders) to the cave's own way in, sloping evenly from the
- *  ground in front of the mountain down to the cave floor. Void round it becomes the client's cave walls in the
- *  build. Returns false (and changes nothing) when no way through the rock is found. */
-function caveTunnel(P, h0, plan, dist, rnd) {
+/** The way in: from just behind the mouth a 3-wide passage runs straight into the rock, then winds through the
+ *  mountain (a cheapest path with a little noise) to the cave's own way in. Returns the passage's tiles, or null
+ *  when there's no way through the rock. */
+function cavePassage(P, plan, dist, rnd) {
   const N = W.width, H = W.height, { room, entry: [ex, ey] } = plan;
   const inRoom = (x, y) => x >= room.x && y >= room.y && x < room.x + room.w && y < room.y + room.h;
   const [sx, sy] = P(0, -5);
   const x0 = Math.max(1, Math.min(sx, ex) - 30), y0 = Math.max(1, Math.min(sy, ey) - 30), x1 = Math.min(N - 2, Math.max(sx, ex) + 30), y1 = Math.min(H - 2, Math.max(sy, ey) + 30);
   const bw = x1 - x0 + 1, bh = y1 - y0 + 1, cost = new Float32Array(bw * bh).fill(Infinity), from = new Int32Array(bw * bh).fill(-1);
-  const ok = (x, y) => x >= x0 && y >= y0 && x <= x1 && y <= y1 && (inRoom(x, y) ? true : isRockT(W.terrain[x + y * N]) && dist[x + y * N] >= 2);
+  const ok = (x, y) => x >= x0 && y >= y0 && x <= x1 && y <= y1 && (inRoom(x, y) || isRockT(W.terrain[x + y * N]) && dist[x + y * N] >= 2);
   const nseed = Math.floor(rnd() * 1e5), heap = [];
   const push = (c, k) => { heap.push([c, k]); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
@@ -3040,41 +3032,20 @@ function caveTunnel(P, h0, plan, dist, rnd) {
     const x = k % bw + x0, y = ((k / bw) | 0) + y0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue; const X = x + dx, Y = y + dy;
-      if (!ok(X, Y) && !(X === ex && Y === ey)) continue;
-      const q = (X - x0) + (Y - y0) * bw, nc = c + (dx && dy ? 1.42 : 1) * (1 + fbm(X / 7, Y / 7, nseed, 2) * 2.5 + Math.max(0, 8 - dist[X + Y * N]) * 1.5);
+      if (!ok(X, Y)) continue;
+      const q = (X - x0) + (Y - y0) * bw, nc = c + (dx && dy ? 1.42 : 1) * (1 + fbm(X / 7, Y / 7, nseed, 2) * 2.5 + Math.max(0, 6 - dist[X + Y * N]) * 1.5);
       if (nc < cost[q]) { cost[q] = nc; from[q] = k; push(nc, q); }
     }
   }
-  if (from[ke] < 0) return false;
+  if (from[ke] < 0) return null;
   const path = []; for (let k = ke; k >= 0 && k !== ks; k = from[k]) path.push([k % bw + x0, ((k / bw) | 0) + y0]);
   path.reverse();
-  const pts = [[...P(0, -2)], [...P(0, -3)], [...P(0, -4)], [sx, sy], ...path];
-  const endZ = W.height_[ex + ey * N], L = pts.length - 1;
-  const cells = new Map(), noLid = new Set(), zOf = new Map();
-  // Nothing over the mouth itself: you see it from outside.
-  for (let v = -1; v <= 3; v++) for (let u = -4; u <= 4; u++) { const [X, Y] = P(u, v); noLid.add(X + Y * N); }
-  pts.forEach(([x, y], n) => {
-    const z = Math.round(h0 + (endZ - h0) * n / L), r = n < 4 ? 1 : (rnd() < 0.15 ? 2 : 1);
-    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
-      const X = x + i, Y = y + j, q = X + Y * N; if (!inMap(X, Y) || (inRoom(X, Y) && W.terrain[q] !== TKEY.void) || noLid.has(q) || (n >= 4 && r === 2 && Math.abs(i) + Math.abs(j) > 3)) continue;
-      if (!zOf.has(q) || n < 4) zOf.set(q, z);
-    }
+  const out = [];
+  [[...P(0, -2)], [...P(0, -3)], [...P(0, -4)], [sx, sy], ...path].forEach(([x, y], n) => {
+    const r = n < 4 || rnd() < 0.8 ? 1 : 2;
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (r < 2 || Math.abs(i) + Math.abs(j) <= 3) out.push([x + i, y + j]);
   });
-  for (const [q, z] of zOf) {
-    if (!cells.has(q)) cells.set(q, [W.height_[q], W.terrain[q]]);
-    W.terrain[q] = TKEY.cave; W.height_[q] = z; W.density[q] = 0;
-  }
-  // The rock round it becomes void (the build turns it into cave walls rising from the floor).
-  for (const [q] of zOf) {
-    const x = q % N, y = (q / N) | 0;
-    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) {
-      const X = x + i, Y = y + j, p = X + Y * N;
-      if (!inMap(X, Y) || inRoom(X, Y) || zOf.has(p) || noLid.has(p) || !isRockT(W.terrain[p])) continue;
-      cells.set(p, [W.height_[p], W.terrain[p]]); W.terrain[p] = TKEY.void; W.density[p] = 0;
-    }
-  }
-  coverCave(plan, { cells, noLid }, h0, rnd);
-  return true;
+  return out;
 }
 
 function cavesPass(o, rnd, occ) {
@@ -3103,7 +3074,7 @@ function cavesPass(o, rnd, occ) {
   // Room for caves inside the mountains: 4x4 cells that are all deep rock, with a summed-area table.
   const Q = 4, cw = Math.floor(N / Q), ch = Math.floor(H / Q), sat = new Int32Array((cw + 1) * (ch + 1));
   for (let cy = 0; cy < ch; cy++) for (let cx = 0; cx < cw; cx++) {
-    let deep = 1; for (let j = 0; j < Q && deep; j++) for (let i = 0; i < Q; i++) if (dist[cx * Q + i + (cy * Q + j) * N] < 7) { deep = 0; break; }
+    let deep = 1; for (let j = 0; j < Q && deep; j++) for (let i = 0; i < Q; i++) if (dist[cx * Q + i + (cy * Q + j) * N] < 3) { deep = 0; break; }
     const k = (cx + 1) + (cy + 1) * (cw + 1); sat[k] = deep + sat[k - 1] + sat[k - cw - 1] - sat[k - cw - 2];
   }
   const full = (ax, ay, s) => { if (ax < 1 || ay < 1 || ax + s >= cw || ay + s >= ch) return false; const S = cw + 1; return sat[(ax + s) + (ay + s) * S] - sat[ax + (ay + s) * S] - sat[(ax + s) + ay * S] + sat[ax + ay * S] === s * s; };
@@ -3126,29 +3097,31 @@ function cavesPass(o, rnd, occ) {
   mouths.forEach((m, n) => {
     const P = (u, v) => m.face === "S" ? [m.x + u, m.y + v] : [m.x + v, m.y + u], h0 = m.h0;
     const [ox, oy] = P(0, 2);
-    let target = null, name, walkIn = null;
+    let target = null, name, cave = null;
     const area = d => typeof d === "string" ? { name: d } : d;
     if (n < toDungeons) { const d = area(dungeons[n]); target = { link: { map: o.caveMap, place: d.name, x: d.x, y: d.y } }; name = d.name; }
     else {
       const room = findRoom(m.x, m.y);
       if (room) {
-        const keepZ = [], keepT = [];
+        // Lay the cave out with the underground tool, then keep only its shape: its floor tiles (and the things it
+        // put on them) become statics under the mountain, and the mountain's land goes back as it was.
+        const keepZ = [], keepT = [], nStatics = W.objects.statics.length, nItems = W.objects.serverItems.length, nPlaces = W.places.length;
         for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { const i = x + y * N; keepZ.push(W.height_[i]); keepT.push(W.terrain[i]); W.terrain[i] = TKEY.void; W.height_[i] = 0; W.density[i] = 0; }
-        const plain = rnd() < 0.65, style = plain ? pickOf(["mine", "cave", "cave", "cavern"], rnd) : pickOf(["cave", "cavern", "crypt", "lair"], rnd);
-        const theme = plain ? "plain" : pickOf(["lava", "acid", "ice", "spider", "undead"], rnd);
+        const style = pickOf(["mine", "cave", "cave", "cavern", "lair"], rnd), theme = rnd() < 0.65 ? "plain" : pickOf(["spider", "undead"], rnd);
+        const floor = new Map();
         try {
-          const r = OPS.underground({ x: room.x, y: room.y, w: room.w, h: room.h, style, theme, z: clampZ(Math.max(-110, h0 - 60)), seed: Math.floor(rnd() * 1e9),
-            name: { mine: "Mine", crypt: "Crypt", lair: "Lair" }[style] || "Cave" });
+          const r = OPS.underground({ x: room.x, y: room.y, w: room.w, h: room.h, style, theme, z: h0, flat: true, seed: Math.floor(rnd() * 1e9),
+            name: { mine: "Mine", lair: "Lair" }[style] || "Cave" });
           name = r.name;
-          walkIn = { room, keepZ, keepT, entry: r.entry };
-          // Arrive a couple of steps in from the way in; the way in itself leads back out.
-          const [ex, ey] = r.entry, floor = (x, y) => inMap(x, y) && ![TKEY.void, TKEY.water, TKEY.lava, TKEY.acid, TKEY.rock].includes(W.terrain[x + y * N]);
-          let arrive = [ex, ey], bestN = -1;
-          for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const cd = Math.max(Math.abs(dx), Math.abs(dy)); if (cd < 2 || !floor(ex + dx, ey + dy)) continue;
-            let k = 0; for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (floor(ex + dx + i, ey + dy + j)) k++; if (k > bestN) { bestN = k; arrive = [ex + dx, ey + dy]; } }
-          target = { dx: arrive[0], dy: arrive[1], dz: W.height_[arrive[0] + arrive[1] * N] };
-          inner++;
-        } catch { let k = 0; for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { W.terrain[x + y * N] = TKEY.rock; W.height_[x + y * N] = keepZ[k++]; } }
+          for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { const i = x + y * N; if (W.terrain[i] !== TKEY.void) floor.set(i, h0); } // level, as flat tiles at uneven heights show seams
+          cave = { room, entry: r.entry, floor };
+        } catch { cave = null; }
+        let k = 0;
+        for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++, k++) { const i = x + y * N; W.terrain[i] = keepT[k]; W.height_[i] = keepZ[k]; }
+        // The way in through the rock; without one the cave is dropped.
+        if (cave) cave.passage = cavePassage(P, cave, dist, rnd);
+        if (cave?.passage) { target = {}; inner++; }
+        else { cave = null; W.objects.statics.length = nStatics; W.objects.serverItems.length = nItems; W.places.length = nPlaces; }
       }
       if (!target && n - toDungeons < dungeons.length - toDungeons && o.caveMap) { const d = area(dungeons[toDungeons + (n - toDungeons)]); target = { link: { map: o.caveMap, place: d.name, x: d.x, y: d.y } }; name = d.name; }
     }
@@ -3177,23 +3150,23 @@ function cavesPass(o, rnd, occ) {
     }
     for (let v = 1; v <= 3; v++) for (let u = -3; u <= 3; u++) { const [X, Y] = P(u, v); if (Math.abs(u) <= 2) setGround(X, Y, h0, Math.abs(u) <= 1 ? TKEY.dirt : null); else if (inMap(X, Y)) { const i = X + Y * N; W.height_[i] = clampZ((W.height_[i] + h0) / 2); W.density[i] = 0; } }
     for (let v = 1; v <= 8; v++) for (let u = -4 - (v >> 1); u <= 4 + (v >> 1); u++) { const [X, Y] = P(u, v); if (inMap(X, Y)) W.density[X + Y * N] = Math.min(W.density[X + Y * N], v < 6 && Math.abs(u) <= 4 ? 0 : 35); }
-    // A cave inside the mountain is walked into: a tunnel slopes down from behind the mouth to the cave. Without a
-    // way through the rock (or for a dungeon on another map) the mouth has teleporters instead.
-    const tunnel = walkIn && caveTunnel(P, h0, walkIn, dist, rnd);
-    if (walkIn && !tunnel) {
-      const [ex, ey] = walkIn.entry;
-      W.objects.serverItems.push({ kind: "tele", x: ex, y: ey, z: W.height_[ex + ey * N], dx: ox, dy: oy, dz: h0 });
-      coverCave(walkIn, null, h0, rnd);
+    // A cave inside the mountain is walked into: floor statics from behind the mouth, along the passage, into the
+    // cave, all under the mountain; the mouth's own tiles are left as they are.
+    if (cave) {
+      const keepLand = new Set();
+      for (let v = -1; v <= 3; v++) for (let u = -4; u <= 4; u++) { const [X, Y] = P(u, v); keepLand.add(X + Y * N); }
+      for (const [x, y] of cave.passage) { const i = x + y * N; if (inMap(x, y) && !keepLand.has(i) && !cave.floor.has(i)) cave.floor.set(i, h0); }
+      layCaveFloor(cave.floor, keepLand, rnd);
     }
     for (let u = -1; u <= 1; u++) {
-      const [X, Y] = P(u, 0);
+      const [X, Y] = P(u, 0), [bx, by] = P(u, -1);
       addStatic0(MOUTH.walk, X, Y, h0);
-      if (tunnel) { const [bx, by] = P(u, -1); addStatic0(MOUTH.walk, bx, by, h0); continue; }
-      W.objects.serverItems.push({ kind: "tele", x: X, y: Y, z: h0, ...(target.link ? { link: target.link, back: [ox, oy, h0] } : { dx: target.dx, dy: target.dy, dz: target.dz }) });
+      if (cave) { addStatic0(MOUTH.walk, bx, by, h0); continue; }
+      W.objects.serverItems.push({ kind: "tele", x: X, y: Y, z: h0, link: target.link, back: [ox, oy, h0] });
     }
     markRect(occ, Math.min(...[P(-3, -3)[0], P(3, 3)[0]]), Math.min(...[P(-3, -3)[1], P(3, 3)[1]]), Math.max(...[P(-3, -3)[0], P(3, 3)[0]]), Math.max(...[P(-3, -3)[1], P(3, 3)[1]]), 1);
     const [sx, sy] = P(3, 2); if (offRoad(sx, sy)) signpost(sx, sy, name, m.face === "E");
-    W.places.push({ name: target.link || tunnel ? name : name + " entrance", kind: "cave", x: ox, y: oy, radius: 4 });
+    W.places.push({ name: target.link || cave ? name : name + " entrance", kind: "cave", x: ox, y: oy, radius: 4 });
     if (featOn("ruins") && rnd() < (target.link ? 0.75 : 0.25)) {
       const [rx, ry] = P((rnd() < 0.5 ? -1 : 1) * between(6, 10, rnd), between(11, 17, rnd));
       if (inMap(rx, ry) && offRoad(rx, ry) && rectFree(occ, rx - 6, ry - 6, rx + 6, ry + 6)) OPS.ruins({ cx: rx, cy: ry, seed: Math.floor(rnd() * 1e9), name: "Ruins" });
