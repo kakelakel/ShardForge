@@ -31,7 +31,10 @@ public static class DungeonLinks
                     target = (m, places, blocks.Merged(m));
                 layouts[mid] = target;
             }
-            var p = target?.Places.OfType<JsonObject>().FirstOrDefault(q => q["name"]?.GetValue<string>() == place);
+            // By name; when several areas share it ("Cave"), the one at the position the editor saw.
+            int? lx = link["x"] is JsonValue vx && vx.TryGetValue<int>(out var ix) ? ix : null, ly = link["y"] is JsonValue vy && vy.TryGetValue<int>(out var iy) ? iy : null;
+            var p = target?.Places.OfType<JsonObject>().Where(q => q["name"]?.GetValue<string>() == place)
+                .OrderBy(q => lx is null || ly is null ? 0 : Math.Abs(q["x"]!.GetValue<int>() - lx.Value) + Math.Abs(q["y"]!.GetValue<int>() - ly.Value)).FirstOrDefault();
             if (target is not { } t || p is null) { unlinked.Add(place.Length > 0 ? place : "?"); continue; }
             int px = p["x"]!.GetValue<int>(), py = p["y"]!.GetValue<int>();
             var (ax, ay) = Arrival(t.Facet, px, py);
@@ -40,7 +43,7 @@ public static class DungeonLinks
             c["dx"] = ax; c["dy"] = ay; c["dz"] = (int)t.Facet.GetLand(ax, ay).Z;
             c["dmap"] = ItemStore.ServUOMap(t.Map); c["dmapId"] = t.Map.Id;
             outp.Add(c);
-            if (back is { Count: 3 } && backDone.Add(mid + "|" + place))
+            if (back is { Count: 3 } && backDone.Add($"{mid}|{px},{py}"))
             {
                 var list = returns.TryGetValue(mid, out var l) ? l : returns[mid] = [];
                 list.Add(new JsonObject

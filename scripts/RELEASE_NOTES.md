@@ -1,3 +1,14 @@
+## ShardForge 0.8.3
+
+- **Plain names for sites.** Generated sites are called what they are: *Bandit camp*, *Ruins*, *Shrine*, *Cave*,
+  *Cave entrance*, *Castle*, *Fort*, *Watchtower*, *Lighthouse*, *Water mill*, *Shipwreck*, *Oasis*, *Standing
+  stones*. Towns keep their names.
+- **Places list in the editor.** Every named place on the map, with a filter: type a new name and press Enter. A
+  town's region, signs with the old name nearby and the moongates that lead there follow. Undo takes it back.
+- Cave mouths into a dungeon map find the right area even when several share a name.
+- Fixed: 0.8.2 broke town squares in Populate world and the Town tool (the statue and hitching-post lists went
+  missing). Sorry about that.
+
 ## ShardForge 0.8.2
 
 - **Town decorations when generating.** New map → generated world has a **Town decorations** choice: *Tidy* (no

@@ -135,6 +135,11 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .under-list { display: grid; gap: 3px; }
 .under-list button { text-align: left; }
+.place-list { display: grid; gap: 3px; max-height: 320px; overflow: auto; margin-top: 6px; }
+.place-row { display: grid; grid-template-columns: 74px 1fr auto; gap: 4px; align-items: center; }
+.place-row .k { font-size: 11px; color: var(--muted, #9aa4a8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-row input { padding: 3px 6px; font-size: 12px; min-width: 0; }
+.place-row button { padding: 3px 7px; font-size: 12px; }
 .town-form input[type=text] { width: 100%; }
 .town-form .grid2, .world-opts .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
 .world-opts select, .world-opts input:not([type=checkbox]) { width: 100%; }
@@ -251,6 +256,12 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
       </div>
       <p class="note">Pick the <b>Underground</b> tool (U) and drag a rectangle over the void: it carves the cave, mine or crypt there. Rock walls rise around cave floor and stone walls around dungeon floor when it's built; paint <b>Cave floor</b>, <b>Dungeon floor</b> or <b>Void</b> to reshape it by hand. Start a <b>New map</b> as <b>Underground</b> for a dungeon facet.</p>
       <div id="underList" class="under-list"></div>
+    </section>
+    <section>
+      <h2>Places <span id="placeCount" class="note"></span></h2>
+      <input id="placeFind" type="search" placeholder="Filter: camp, ruins, shrine, a name…" autocomplete="off" style="width:100%">
+      <div id="placeList" class="place-list"></div>
+      <p class="note">Type a new name and press Enter. A town's region, and signs with the old name nearby, follow the new name. <b>Go</b> shows the place.</p>
     </section>
     <section class="field">
       <label for="brushSize">Brush size <output id="brushSizeOut">12</output></label>
@@ -727,7 +738,7 @@ const PROP = {
   bones: [0x0ECA, 0x0ECB, 0x0ECC, 0x0ECD, 0x0ECE, 0x0ECF, 0x0ED0, 0x0ED1, 0x0ED2], brazier: 0x0E31, candelabra: 0x0B26,
   pavers: [1305, 1306, 1307, 1308], planks: [1233, 1228, 1235, 1230], tree: [[0x0CCD, 0x0CCE], [0x0CD0, 0x0CD1], [0x0CD3, 0x0CD4], [0x0CD6, 0x0CD7]],
   crops: { wheat: [0x0C55, 0x0C56, 0x0C58], cabbage: [0x0C7B, 0x0C7C], carrot: [0x0C76], pumpkin: [0x0C6A, 0x0C6B, 0x0C6C], flax: [0x1A9B] },
-  flowerpots: [0x11CA, 0x11CB, 0x11CC], trough: [0x0B43, 0x0B44], troughY: [0x0B41, 0x0B42], // as the client lays them: B43+B44 along x, B41+B42 along y hitch: [0x14E7, 0x14E8], statues: [0x12D8, 0x12D9],
+  flowerpots: [0x11CA, 0x11CB, 0x11CC], trough: [0x0B43, 0x0B44] /* as the client lays them: along x */, troughY: [0x0B41, 0x0B42] /* along y */, hitch: [0x14E7, 0x14E8], statues: [0x12D8, 0x12D9],
   palms: [0x0C99, 0x0C9A, 0x0C9B, 0x0C9C, 0x0C9D], flowers: [0x0D2F, 0x0D2D, 0x0D2B, 0x0D29, 0x0C85, 0x0C84],
   // Fieldstone wall pieces (walls.txt "Fieldstone Standard Walls") for city walls.
   wallEW: 28, wallNS: 27, wallCorner: 26, wallPost: 29,
@@ -2180,7 +2191,7 @@ OPS.camp = o => {
   const spots = [[-2, 0, PROP.bedrollY], [0, 2, PROP.bedrollX], [1, -2, PROP.bedrollX], [2, 1, PROP.bedrollY]];
   for (const [dx, dy, id] of spots) if (rnd() < 0.7) addStatic(id, cx + dx, cy + dy, z);
   addStatic(pickOf(PROP.crates, rnd), cx + 3, cy - 1, z); if (rnd() < 0.6) addStatic(PROP.barrel, cx + 3, cy + 1, z);
-  W.places.push({ name: o.name || uniqueName(pickOf(["Bandit camp", "Hunters' camp", "Woodcutters' camp", "Orc camp", "Brigand hideout", "Trappers' camp", "Nomad camp"], rnd), rnd), kind: "camp", x: cx, y: cy, radius: 6 });
+  W.places.push({ name: o.name || pickOf(["Bandit camp", "Hunters' camp", "Woodcutters' camp", "Orc camp", "Brigand hideout", "Trappers' camp", "Nomad camp"], rnd), kind: "camp", x: cx, y: cy, radius: 6 });
 };
 OPS.ruins = o => {
   ensureObjects();
@@ -2197,7 +2208,7 @@ OPS.ruins = o => {
     for (let i = 0; i < w * h * 0.25; i++) addStatic(pickOf(PROP.pavers, rnd), x0 + Math.floor(rnd() * w), y0 + Math.floor(rnd() * h), z);
     for (let i = 0; i < 3; i++) if (rnd() < 0.6) addStatic(pickOf(PROP.bones, rnd), x0 + Math.floor(rnd() * w), y0 + Math.floor(rnd() * h), z);
   }
-  W.places.push({ name: o.name || "Ruins of " + townName(rnd), kind: "ruins", x: cx, y: cy, radius: 12 });
+  W.places.push({ name: o.name || "Ruins", kind: "ruins", x: cx, y: cy, radius: 12 });
 };
 OPS.shrine = o => {
   ensureObjects();
@@ -2208,7 +2219,7 @@ OPS.shrine = o => {
   }
   for (const [dx, dy] of [[-3, 0], [3, 0], [0, -3], [0, 3]]) addStatic(PROP.brazier, cx + dx, cy + dy, z);
   addStatic(PROP.candelabra, cx, cy, z);
-  W.places.push({ name: o.name || uniqueName("Shrine of " + pickOf(["Honesty", "Compassion", "Valor", "Justice", "Sacrifice", "Honor", "Spirituality", "Humility", "Chaos", "the Ancients"], rnd), rnd), kind: "shrine", x: cx, y: cy, radius: 5 });
+  W.places.push({ name: o.name || "Shrine", kind: "shrine", x: cx, y: cy, radius: 5 });
 };
 OPS.clear_objects = o => {
   ensureObjects();
@@ -2763,7 +2774,7 @@ function lighthousesPass(rnd, occ, wb, want) {
     W.objects.buildings.push({ x: c.x - 2, y: c.y - 2, w: 4, h: 4, z, floors: 4, theme: "stone", roofType: "flat", use: "tower", door, seed: Math.floor(rnd() * 1e6) });
     addStatic0(WILD.brazier, c.x - 1, c.y - 1, z + 80); addStatic0(WILD.brazier, c.x, c.y, z + 80);
     const t = nearestTown(c.x, c.y);
-    W.places.push({ name: uniqueName(`${t ? t.name : townName(rnd)} Light`, rnd), kind: "lighthouse", x: c.x, y: c.y, radius: 4 });
+    W.places.push({ name: "Lighthouse", kind: "lighthouse", x: c.x, y: c.y, radius: 4 });
     made++;
   }
   return made;
@@ -2905,7 +2916,7 @@ function fortsPass(rnd, occ, want) {
       W.objects.buildings.push({ x: bx, y: by, w: 4, h: 3, z, floors: 1, theme: "fieldstone", use: "guard", door: toRoad, seed: Math.floor(rnd() * 1e6) });
     }
     const t = rnd() < 0.5 ? c.a : c.b;
-    W.places.push({ name: uniqueName(fort ? `Fort ${t.name}` : `${t.name} Watch`, rnd), kind: fort ? "fort" : "tower", x, y, radius: R + 2 });
+    W.places.push({ name: fort ? "Fort" : "Watchtower", kind: fort ? "fort" : "tower", x, y, radius: R + 2 });
     made++;
   }
   return made;
@@ -2956,7 +2967,7 @@ function millsPass(rnd, occ, wb) {
         W.objects.buildings.push({ x: hx0 + 1, y: hy0 + 1, w: 3, h: 3, z, floors: 2, theme: pickOf(["wood", "plaster", "fieldstone"], rnd), use: "storage", door: face === "E" ? "W" : "N", seed: Math.floor(rnd() * 1e6) });
         addStatic0(WILD.mill[face], x, y, zAt(x, y));
         addStatic(pickOf(WILD.millstones, rnd), face === "E" ? hx0 - 1 : hx0 + 2, face === "E" ? hy0 + 2 : hy0 - 1);
-        W.places.push({ name: uniqueName(`${t.name} Mill`, rnd), kind: "mill", x, y, radius: 4 });
+        W.places.push({ name: "Water mill", kind: "mill", x, y, radius: 4 });
         made++; done = true;
       }
     }
@@ -3020,7 +3031,8 @@ function cavesPass(o, rnd, occ) {
     const P = (u, v) => m.face === "S" ? [m.x + u, m.y + v] : [m.x + v, m.y + u], h0 = m.h0;
     const [ox, oy] = P(0, 2);
     let target = null, name;
-    if (n < toDungeons) { target = { link: { map: o.caveMap, place: dungeons[n] } }; name = dungeons[n]; }
+    const area = d => typeof d === "string" ? { name: d } : d;
+    if (n < toDungeons) { const d = area(dungeons[n]); target = { link: { map: o.caveMap, place: d.name, x: d.x, y: d.y } }; name = d.name; }
     else {
       const room = findRoom(m.x, m.y);
       if (room) {
@@ -3029,7 +3041,8 @@ function cavesPass(o, rnd, occ) {
         const plain = rnd() < 0.65, style = plain ? pickOf(["mine", "cave", "cave", "cavern"], rnd) : pickOf(["cave", "cavern", "crypt", "lair"], rnd);
         const theme = plain ? "plain" : pickOf(["lava", "acid", "ice", "spider", "undead"], rnd);
         try {
-          const r = OPS.underground({ x: room.x, y: room.y, w: room.w, h: room.h, style, theme, z: 0, seed: Math.floor(rnd() * 1e9) });
+          const r = OPS.underground({ x: room.x, y: room.y, w: room.w, h: room.h, style, theme, z: 0, seed: Math.floor(rnd() * 1e9),
+            name: { mine: "Mine", crypt: "Crypt", lair: "Lair" }[style] || "Cave" });
           name = r.name;
           // Arrive a couple of steps in from the way in; the way in itself leads back out.
           const [ex, ey] = r.entry, floor = (x, y) => inMap(x, y) && ![TKEY.void, TKEY.water, TKEY.lava, TKEY.acid, TKEY.rock].includes(W.terrain[x + y * N]);
@@ -3041,7 +3054,7 @@ function cavesPass(o, rnd, occ) {
           inner++;
         } catch { let k = 0; for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) { W.terrain[x + y * N] = TKEY.rock; W.height_[x + y * N] = keepZ[k++]; } }
       }
-      if (!target && n - toDungeons < dungeons.length - toDungeons && o.caveMap) { const d = dungeons[toDungeons + (n - toDungeons)]; target = { link: { map: o.caveMap, place: d } }; name = d; }
+      if (!target && n - toDungeons < dungeons.length - toDungeons && o.caveMap) { const d = area(dungeons[toDungeons + (n - toDungeons)]); target = { link: { map: o.caveMap, place: d.name, x: d.x, y: d.y } }; name = d.name; }
     }
     if (!target) return;
     // The mouth: the client's mouth tiles, the mountain built up round them, level ground and a path in front.
@@ -3075,10 +3088,10 @@ function cavesPass(o, rnd, occ) {
     }
     markRect(occ, Math.min(...[P(-3, -3)[0], P(3, 3)[0]]), Math.min(...[P(-3, -3)[1], P(3, 3)[1]]), Math.max(...[P(-3, -3)[0], P(3, 3)[0]]), Math.max(...[P(-3, -3)[1], P(3, 3)[1]]), 1);
     const [sx, sy] = P(3, 2); if (offRoad(sx, sy)) signpost(sx, sy, name, m.face === "E");
-    W.places.push({ name: uniqueName(name + (target.link ? "" : " (way in)"), rnd), kind: "cave", x: ox, y: oy, radius: 4 });
+    W.places.push({ name: target.link ? name : name + " entrance", kind: "cave", x: ox, y: oy, radius: 4 });
     if (featOn("ruins") && rnd() < (target.link ? 0.75 : 0.25)) {
       const [rx, ry] = P((rnd() < 0.5 ? -1 : 1) * between(6, 10, rnd), between(11, 17, rnd));
-      if (inMap(rx, ry) && offRoad(rx, ry) && rectFree(occ, rx - 6, ry - 6, rx + 6, ry + 6)) OPS.ruins({ cx: rx, cy: ry, seed: Math.floor(rnd() * 1e9), name: uniqueName(`Ruins by ${name}`, rnd) });
+      if (inMap(rx, ry) && offRoad(rx, ry) && rectFree(occ, rx - 6, ry - 6, rx + 6, ry + 6)) OPS.ruins({ cx: rx, cy: ry, seed: Math.floor(rnd() * 1e9), name: "Ruins" });
     }
     if (target.link) linked++;
     made++;
@@ -3106,7 +3119,7 @@ function wildsPass(rnd, occ, wb, area) {
       for (const [id, dx, dy] of WRECK) addStatic0(id, c.x + dx, c.y + dy, z);
       markRect(occ, c.x - 2, c.y - 1, c.x + 6, c.y + 6, 1);
       for (let k = 0; k < 6; k++) { const x = c.x + between(-4, 9, rnd), y = c.y + between(-3, 8, rnd); if (inMap(x, y) && !isWater(x, y) && !occ[x + y * N]) addStatic(pickOf(WILD.driftwood.concat(PROP.crates), rnd), x, y); }
-      W.places.push({ name: uniqueName("Wreck of the " + pickOf(["Grey Gull", "Sea Wolf", "Maiden's Hope", "Corsair", "Wanderer", "Black Swan", "Fair Wind", "Kraken's Bane"], rnd), rnd), kind: "wreck", x: c.x + 2, y: c.y + 2, radius: 5 });
+      W.places.push({ name: "Shipwreck", kind: "wreck", x: c.x + 2, y: c.y + 2, radius: 5 });
       out.wrecks++;
     }
     // Driftwood, seaweed and shells along sandy sea shores.
@@ -3134,7 +3147,7 @@ function wildsPass(rnd, occ, wb, area) {
         else if (v < 2.2) { const t = (v - 1) / 1.2; W.height_[i] = clampZ(-1 + (g + 1) * Math.min(1, t * t * 1.5)); if (v < 1.9) { W.terrain[i] = TKEY.grass; W.density[i] = 50; } if (v < 1.9 && rnd() < 0.12) addStatic(pickOf(PROP.palms, rnd), x, y); }
       }
       markRect(occ, Math.floor(c.x - rx * 3), Math.floor(c.y - ry * 3), Math.ceil(c.x + rx * 3), Math.ceil(c.y + ry * 3), 1);
-      W.places.push({ name: uniqueName(pickOf(["Oasis of ", "Wells of ", "Springs of "], rnd) + townName(rnd), rnd), kind: "oasis", x: c.x, y: c.y, radius: 8 });
+      W.places.push({ name: "Oasis", kind: "oasis", x: c.x, y: c.y, radius: 8 });
       out.oases++;
     }
   }
@@ -3152,7 +3165,7 @@ function wildsPass(rnd, occ, wb, area) {
       for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2 + rnd() * 0.15, x = Math.round(c.x + Math.cos(a) * R), y = Math.round(c.y + Math.sin(a) * R); addStatic(pickOf(WILD.menhirs, rnd), x, y, z); }
       addStatic(WILD.lowStone, c.x, c.y, z);
       markRect(occ, c.x - 6, c.y - 6, c.x + 6, c.y + 6, 1);
-      W.places.push({ name: uniqueName(pickOf(["The Old Stones", "Stones of ", "The Ring of ", "The Watchers of "], rnd).replace(/of $/, "of " + townName(rnd)), rnd), kind: "stones", x: c.x, y: c.y, radius: 6 });
+      W.places.push({ name: "Standing stones", kind: "stones", x: c.x, y: c.y, radius: 6 });
       out.stones++;
     }
   }
@@ -3286,7 +3299,7 @@ function castleCrag(o) {
     const out = [Math.round(fx + Math.cos(footA - arc * 0.3) * 6), Math.round(fy + Math.sin(footA - arc * 0.3) * 6)];
     OPS.path({ points: [[fx, fy], out, best.p], width: 2, terrain: "dirt", jitter: 2, within: keepT });
   }
-  const name = o.name || uniqueName("Castle " + townName(rnd), rnd);
+  const name = o.name || "Castle";
   W.places.push({ name, kind: "castle", x: cx, y: cy, radius: R0 + 6 });
   if (o.life ?? featOn("life")) W.objects.serverItems.push({ kind: "region", x: Math.max(0, cx - R0 - 2), y: Math.max(0, cy - R0 - 2), w: 2 * R0 + 5, h: 2 * R0 + 5, z: 0, name, guarded: true });
   return { name, top: T, ground: g };
@@ -3966,7 +3979,7 @@ async function loadDungeonMaps() {
     for (const m of maps) {
       try {
         const r = await fetch(`/api/maps/${encodeURIComponent(m.id)}/files/layout.json`, { credentials: "same-origin" });
-        const areas = ((await r.json()).places || []).filter(p => p.kind === "dungeon").map(p => p.name);
+        const areas = ((await r.json()).places || []).filter(p => p.kind === "dungeon").map(p => ({ name: p.name, x: p.x, y: p.y }));
         if (areas.length) opts.push(`<option value="${escapeHtml(m.id)}" data-areas="${escapeHtml(JSON.stringify(areas))}">${escapeHtml(m.name)} (${areas.length} area${areas.length === 1 ? "" : "s"})</option>`);
       } catch {}
     }
@@ -4007,7 +4020,39 @@ function terrainCounts() {
   for (let i = 0; i < W.terrain.length; i++) c[W.terrain[i]]++;
   return c;
 }
+// Places: every named place on the map, to rename (towns, camps, ruins, shrines, caves, castles…) and find.
+const PLACE_KIND_LABEL = { city: "City", town: "Town", village: "Village", hamlet: "Hamlet", camp: "Camp", ruins: "Ruins", shrine: "Shrine", graveyard: "Graveyard",
+  dungeon: "Underground", cave: "Cave mouth", castle: "Castle", fort: "Fort", tower: "Watchtower", lighthouse: "Lighthouse", mill: "Mill", wreck: "Wreck", oasis: "Oasis", stones: "Stones" };
+let placeSig = "";
+function renderPlaces(force) {
+  const q = $("placeFind").value.trim().toLowerCase(), sig = W.places.length + "|" + W.places.map(p => p.name).join("|").length + "|" + q;
+  if (!force && sig === placeSig) return; placeSig = sig;
+  const all = W.places.map((p, i) => [p, i]).filter(([p]) => !q || p.name.toLowerCase().includes(q) || (PLACE_KIND_LABEL[p.kind] || p.kind).toLowerCase().includes(q));
+  $("placeCount").textContent = W.places.length ? `${W.places.length}` : "";
+  $("placeList").innerHTML = all.slice(0, 400).map(([p, i]) => `<div class="place-row"><span class="k" title="${escapeHtml(PLACE_KIND_LABEL[p.kind] || p.kind)} at ${p.x}, ${p.y}">${escapeHtml(PLACE_KIND_LABEL[p.kind] || p.kind)}</span>` +
+    `<input data-i="${i}" value="${escapeHtml(p.name)}" maxlength="60" aria-label="Name of the ${escapeHtml(PLACE_KIND_LABEL[p.kind] || p.kind)} at ${p.x}, ${p.y}"><button data-g="${i}" title="Go to ${p.x}, ${p.y}">Go</button></div>`).join("") +
+    (all.length > 400 ? `<p class="note">${all.length - 400} more: filter to find them.</p>` : "") + (!W.places.length ? `<p class="note">No places yet: found towns or populate the world.</p>` : "");
+  $("placeList").querySelectorAll("input").forEach(el => el.onchange = () => renamePlace(+el.dataset.i, el.value));
+  $("placeList").querySelectorAll("button").forEach(b => b.onclick = () => { const p = W.places[+b.dataset.g]; if (p) centerOn(p.x, p.y); });
+}
+function renamePlace(i, name) {
+  const p = W.places[i]; name = name.trim().slice(0, 60);
+  if (!p || !name || name === p.name) { renderPlaces(true); return; }
+  editWhole(() => {
+    const old = p.name, R = (p.radius || 10) + 12;
+    p.name = name;
+    for (const it of W.objects.serverItems || []) {
+      if (it.kind === "region" && it.name === old && p.x >= it.x && p.y >= it.y && p.x < it.x + it.w && p.y < it.y + it.h) it.name = name;
+      else if (it.kind === "sign" && it.name === old && Math.hypot(it.x - p.x, it.y - p.y) <= R) it.name = name;
+      else if (it.kind === "tele" && it.look === "moongate" && it.name === `Moongate to ${old}`) it.name = `Moongate to ${name}`;
+    }
+  });
+  draw(); renderPlaces(true); if (typeof renderUnderList === "function") renderUnderList();
+  updateStats();
+}
+$("placeFind").oninput = () => renderPlaces();
 function updateStats() {
+  renderPlaces();
   if (typeof SRV !== "undefined") SRV.markDirty();
   const c = terrainCounts(), n = W.terrain.length;
   c.forEach((v, i) => { const el = $("pct" + i); if (el) el.textContent = v ? (v * 100 / n < 0.1 ? "<0.1%" : (v * 100 / n).toFixed(1) + "%") : ""; });
