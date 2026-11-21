@@ -1,3 +1,10 @@
+## ShardForge 0.7.1
+
+- **Piers** are laid like the client's own docks: a solid plank floor and posts standing in the water off the
+  edges, rising above the deck. No more gaps.
+- **Cave mouths** sit in the slope: a rocky outcrop round each (also on snowy mountains), the ground rising to meet
+  the mouth and fading into the mountain at the sides, and a clear way in with no trees in front.
+
 ## ShardForge 0.7.0
 
 - **World features.** Populate world (or **Add features to this map**) now adds, each one switchable:

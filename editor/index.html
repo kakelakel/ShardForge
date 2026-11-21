@@ -1684,7 +1684,7 @@ function harbour(cx, cy, r, rnd, occ, roads, laneKey) {
     if (best && best.d > 3) OPS.path({ points: [best.q, [X + (w >> 1), Y + (h >> 1)]], width: 2, terrain: laneKey, jitter: 1, within: TERRAINS.map(t => t.key).filter(k => k !== "water") });
     // The pier out from the middle of the dock's water side, a boat moored alongside when there's room.
     if (featOn("docks") && len >= 9) {
-      const deckZ = Math.max(0, Math.min(6, lot.z ?? 0)), plen = Math.min(len - 2, 12);
+      const deckZ = Math.max(-3, Math.min(2, (lot.z ?? 0) - 1)), plen = Math.min(len - 2, 12);
       buildPier(s0.x, s0.y, s0.dx, s0.dy, plen, 1, deckZ, rnd, len >= 12);
       if (featOn("life")) W.objects.serverItems.push({ kind: "spawn", creatures: "Fisherman:1,Shipwright:1", count: 2, range: 3, min: 5, max: 10, x: s0.x + s0.dx * 3, y: s0.y + s0.dy * 3, z: deckZ });
     }
@@ -2589,7 +2589,7 @@ const FEATURES = {
   life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
 };
 const featOn = k => W._feat?.[k] ?? true;
-const PIER = { pile: 0x03A5, pole: 0x01CD, rope: [0x14F8, 0x14FA], anchor: 0x14F7, nets: [0x0DCA, 0x0DCB, 0x0DD0, 0x0DD1], fish: 0x09CC };
+const PIER = { plank: [0x07C9, 0x07CA, 0x07CB], post: [[0x03A5, -12], [0x03A5, -7], [0x03AE, -2], [0x03A5, 3], [0x03AA, 8]], pile: 0x03A5, pole: 0x01CD, rope: [0x14F8, 0x14FA], anchor: 0x14F7, nets: [0x0DCA, 0x0DCB, 0x0DD0, 0x0DD1], fish: 0x09CC };
 // Waterfall pieces (animated): a curtain that drops one tile at a time, foam where it hits the water, ripples past it.
 const FALLS = { E: { curtain: 0x34F3, foam: 0x34FF, ripple: 0x3505 }, S: { curtain: 0x3511, foam: 0x351D, ripple: 0x3523 } };
 // Cave mouths: the client's mouth land tiles (Destard faces south, Despise east): the back line, then the dark mouth.
@@ -2632,14 +2632,21 @@ function setGround(x, y, z, t) { if (!inMap(x, y)) return; const i = x + y * W.w
 /** A wooden pier from the shore (sx, sy) out over the water along (dx, dy): a board deck `half` tiles either side
  *  of its line, piles down into the water and mooring posts along the edges, a boat tied alongside when asked. */
 function buildPier(sx, sy, dx, dy, len, half, z, rnd, boat) {
-  const alongX = dx !== 0, deck = alongX ? BRIDGE_KIT.x.deck : BRIDGE_KIT.y.deck, px = Math.abs(dy), py = Math.abs(dx);
+  // Laid like the client's own docks (Jhelom, Skara Brae): plank floor over the water, mostly the plain plank,
+  // posts standing in the water just off the edges, each a stack of pier pieces rising above the deck.
+  const alongX = dx !== 0, px = Math.abs(dy), py = Math.abs(dx);
   const at = (t, w) => [sx + dx * t + px * w, sy + dy * t + py * w];
-  for (let t = 0; t <= len; t++) for (let w = -half; w <= half; w++) {
+  for (let t = -1; t <= len; t++) for (let w = -half; w <= half; w++) {
     const [x, y] = at(t, w); if (!inMap(x, y)) continue;
-    addStatic0(deck[(t * 3 + w + 8) & 3], x, y, z);
-    if (t > 0 && Math.abs(w) === half && (t % 3 === 0 || t === len)) {
-      for (let pz = -10; pz <= z - 5; pz += 5) addStatic0(PIER.pile, x, y, pz);
-      if (t % 6 === 0 || t === len) addStatic0(PIER.pole, x, y, z);
+    if (!isWater(x, y)) { const i = x + y * W.width; W.height_[i] = clampZ(Math.min(W.height_[i], z)); W.density[i] = 0; }
+    const r = hrand(x, y, W.seed, 61);
+    addStatic0(r < 0.6 ? PIER.plank[0] : r < 0.8 ? PIER.plank[1] : PIER.plank[2], x, y, z);
+  }
+  for (let t = 1; t <= len + 1; t++) {
+    if (t % 4 !== 0 && t !== len + 1) continue;
+    for (const w of [-(half + 1), half + 1]) {
+      const [x, y] = at(Math.min(t, len), w); if (!inMap(x, y) || !isWater(x, y)) continue;
+      PIER.post.forEach(([id, dz]) => addStatic0(id, x, y, z + dz));
     }
   }
   if (half >= 1) {
@@ -2651,7 +2658,7 @@ function buildPier(sx, sy, dx, dy, len, half, z, rnd, boat) {
   if (!boat) return false;
   // A small ship alongside, its keel parallel to the pier (multis 0-3 face N, E, S, W; 5 wide, 11 long).
   for (const side of rnd() < 0.5 ? [1, -1] : [-1, 1]) for (let t0 = 7; t0 <= len + 4; t0++) {
-    const [bx, by] = at(t0, side * (half + 3));
+    const [bx, by] = at(t0, side * (half + 4));
     let ok = true;
     for (let a = -6; a <= 6 && ok; a++) for (let b = -2; b <= 2; b++) { const x = bx + dx * a + px * b, y = by + dy * a + py * b; if (!inMap(x, y) || !isWater(x, y)) { ok = false; break; } }
     if (!ok) continue;
@@ -2782,7 +2789,7 @@ function hutsPass(rnd, occ, wb, want) {
     markRect(occ, x0 - 2, y0 - 2, x1 + 2, y1 + 2, 1);
     const door = c.dy === 1 ? "S" : c.dy === -1 ? "N" : c.dx === 1 ? "E" : "W";
     W.objects.buildings.push({ x: x0, y: y0, w: 4, h: 4, z, floors: 1, theme: pickOf(["log", "wood", "thatch"], rnd), use: "home", door, seed: Math.floor(rnd() * 1e6) });
-    buildPier(c.x, c.y, c.dx, c.dy, 4 + Math.floor(rnd() * 3), 0, Math.max(0, Math.min(4, zAt(c.x, c.y))), rnd, false);
+    buildPier(c.x, c.y, c.dx, c.dy, 4 + Math.floor(rnd() * 3), 0, Math.max(-3, Math.min(2, zAt(c.x, c.y) - 1)), rnd, false);
     // Nets drying beside the hut, a barrel of the day's catch.
     const side = c.dx === 0 ? [x1 + 2, y0 + 1] : [x0 + 1, y1 + 2];
     addStatic(pickOf(PIER.nets, rnd), side[0], side[1]); addStatic(PROP.barrel, side[0] + (c.dx === 0 ? 0 : 1), side[1] + (c.dx === 0 ? 1 : 0));
@@ -3036,13 +3043,28 @@ function cavesPass(o, rnd, occ) {
     if (!target) return;
     // The mouth: the client's mouth tiles, the mountain built up round them, level ground and a path in front.
     const M = MOUTH[m.face], backZ = h0 + 26 + Math.floor(rnd() * 6), frontZ = h0 + 18 + Math.floor(rnd() * 4);
-    for (let u = -3; u <= 3; u++) for (let v = -3; v <= 0; v++) { const [X, Y] = P(u, v), i = X + Y * N; W.terrain[i] = TKEY.rock; W.height_[i] = clampZ(Math.max(W.height_[i], v === 0 ? frontZ + 4 : backZ + 2)); W.density[i] = 0; }
+    // A rocky outcrop round the mouth, so it sits in the slope: snow (and near the mouth anything) on the mountain
+    // side turns to rock in an uneven patch the build blends at its edges, and the ground rises toward the mouth's
+    // heights, fading out to what was there on the flanks. Nothing grows on it or in the way in front.
+    const nseed = Math.floor(rnd() * 1e5);
+    for (let v = -9; v <= 0; v++) for (let u = -7; u <= 7; u++) {
+      const [X, Y] = P(u, v); if (!inMap(X, Y)) continue;
+      const i = X + Y * N, t = W.terrain[i]; if (t === TKEY.water || t === TKEY.void) continue;
+      const r = Math.hypot(u / 7, (v + 1) / 8.5) + (fbm(X / 3, Y / 3, nseed, 2) - 0.5) * 0.45;
+      if (r > 1) continue;
+      if (t === TKEY.snow || r < 0.55 || Math.abs(u) <= 3) W.terrain[i] = TKEY.rock;
+      W.density[i] = 0;
+      const want = v === 0 ? frontZ - Math.max(0, Math.abs(u) - 2) * 6 : backZ + (-v - 1) * 5 - Math.max(0, Math.abs(u) - 3) * 3;
+      const w = Math.max(0, Math.min(1, 1 - (Math.abs(u) - 2) / 5)) * Math.max(0, Math.min(1, (1 - r) * 3));
+      if (W.height_[i] < want) W.height_[i] = clampZ(W.height_[i] + (want - W.height_[i]) * w);
+    }
     for (let u = -2; u <= 2; u++) {
       const [bx, by] = P(u, -1), [fx, fy] = P(u, 0);
       W.height_[bx + by * N] = backZ + (u & 1) * 2; W.height_[fx + fy * N] = frontZ + Math.abs(u);
       W.objects.land.push([M.back[u + 2], bx, by, backZ + (u & 1) * 2], [M.front[u + 2], fx, fy, frontZ + Math.abs(u)]);
     }
-    for (let v = 1; v <= 3; v++) for (let u = -3; u <= 3; u++) { const [X, Y] = P(u, v); setGround(X, Y, h0, Math.abs(u) <= 1 ? TKEY.dirt : null); }
+    for (let v = 1; v <= 3; v++) for (let u = -3; u <= 3; u++) { const [X, Y] = P(u, v); if (Math.abs(u) <= 2) setGround(X, Y, h0, Math.abs(u) <= 1 ? TKEY.dirt : null); else if (inMap(X, Y)) { const i = X + Y * N; W.height_[i] = clampZ((W.height_[i] + h0) / 2); W.density[i] = 0; } }
+    for (let v = 1; v <= 8; v++) for (let u = -4 - (v >> 1); u <= 4 + (v >> 1); u++) { const [X, Y] = P(u, v); if (inMap(X, Y)) W.density[X + Y * N] = Math.min(W.density[X + Y * N], v < 6 && Math.abs(u) <= 4 ? 0 : 35); }
     for (let u = -1; u <= 1; u++) {
       const [X, Y] = P(u, 0);
       addStatic0(MOUTH.walk, X, Y, h0);
