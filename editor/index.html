@@ -234,7 +234,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
           <select id="caveMap"><option value="">Only caves inside this map's mountains</option></select>
           <p class="note" style="margin:2px 0 0">Half the mouths go to that dungeon map's areas, by teleporters both ways (made when you build). Build the dungeon map first.</p>
         </div>
-        <div class="row" style="margin-top:6px"><button id="btnFeatures" title="Add the ticked features to this map as it is now (towns, roads and all)">Add features to this map</button> <button id="btnNoSigns" title="Take every signpost (post and its sign) off this map. Undo brings them back.">Remove all signposts</button></div>
+        <div class="row" style="margin-top:6px"><button id="btnFeatures" title="Add the ticked features to this map as it is now (towns, roads and all)">Add features to this map</button></div>
       </details>
       <p class="note">Pick the <b>Town</b> tool (T), then click for the radius above, or press and <b>drag out</b> to size it (<kbd>[</kbd> <kbd>]</kbd> resize). <b>Reroll</b> lays the last one out again.</p>
       <div class="row" style="margin-top:8px">
@@ -3405,13 +3405,6 @@ function castlesPass(rnd, occ, want) {
 }
 
 /** Adds the world features to a populated map (or a map with towns of its own). */
-/** Takes every signpost off the map: the posts and the signs on them. */
-OPS.remove_signposts = () => {
-  const post = id => id === PROP.signX || id === PROP.signY, before = W.objects.statics.length;
-  W.objects.statics = W.objects.statics.filter(st => !post(st[0]));
-  W.objects.serverItems = W.objects.serverItems.filter(it => !(it.kind === "sign" && post(it.id)));
-  return { removed: before - W.objects.statics.length };
-};
 OPS.world_features = o => (W._lastFeatures = worldFeatures(o));
 function worldFeatures(o) {
   ensureObjects();
@@ -4082,13 +4075,6 @@ function featureReport(r) {
     ["forts", "watchtower or fort", "watchtowers and forts"], ["castles", "castle on a crag", "castles on crags"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
   return parts.filter(([k]) => r[k]).map(([k, one, many]) => k === "linked" ? `${r[k]} ${one}` : `${r[k]} ${r[k] === 1 ? one : many || one + "s"}`).join(", ");
 }
-$("btnNoSigns").onclick = () => {
-  const n = W.objects.statics.filter(st => st[0] === PROP.signX || st[0] === PROP.signY).length;
-  if (!n) { addMsg("claude", "There are no signposts on this map."); return; }
-  const res = applyOps([{ op: "remove_signposts" }])[0];
-  fullRedraw();
-  addMsg("claude", res?.ok ? `Removed ${n} signpost${n === 1 ? "" : "s"}. Undo brings them back.` : "Couldn't remove them: " + escapeHtml(res?.why || "?"), res?.ok ? undefined : "error");
-};
 $("btnFeatures").onclick = () => {
   busy("Adding world features…");
   setTimeout(() => {
@@ -4347,7 +4333,6 @@ Ops (JSON objects, applied in order):
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
 - {"op":"castle_crag","cx","cy","radius"?:14-45,"height"?:30-55,"name"?,"seed"?} raises a sheer-sided crag (grass on top, rock cliffs, scree round the foot) with one way up, a ledge climbing round the cliff to the gate, and builds a castle on top: curtain wall along the edge, towers, a gatehouse, a keep with a tall donjon, a hall and a courtyard; a path joins the nearest road.
-- {"op":"remove_signposts"} takes every signpost (post and sign) off the map.
 - {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts at crossroads and cave mouths (only when "signs" is true; off by default), watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) walked into, to caves and mines under the mountains, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"masonry"|"wood"|"stone"|"ironstone"|"arcade"|"sandstone"|"brick"|"marble"|"gargish"|"crystal"|"rustic"|"log","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.

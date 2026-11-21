@@ -1,3 +1,8 @@
+## ShardForge 0.9.1
+
+- Took out the **Remove all signposts** button from 0.9.0: it could take away signposts you placed yourself.
+  Signposts stay off by default when generating.
+
 ## ShardForge 0.9.0
 
 - **No more signposts unless you ask for them.** World features no longer put signposts at crossroads or in front
