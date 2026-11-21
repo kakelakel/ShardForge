@@ -2024,6 +2024,7 @@ function draw() {
       if (lc === Infinity || landAt(x, y).z < lc) drawLand(x, y, sx, sy, Z);
       const iv = ITEMS.show ? ITEMS.cell.get(x + "," + y) : null;
       let list = iv ? staticsAt(x, y).concat(iv.filter(i => i.id).map(i => ({ id: itemArt(i), z: i.z, hue: i.hue || 0 }))) : staticsAt(x, y);
+      if (ITEMS.show && ITEMS.cell.size) { const parts = itemPartsAt(x, y); if (parts.length) list = list.concat(parts); }
       if (cz !== Infinity && list.length) list = list.filter(s => s.z < cz);
       if (list.length) list.slice().sort(byDrawDepth).forEach(s => {
         if (dx === 0 && dy === 0 && s.z > P.z) return; // drawn after the player
@@ -3394,6 +3395,15 @@ $("dzWindows").onchange = () => { designPush(); DESIGN.plan.windows = $("dzWindo
 const ITEM_PRESETS = [["Forge", 0x0FB1], ["Anvil", 0x0FAF], ["Brazier", 0x0E31], ["BrazierTall", 0x19AA], ["PublicMoongate", 0x0F6C], ["ShardForgeMoongate", 0x0F6C], ["BulletinBoard", 0x1E5E]];
 /** The art an item shows as. A ShardForge moongate's id says whether its town is a starting city (1 yes, 2 no). */
 const itemArt = i => i.type === "ShardForgeMoongate" ? 0x0F6C : i.id;
+/** Items ServUO builds of two pieces: the other piece, beside the item itself (as the scripts put them). */
+const ITEM_PARTS = { AnkhWest: [[0, 1, 0x0002]], AnkhNorth: [[1, 0, 0x0005]] };
+/** The extra pieces drawn on a tile, from two-piece items on the tiles next to it. */
+function itemPartsAt(x, y) {
+  const out = [];
+  for (const [type, parts] of Object.entries(ITEM_PARTS)) for (const [dx, dy, id] of parts)
+    for (const it of ITEMS.cell.get((x - dx) + "," + (y - dy)) || []) if (it.type === type) out.push({ id, z: it.z, hue: it.hue || 0 });
+  return out;
+}
 const PLACE_RADIUS = { city: 95, town: 60, village: 36, hamlet: 22, camp: 14, ruins: 18, shrine: 8 };
 const ITEM_HINTS = {
   door: "Click a doorway to put a door there; R turns it. It sits on the wall's own tile.",

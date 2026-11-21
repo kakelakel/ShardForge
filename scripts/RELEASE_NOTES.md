@@ -1,3 +1,12 @@
+## ShardForge 0.12.0
+
+- **Castles get a broad ramp up.** The narrow ledge round the cliff, which was too steep and blocked at the top,
+  is gone. A castle's way up is now a five-wide cobbled ramp straight out from the gate, climbing gently from the
+  land with a low stone wall either side and the rock falling away beyond, facing the nearest town. It's walkable
+  all the way into the courtyard (checked with Walk's movement rules on castles facing all four ways), and the gate
+  is clear: the trough and lamps stand aside.
+- **Walk shows whole ankhs.** Ankhs are two pieces in ServUO (the script adds the second); Walk now draws both.
+
 ## ShardForge 0.11.1
 
 - Walk's World map now names only towns and villages unless you tick more, so the picture for your website stays

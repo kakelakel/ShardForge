@@ -3274,8 +3274,8 @@ function gatesPass() {
 
 /**
  * A fairy-tale castle on a crag: a plateau with an uneven edge rises sheer out of the land, grass on top and rock
- * down its sides, a rocky skirt of fallen stone round its foot. The one way up is a ledge that climbs round the
- * cliff to the gate. On top a curtain wall follows the edge, towers along it and a gatehouse where the ledge
+ * down its sides, a rocky skirt of fallen stone round its foot. The one way up is a broad walled ramp straight
+ * out from the gate. On top a curtain wall follows the edge, towers along it and a gatehouse where the ramp
  * arrives; inside a keep with its tall donjon, a hall and a courtyard. Everything stands at the plateau's height.
  */
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -3288,35 +3288,45 @@ function castleCrag(o) {
   const nseed = Math.floor(rnd() * 1e5);
   const Rat = a => R0 * (0.84 + 0.32 * fbm(Math.cos(a) * 1.4 + 5, Math.sin(a) * 1.4 + 9, nseed, 3));
   const g = groundHeight(cx, cy, R0 + 10), H = o.height ?? between(55, 80, rnd), T = clampZ(Math.min(115, g + H));
-  // The way up comes from the nearest town (else anywhere); the ledge climbs this far round the cliff to the gate.
+  // The way up: a broad ramp straight out from the gate, facing the nearest town (else the side the camera sees),
+  // along one of the four directions so its parapets run straight.
   const near = nearestTown(cx, cy);
-  const ga = o.gateAngle ?? (near && Math.hypot(near.x - cx, near.y - cy) < 600 ? Math.atan2(near.y - cy, near.x - cx) : rnd() * Math.PI * 2);
-  // Of the two ways round, the one that passes the side the camera sees (south-east), so the ledge shows.
-  const swing = 1.0 + rnd() * 0.6, view = Math.PI / 4;
-  const arc = Math.abs(angDiff(ga - swing / 2, view)) < Math.abs(angDiff(ga + swing / 2, view)) ? swing : -swing, footA = ga - arc;
-  const ledgeS = a => { const s = angDiff(a, footA) / arc; return s >= 0 && s <= 1 ? s : null; };
-  const span = Math.ceil(R0 * 1.2) + 12;
+  const want = o.gateAngle ?? (near && Math.hypot(near.x - cx, near.y - cy) < 600 ? Math.atan2(near.y - cy, near.x - cx) : Math.PI / 2);
+  const ga = Math.round(want / (Math.PI / 2)) * (Math.PI / 2);
+  const ux = Math.round(Math.cos(ga)), uy = Math.round(Math.sin(ga)), px = -uy, py = ux;
+  const STEP = 4, rampLen = Math.ceil((T - g) / STEP) + 1, d0 = Math.round(Rat(ga)) - 1;
+  const span = Math.ceil(R0 * 1.2) + rampLen + 14;
   const keepT = TERRAINS.map(t => t.key).filter(k => !["water", "lava"].includes(k));
   for (let y = cy - span; y <= cy + span; y++) for (let x = cx - span; x <= cx + span; x++) {
     if (!inMap(x, y)) continue;
     const i = x + y * N, t = W.terrain[i]; if (t === TKEY.water || t === TKEY.lava) continue;
     const dx = x - cx, dy = y - cy, a = Math.atan2(dy, dx), d = Math.hypot(dx, dy);
     const e = d - Rat(a) + (fbm(x / 3, y / 3, nseed + 7, 2) - 0.5) * 1.6;   // how far outside the edge
-    const s = ledgeS(a), crag = fbm(x / 4, y / 4, nseed + 11, 2);
+    const crag = fbm(x / 4, y / 4, nseed + 11, 2);
     if (e <= 0) { W.height_[i] = T; if (t !== TKEY.rock) W.terrain[i] = e > -1.5 && crag > 0.62 ? TKEY.rock : TKEY.grass; W.density[i] = 40; continue; }
-    if (s !== null && e > 1.0 && e <= 4.2) {
-      // The ledge: a path cut along the cliff, rising from the foot to the gate.
-      W.height_[i] = clampZ(g + (T - g) * Math.min(1, s * 1.04)); W.terrain[i] = TKEY.dirt; W.density[i] = 0; continue;
-    }
     if (e <= 1.0) { W.height_[i] = clampZ(Math.abs(angDiff(a, ga)) < 3 / R0 ? T : T - 2 - crag * 4); W.terrain[i] = TKEY.rock; W.density[i] = 0; continue; }
     if (e <= 2.6) { W.height_[i] = clampZ(g + (T - g) * (0.08 + crag * 0.18)); W.terrain[i] = TKEY.rock; W.density[i] = 0; continue; }
     if (e <= 9) {
       // Fallen stone and scree round the foot, thinning out into the land.
-      const f = 1 - (e - 2.6) / 6.4, ledgeH = s !== null ? g + (T - g) * s : Infinity;
+      const f = 1 - (e - 2.6) / 6.4;
       const h = g + (T - g) * 0.12 * f * f + (crag - 0.5) * 4;
-      W.height_[i] = clampZ(Math.min(Math.max(W.height_[i] * (1 - f) + h * f, g), ledgeH - 6));
+      W.height_[i] = clampZ(Math.max(W.height_[i] * (1 - f) + h * f, g));
       if (crag + f * 0.5 > 0.85) W.terrain[i] = TKEY.rock; else if (W.terrain[i] === TKEY.rock || W.terrain[i] === TKEY.snow) W.terrain[i] = TKEY.grass;
       W.density[i] = Math.min(W.density[i], Math.round(40 + (1 - f) * 80));
+    }
+  }
+  // The ramp: five wide, climbing STEP a tile from the land to the gate, with a low wall either side and the
+  // ground falling away steeply beyond. Walkable all the way: no steps too high, nothing in the way.
+  const rampCells = new Set();
+  for (let t = -2; t <= rampLen + 2; t++) {
+    const h = clampZ(Math.max(g, T - Math.max(0, t) * STEP));
+    for (let k = -5; k <= 5; k++) {
+      const X = cx + ux * (d0 + t) + px * k, Y = cy + uy * (d0 + t) + py * k; if (!inMap(X, Y)) continue;
+      const i = X + Y * N, ak = Math.abs(k);
+      if (ak <= 2) { W.height_[i] = h; W.terrain[i] = TKEY.cobblestone; W.density[i] = 0; rampCells.add(i); }
+      else if (ak === 3) { W.height_[i] = h; W.terrain[i] = TKEY.rock; W.density[i] = 0; rampCells.add(i);
+        if (t >= 1 && t <= rampLen && h > g + 2) addStatic0(ux !== 0 ? WILD.halfWallEW : WILD.halfWallNS, X, Y, h); }
+      else if (t >= 0 && t <= rampLen) { const sk = clampZ(Math.max(g, h - (ak - 3) * 14)); if (W.height_[i] > sk || ak === 4) W.height_[i] = Math.max(sk, Math.min(W.height_[i], h)); W.terrain[i] = TKEY.rock; W.density[i] = 0; }
     }
   }
   // The castle: everything a little in from the edge.
@@ -3331,7 +3341,7 @@ function castleCrag(o) {
     W.objects.buildings.push({ x: tx - 1, y: ty - 1, w: 3, h: 3, z: T, floors, theme, roofType, use: "tower", door: "S", seed: seedB() });
     take(tx - 2, ty - 2, tx + 2, ty + 2); towers.push([tx, ty]);
   };
-  // Gatehouse: two towers either side of where the ledge comes up.
+  // Gatehouse: two towers either side of where the ramp comes up.
   const gr = Rat(ga) - 3, gx = Math.round(cx + Math.cos(ga) * gr), gy = Math.round(cy + Math.sin(ga) * gr);
   tower(ga + 5 / gr, 3, "stone", "flat"); tower(ga - 5 / gr, 3, "stone", "flat");
   const nT = between(4, 7, rnd), off = rnd() * Math.PI * 2;
@@ -3347,7 +3357,7 @@ function castleCrag(o) {
   }
   for (const key of new Set([...ew, ...ns])) {
     const [x, y] = key.split(",").map(Number);
-    if (!inMap(x, y) || Math.hypot(x - gx, y - gy) < 2.5 || towers.some(([tx, ty]) => Math.abs(x - tx) <= 2 && Math.abs(y - ty) <= 2)) continue;
+    if (!inMap(x, y) || Math.abs((x - gx) * px + (y - gy) * py) <= 3 && Math.abs((x - gx) * ux + (y - gy) * uy) <= 4 || towers.some(([tx, ty]) => Math.abs(x - tx) <= 2 && Math.abs(y - ty) <= 2)) continue;
     const id = ew.has(key) && ns.has(key) ? PROP.wallCorner : ew.has(key) ? PROP.wallEW : PROP.wallNS;
     addStatic0(id, x, y, T); addStatic0(id, x, y, T + 20);
     W.height_[x + y * N] = T;
@@ -3373,23 +3383,23 @@ function castleCrag(o) {
     const i = x + y * N; W.height_[i] = T; W.density[i] = 0;
     W.terrain[i] = Math.hypot(x - gx, y - gy) < R0 * 0.55 || fbm(x / 5, y / 5, nseed + 21, 2) > 0.55 ? TKEY.cobblestone : TKEY.grass;
   }
-  const yard = [Math.round((gx + cx) / 2), Math.round((gy + cy) / 2)];
+  const yard = [gx - ux * 6 + px * 5, gy - uy * 6 + py * 5]; // beside the way in, not on it
   if (!taken.has(yard[0] + "," + yard[1])) { addStatic0(PROP.trough[0], yard[0], yard[1], T); addStatic0(PROP.trough[1], yard[0] + 1, yard[1], T); }
-  for (const [tx, ty] of [[gx + Math.round(Math.cos(ga + Math.PI / 2) * 2), gy + Math.round(Math.sin(ga + Math.PI / 2) * 2)], [gx - Math.round(Math.cos(ga + Math.PI / 2) * 2), gy - Math.round(Math.sin(ga + Math.PI / 2) * 2)]])
-    if (inMap(tx, ty) && !taken.has(tx + "," + ty)) addStatic0(PROP.lamp, tx - Math.round(Math.cos(ga) * 2), ty - Math.round(Math.sin(ga) * 2), T);
-  // A path from the foot of the ledge out to the nearest road.
-  const fr = Rat(footA) + 4, fx = Math.round(cx + Math.cos(footA) * fr), fy = Math.round(cy + Math.sin(footA) * fr);
+  // Lamps either side of the way in, clear of the ramp's width.
+  for (const k of [-4, 4]) { const tx = gx + px * k - ux * 2, ty = gy + py * k - uy * 2; if (inMap(tx, ty) && !taken.has(tx + "," + ty)) addStatic0(PROP.lamp, tx, ty, T); }
+  // A path from the foot of the ramp out to the nearest road.
+  const fx = cx + ux * (d0 + rampLen + 3), fy = cy + uy * (d0 + rampLen + 3);
   let best = null;
   for (const L of W._roadLines || []) for (const p of L.pts) { const d = Math.hypot(p[0] - fx, p[1] - fy); if (!best || d < best.d) best = { p, d }; }
   if (!best || best.d > 250) for (const t of townsOf()) for (const p of t.exits || []) { const d = Math.hypot(p[0] - fx, p[1] - fy); if (!best || d < best.d) best = { p, d }; }
   if (best && best.d < 400) {
-    const out = [Math.round(fx + Math.cos(footA - arc * 0.3) * 6), Math.round(fy + Math.sin(footA - arc * 0.3) * 6)];
+    const out = [fx + ux * 6, fy + uy * 6];
     OPS.path({ points: [[fx, fy], out, best.p], width: 2, terrain: "dirt", jitter: 2, within: keepT });
   }
   const name = o.name || "Castle";
   W.places.push({ name, kind: "castle", x: cx, y: cy, radius: R0 + 6 });
   if (o.life ?? featOn("life")) W.objects.serverItems.push({ kind: "region", x: Math.max(0, cx - R0 - 2), y: Math.max(0, cy - R0 - 2), w: 2 * R0 + 5, h: 2 * R0 + 5, z: 0, name, guarded: true });
-  return { name, top: T, ground: g };
+  return { name, top: T, ground: g, foot: [fx, fy], gate: [gx, gy] };
 }
 /** Castles on crags near towns, on dry land with room round them. */
 function castlesPass(rnd, occ, want) {
@@ -4089,7 +4099,7 @@ function foundTown(op) {
       if (!r.ok) { addMsg("claude", "Couldn't raise the castle: " + escapeHtml(r.why), "error"); return; }
       lastTown = { op, depth: undoStack.length }; $("btnReroll").disabled = false;
       const p = W.places.filter(q => q.kind === "castle").at(-1);
-      addMsg("claude", `Raised <b>${escapeHtml(p.name)}</b> on a crag: one way up, a ledge round the cliff to the gate. <b>Reroll</b> tries another.`);
+      addMsg("claude", `Raised <b>${escapeHtml(p.name)}</b> on a crag: one way up, a broad ramp to the gate. <b>Reroll</b> tries another.`);
     }, 20);
     return;
   }
