@@ -1,3 +1,12 @@
+## ShardForge 0.8.5
+
+- **Cave mouths in Walk.** Build → Land → **Cave mouth**: click the ground in front of a mountain side that faces
+  south or east, and a mouth opens into the slope, made from the client's own mouth tiles (like Destard and
+  Despise). The slope round it rises to meet it in a rocky outcrop that blends into what's there, the ground in
+  front is levelled and cleared, and the dark middle gets an invisible floor to stand on. A preview shows where it
+  goes (green fits, red: no mountain side there); **Faces** can force south or east. It's one undo step. Put a
+  Teleporter in the dark middle to lead into a dungeon.
+
 ## ShardForge 0.8.4
 
 - **No more signposts in towns.** Towns no longer put a signpost where each main road leaves (they could end up on

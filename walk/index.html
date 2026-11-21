@@ -445,6 +445,10 @@ footer b { color: var(--text); font-weight: 500; }
         <button data-land="flatten" aria-pressed="false" title="Level to the height where you start">Flatten</button>
         <button data-land="smooth" aria-pressed="false" title="Even out bumps">Smooth</button>
         <button data-land="set" aria-pressed="false" title="Set to an exact height">Set</button>
+        <button data-land="cave" aria-pressed="false" title="Open a cave mouth in a mountain side, made from the client's own mouth tiles">Cave mouth</button>
+      </div>
+      <div class="opts" id="caveOpts" hidden>
+        <label for="caveFace">Faces</label><select id="caveFace"><option value="">The way the slope falls</option><option value="S">South</option><option value="E">East</option></select>
       </div>
       <div class="terrain-pick" id="terrainPick" hidden></div>
       <div class="opts">
@@ -1880,7 +1884,11 @@ function draw() {
     ctx.globalAlpha = 1;
     if (ghosts.length > 1) for (const g of ghosts) outline(g.x, g.y, "rgba(214,170,76,.5)");
   }
-  if (hover && LAND.tool) {
+  if (hover && LAND.tool === "cave") {
+    const L = caveLayout(hover.x, hover.y), col = L.ok ? "#8fc27a" : "#e07a5f";
+    for (let u = -2; u <= 2; u++) { outline(...L.P(u, -1), col); outline(...L.P(u, 0), col); }
+    outline(hover.x, hover.y, "rgba(255,255,255,.75)");
+  } else if (hover && LAND.tool) {
     const [sx, sy] = at(hover.x, hover.y), R = (LAND.brush + 0.5) * 22 * Math.SQRT2 * zoom;
     ctx.strokeStyle = LAND.tool === "lower" ? "#e07a5f" : "#8fc27a"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
     ctx.beginPath(); ctx.ellipse(sx, sy + 22 * zoom - landAvg(hover.x, hover.y) * Z, R, R / 2, 0, 0, Math.PI * 2); ctx.stroke();
@@ -2525,8 +2533,58 @@ function paintTerrain(cells) {
     if (tile !== cur.id || z !== cur.z) setLandCell(x, y, tile, z);
   }
 }
+// Cave mouths, as the client's own (Destard faces south, Despise east): a back line and the dark mouth line of
+// mountain land tiles, the slope around raised to meet them, level ground in front and a walkable floor in the
+// mouth (invisible), where a teleporter goes. Mouths face south or east only: the client has no others.
+const CAVE_MOUTH = { S: { back: [0x1D3, 0x1D4, 0x1D4, 0x1D4, 0x1D5], front: [0x1DA, 0x1DB, 0x1DB, 0x1DB, 0x1D6] },
+                     E: { back: [0x1D3, 0x1DA, 0x1DA, 0x1DA, 0x1D9], front: [0x1D4, 0x1DB, 0x1DB, 0x1DB, 0x1D8] }, floor: 0x2198 };
+/** Which way a mouth clicked at (x, y) faces and where its tiles go; null if there's no mountain side behind. */
+function caveLayout(x, y) {
+  const lz = (X, Y) => landAt(X, Y).z, h0 = lz(x, y);
+  let hN = 0, hW = 0;
+  for (let u = -2; u <= 2; u++) for (let k = 2; k <= 6; k++) { hN += lz(x + u, y - k); hW += lz(x - k, y + u); }
+  hN /= 25; hW /= 25;
+  const face = $("caveFace").value || (hN >= hW ? "S" : "E"), behind = face === "S" ? hN : hW;
+  const P = (u, v) => face === "S" ? [x + u, y - 1 + v] : [x - 1 + v, y + u];
+  return { face, h0, P, ok: behind >= h0 + 10 };
+}
+function caveMouth(x, y) {
+  const L = caveLayout(x, y), { face, h0, P } = L;
+  if (!L.ok) { toast("There's no mountain side to the north or west of this spot. Click the ground in front of a slope facing south or east.", 5000); return false; }
+  const M2 = CAVE_MOUTH[face], back = h0 + 26, front = h0 + 18;
+  // Clear what grows on and in front of it.
+  for (let v = -2; v <= 2; v++) for (let u = -3; u <= 3; u++) removeAll(...P(u, v));
+  // The slope round it rises to meet the mouth, fading out to the sides; nothing is lowered.
+  for (let v = -7; v <= 0; v++) for (let u = -6; u <= 6; u++) {
+    if (Math.abs(u) <= 2 && v >= -1) continue;
+    const [X, Y] = P(u, v), cur = landAt(X, Y);
+    const want = v === 0 ? front - Math.max(0, Math.abs(u) - 2) * 6 : back + (-v - 1) * 5 - Math.max(0, Math.abs(u) - 3) * 3;
+    const w = Math.max(0, Math.min(1, 1 - (Math.abs(u) - 2) / 5)) * Math.max(0, Math.min(1, 1 + (v + 7) / 3));
+    if (cur.z < want) setLandCell(X, Y, cur.id, cur.z + (want - cur.z) * w);
+  }
+  // A rocky outcrop round it, in an uneven patch, painted like the Paint tool (edges blend into what's there),
+  // so the mouth sits in rock even on a grassy or snowy slope.
+  const patch = [];
+  for (let v = -6; v <= 0; v++) for (let u = -5; u <= 5; u++) {
+    const r = Math.hypot(u / 5.2, (v + 1.5) / 5) + ((((x + u) * 73856093 ^ (y + v) * 19349663) >>> 0) % 1000 / 1000 - 0.5) * 0.35;
+    if (r <= 1) { const [X, Y] = P(u, v); patch.push({ x: X, y: Y, w: 1 }); }
+  }
+  if (TERRAIN_KEYS.includes("rock")) { const keep = LAND.terrain; LAND.terrain = "rock"; paintTerrain(patch); LAND.terrain = keep; }
+  for (let u = -2; u <= 2; u++) {
+    const [bx, by] = P(u, -1), [fx, fy] = P(u, 0);
+    setLandCell(bx, by, M2.back[u + 2], back + (u & 1) * 2); setLandCell(fx, fy, M2.front[u + 2], front + Math.abs(u));
+  }
+  for (let v = 1; v <= 2; v++) for (let u = -2; u <= 2; u++) { const [X, Y] = P(u, v), c = landAt(X, Y); setLandCell(X, Y, c.id, h0); }
+  for (let u = -1; u <= 1; u++) { const [X, Y] = P(u, 0); addStatic(X, Y, CAVE_MOUTH.floor, h0); }
+  return true;
+}
 function landDown() {
   if (!hover) return;
+  if (LAND.tool === "cave") {
+    beginTx(); const ok = caveMouth(hover.x, hover.y); commitTx(); requestDraw();
+    if (ok) toast("Cave mouth made (Ctrl+Z takes it back). To lead somewhere, put a Teleporter in its dark middle: Server items → Teleporter.", 6000);
+    return;
+  }
   LAND.flatZ = landAt(hover.x, hover.y).z;
   beginTx(); drag = { mode: "land" };
   landApply(hover.x, hover.y); requestDraw();
@@ -2541,12 +2599,14 @@ const LAND_HINTS = {
   flatten: "Levels the ground to the height where you start the stroke.",
   smooth: "Evens out bumps and spikes under the brush.",
   set: "Sets the ground to the Height value.",
+  cave: "Click the ground in front of a mountain side that faces south or east: the mouth opens into the slope behind it (shown before you click). One click, one undo step.",
 };
 function setLandTool(t) {
   LAND.tool = t || null;
   if (LAND.tool && HOUSE.sel != null) selectHouse(null);
   document.querySelectorAll(".land-tools button").forEach(b => b.setAttribute("aria-pressed", (b.dataset.land || null) === LAND.tool));
   $("terrainPick").hidden = LAND.tool !== "paint";
+  $("caveOpts").hidden = LAND.tool !== "cave";
   $("landHint").textContent = LAND_HINTS[t || ""];
   requestDraw();
 }
