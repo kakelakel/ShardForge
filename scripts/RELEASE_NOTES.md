@@ -1,3 +1,13 @@
+## ShardForge 0.8.8
+
+- **Shores the way the client's own coasts are made.** Water land tiles next to higher ground stretch into a
+  sawtooth, which is what made rivers, coasts, lakes and oases look jagged. Now, out to three tiles from any shore,
+  the build lays the bed low (z -15) so the bank slopes down into it, and covers it with flat water statics at sea
+  level. The tiles right along the edge get the client's foamed, shaped shore pieces, chosen by which neighbours are
+  water, from a table mined from Trammel's coasts. Further out, open water is the usual water tiles. Dry ground
+  next to a shore is kept just above the water. Fishing and boats work the same (the water statics are wet), and
+  trees no longer grow on the underwater bank. Rebuild a map to get the new shores.
+
 ## ShardForge 0.8.7
 
 - **Walk into the caves.** The caves and mines that World features carves inside mountains are now reached on

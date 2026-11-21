@@ -56,8 +56,13 @@ public class ProjectTests
         Assert.Equal(7, facet.GetLand(12, 3).Z);
         Assert.InRange(facet.GetLand(12, 3).TileId, (ushort)0xC4, (ushort)0xC7);
 
-        // Water blocks get nothing; forest blocks get trunk + leaves pairs on the same spot at z 7.
-        Assert.Empty(facet.GetBlockStatics(0, 0));
+        // Open water gets nothing; the last three water cells before the forest are the shore: a sea bed at -15 under
+        // flat water statics at sea level, as the client's own coasts are. Forest blocks get trunk + leaves pairs on
+        // the same spot at z 7.
+        var shore = facet.GetBlockStatics(0, 0);
+        Assert.All(shore, s => { Assert.InRange(s.TileId, (ushort)0x1796, (ushort)0x17B2); Assert.Equal(-5, s.Z); Assert.True(s.X >= 5); });
+        Assert.Equal(-15, facet.GetLand(7, 0).Z);
+        Assert.DoesNotContain(shore, s => s.X < 5);
         var statics = facet.GetBlockStatics(1, 0);
         Assert.NotEmpty(statics);
         Assert.Equal(0, statics.Length % 2);

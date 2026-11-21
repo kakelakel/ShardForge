@@ -184,6 +184,19 @@ public sealed class ShardProject
     /// <summary>What the underground pass made in the last <see cref="Build"/> (null when the project has no void).</summary>
     [JsonIgnore] public ShardForge.Core.Terrain.Underground.Plan? LastUnderground { get; private set; }
     [JsonIgnore] public int LastRims { get; private set; }
+    /// <summary>Water statics laid along the shores in the last build.</summary>
+    [JsonIgnore] public int LastShore { get; private set; }
+
+    private bool NextToShore(byte[] shoreDist, int x, int y)
+    {
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int X = x + dx, Y = y + dy;
+            if (X >= 0 && Y >= 0 && X < Width && Y < Height && shoreDist[X + Y * Width] == 1) return true;
+        }
+        return false;
+    }
 
     /// <summary>Which dungeon wall set built dungeon floors get (see Underground.DungeonWalls).</summary>
     [JsonPropertyName("dungeonWalls")] public int DungeonWallSet { get; set; }
@@ -196,6 +209,7 @@ public sealed class ShardProject
         byte[] height = Layers.Decode(Layers.Height);
         byte[] density = Layers.Decode(Layers.Density);
         int n = Width * Height;
+        LastShore = 0;
         if (terrain.Length != n || height.Length != n || density.Length != n)
             throw new InvalidDataException("Layer sizes do not match the map size.");
 
@@ -209,6 +223,38 @@ public sealed class ShardProject
             (x, y, k) => HRand(x, y, Seed, k), DungeonWallSet);
         LastUnderground = under;
 
+        // Shores: water near land becomes flat water statics over a low sea bed that the beach slopes into (WaterEdges).
+        int waterIdx = Array.IndexOf(keys, "water");
+        byte[] look = terrain;           // the terrain whose tiles a cell shows (a shore cell shows the beach's)
+        byte[]? shoreDist = null;        // 1..Band for water cells that far from dry ground, else 0
+        if (waterIdx >= 0)
+        {
+            shoreDist = new byte[n];
+            look = (byte[])terrain.Clone();
+            var queue = new Queue<int>();
+            for (int i = 0; i < n; i++)
+                if (terrain[i] != waterIdx) queue.Enqueue(i);
+            var d = new byte[n];
+            while (queue.Count > 0)
+            {
+                int i = queue.Dequeue(), x = i % Width, y = i / Width;
+                if (d[i] >= ShardForge.Core.Terrain.WaterEdges.Band) continue;
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int X = x + dx, Y = y + dy;
+                    if (X < 0 || Y < 0 || X >= Width || Y >= Height) continue;
+                    int q = X + Y * Width;
+                    if (terrain[q] != waterIdx || d[q] != 0) continue;
+                    if (under is not null && under.Tile[q] >= 0) continue;
+                    d[q] = (byte)(d[i] + 1);
+                    look[q] = look[i];
+                    queue.Enqueue(q);
+                }
+            }
+            shoreDist = d;
+        }
+
         var info = new FacetInfo(facetIndex, Name, Width, Height);
         var facet = new Facet(info);
         var blockStatics = new List<StaticTile>[info.BlockCount];
@@ -217,16 +263,33 @@ public sealed class ShardProject
         for (int x = 0; x < Width; x++)
         {
             int i = x + y * Width;
-            int t = terrain[i];
-            if (t >= Terrains.Length) throw new InvalidDataException($"Unknown terrain index {t} at {x},{y}.");
+            int t = look[i];
+            if (t >= Terrains.Length || terrain[i] >= Terrains.Length) throw new InvalidDataException($"Unknown terrain index {terrain[i]} at {x},{y}.");
             var def = Terrains[t];
+            bool shore = shoreDist is not null && shoreDist[i] > 0;
 
             ushort tile = (ushort)def.LandTiles[(int)(HRand(x, y, Seed, 0) * def.LandTiles.Length)];
-            if (transitions is not null && TransitionTile(terrain, x, y, transitions) is int edge)
+            if (transitions is not null && TransitionTile(look, x, y, transitions) is int edge)
                 tile = (ushort)edge;
-            sbyte z = def.FixedZ is int fz ? (sbyte)fz : (sbyte)height[i];
+            // The sea bed is low near the shore and back at sea level on the band's outer row, so the open water's
+            // land tiles beyond it meet it level instead of sagging toward it.
+            sbyte z = shore ? (sbyte)(shoreDist![i] < ShardForge.Core.Terrain.WaterEdges.Band ? ShardForge.Core.Terrain.WaterEdges.SeaBedZ : Terrains[waterIdx].FixedZ ?? -5)
+                : def.FixedZ is int fz ? (sbyte)fz : (sbyte)height[i];
+            // Dry ground beside the shore stays above the water, so the beach slopes down into it.
+            if (!shore && shoreDist is not null && terrain[i] != waterIdx && z < -2 && NextToShore(shoreDist, x, y)) z = -2;
             if (under is not null && under.Tile[i] >= 0) { tile = (ushort)under.Tile[i]; if (under.Z[i] is sbyte uz) z = uz; }
             facet.SetLand(x, y, new LandCell(tile, z));
+
+            if (shore)
+            {
+                // Flat water on top: open water out from the edge, the shaped and foamed edge pieces along it.
+                var mask = ShardForge.Core.Terrain.LiquidEdges.Mask((X, Y) => X < 0 || Y < 0 || X >= Width || Y >= Height || terrain[X + Y * Width] == waterIdx, x, y);
+                var piece = ShardForge.Core.Terrain.WaterEdges.BuiltIn.Piece(mask, HRand(x, y, Seed, 71));
+                (blockStatics[facet.BlockIndex(x >> 3, y >> 3)] ??= []).Add(new StaticTile(piece, (byte)(x & 7), (byte)(y & 7),
+                    (sbyte)(Terrains[waterIdx].FixedZ ?? -5), 0));
+                LastShore++;
+                continue; // nothing grows under water
+            }
 
             double mult = density[i] / 128.0;
             for (int g = 0; g < def.Populate.Length; g++)
@@ -290,7 +353,7 @@ public sealed class ShardProject
             {
                 if (x < 0 || y < 0 || x >= Width || y >= Height) continue;
                 var list = blockStatics[facet.BlockIndex(x >> 3, y >> 3)];
-                list?.RemoveAll(s => s.X == (x & 7) && s.Y == (y & 7));
+                list?.RemoveAll(s => s.X == (x & 7) && s.Y == (y & 7) && s.TileId is < 0x1796 or > 0x17B2);
             }
             foreach (var c in multi.Components)
                 if (c.Visible) Add(c.TileId, m[1] + c.X, m[2] + c.Y, m[3] + c.Z);
