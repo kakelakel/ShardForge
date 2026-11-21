@@ -165,7 +165,7 @@ public sealed class ShardProject
     public void WriteLayout(string dir)
     {
         string path = Path.Combine(dir, LayoutFile);
-        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine", "dungeon", "cave", "fort", "tower", "lighthouse", "mill", "wreck", "oasis", "stones"];
+        string[] order = ["city", "town", "village", "hamlet", "camp", "ruins", "shrine", "dungeon", "castle", "cave", "fort", "tower", "lighthouse", "mill", "wreck", "oasis", "stones"];
         var places = (Places ?? []).Where(p => order.Contains(p.Kind))
             .OrderBy(p => Array.IndexOf(order, p.Kind)).ThenBy(p => p.Name, StringComparer.Ordinal)
             .Select(p => new LayoutPlace(p.Name, p.Kind, p.X, p.Y)).ToArray();

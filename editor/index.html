@@ -201,7 +201,7 @@ dialog select, dialog input[type=number] { background: var(--ink); border: 1px s
           <div><label for="townSetting">Setting</label>
             <select id="townSetting">
               <option value="">As the land is</option><option value="farmland">Farmland ring</option><option value="clearing">Forest clearing</option>
-              <option value="hilltop">Hilltop</option><option value="harbour">Waterfront (dock plot)</option><option value="winter">Winter</option><option value="oasis">Desert oasis</option>
+              <option value="hilltop">Hilltop</option><option value="harbour">Waterfront (dock plot)</option><option value="winter">Winter</option><option value="oasis">Desert oasis</option><option value="castle">Castle on a crag (no town)</option>
             </select></div>
         </div>
         <details class="deco">
@@ -2583,7 +2583,7 @@ function astar(sx, sy, tx, ty, gw, gh, cost, zc) {
 // ---------------------------------------------------------------------------
 const FEATURES = {
   docks: "Docks, piers and moored boats", waterfalls: "Waterfalls", fords: "Fords and stepping stones", lighthouses: "Lighthouses", huts: "Fishing huts by lakes",
-  signs: "Signposts naming the towns", forts: "Watchtowers and forts at passes", hedges: "Walls and hedges by towns", farms: "Scarecrows and water mills",
+  signs: "Signposts naming the towns", forts: "Watchtowers and forts at passes", castles: "Castles on crags", hedges: "Walls and hedges by towns", farms: "Scarecrows and water mills",
   caves: "Cave mouths into caves, mines and dungeons", ruins: "Ruins by dungeon mouths",
   wrecks: "Shipwrecks and driftwood", oases: "Desert oases", stones: "Standing stones",
   life: "Town life: vendors, bankers, criers, guards", gates: "Moongates between towns",
@@ -3169,6 +3169,145 @@ function gatesPass() {
   return gates.length;
 }
 
+/**
+ * A fairy-tale castle on a crag: a plateau with an uneven edge rises sheer out of the land, grass on top and rock
+ * down its sides, a rocky skirt of fallen stone round its foot. The one way up is a ledge that climbs round the
+ * cliff to the gate. On top a curtain wall follows the edge, towers along it and a gatehouse where the ledge
+ * arrives; inside a keep with its tall donjon, a hall and a courtyard. Everything stands at the plateau's height.
+ */
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+OPS.castle_crag = o => castleCrag(o);
+function castleCrag(o) {
+  ensureObjects();
+  const rnd = mulberry(((o.seed ?? 5) * 2654435761) ^ W.seed), N = W.width;
+  const cx = Math.round(o.cx), cy = Math.round(o.cy), R0 = Math.max(14, Math.min(45, Math.round(o.radius ?? 24)));
+  if (!inMap(cx, cy) || isWater(cx, cy)) throw new Error("A castle crag needs dry land.");
+  const nseed = Math.floor(rnd() * 1e5);
+  const Rat = a => R0 * (0.84 + 0.32 * fbm(Math.cos(a) * 1.4 + 5, Math.sin(a) * 1.4 + 9, nseed, 3));
+  const g = groundHeight(cx, cy, R0 + 10), H = o.height ?? between(55, 80, rnd), T = clampZ(Math.min(115, g + H));
+  // The way up comes from the nearest town (else anywhere); the ledge climbs this far round the cliff to the gate.
+  const near = nearestTown(cx, cy);
+  const ga = o.gateAngle ?? (near && Math.hypot(near.x - cx, near.y - cy) < 600 ? Math.atan2(near.y - cy, near.x - cx) : rnd() * Math.PI * 2);
+  // Of the two ways round, the one that passes the side the camera sees (south-east), so the ledge shows.
+  const swing = 1.0 + rnd() * 0.6, view = Math.PI / 4;
+  const arc = Math.abs(angDiff(ga - swing / 2, view)) < Math.abs(angDiff(ga + swing / 2, view)) ? swing : -swing, footA = ga - arc;
+  const ledgeS = a => { const s = angDiff(a, footA) / arc; return s >= 0 && s <= 1 ? s : null; };
+  const span = Math.ceil(R0 * 1.2) + 12;
+  const keepT = TERRAINS.map(t => t.key).filter(k => !["water", "lava"].includes(k));
+  for (let y = cy - span; y <= cy + span; y++) for (let x = cx - span; x <= cx + span; x++) {
+    if (!inMap(x, y)) continue;
+    const i = x + y * N, t = W.terrain[i]; if (t === TKEY.water || t === TKEY.lava) continue;
+    const dx = x - cx, dy = y - cy, a = Math.atan2(dy, dx), d = Math.hypot(dx, dy);
+    const e = d - Rat(a) + (fbm(x / 3, y / 3, nseed + 7, 2) - 0.5) * 1.6;   // how far outside the edge
+    const s = ledgeS(a), crag = fbm(x / 4, y / 4, nseed + 11, 2);
+    if (e <= 0) { W.height_[i] = T; if (t !== TKEY.rock) W.terrain[i] = e > -1.5 && crag > 0.62 ? TKEY.rock : TKEY.grass; W.density[i] = 40; continue; }
+    if (s !== null && e > 1.0 && e <= 4.2) {
+      // The ledge: a path cut along the cliff, rising from the foot to the gate.
+      W.height_[i] = clampZ(g + (T - g) * Math.min(1, s * 1.04)); W.terrain[i] = TKEY.dirt; W.density[i] = 0; continue;
+    }
+    if (e <= 1.0) { W.height_[i] = clampZ(Math.abs(angDiff(a, ga)) < 3 / R0 ? T : T - 2 - crag * 4); W.terrain[i] = TKEY.rock; W.density[i] = 0; continue; }
+    if (e <= 2.6) { W.height_[i] = clampZ(g + (T - g) * (0.08 + crag * 0.18)); W.terrain[i] = TKEY.rock; W.density[i] = 0; continue; }
+    if (e <= 9) {
+      // Fallen stone and scree round the foot, thinning out into the land.
+      const f = 1 - (e - 2.6) / 6.4, ledgeH = s !== null ? g + (T - g) * s : Infinity;
+      const h = g + (T - g) * 0.12 * f * f + (crag - 0.5) * 4;
+      W.height_[i] = clampZ(Math.min(Math.max(W.height_[i] * (1 - f) + h * f, g), ledgeH - 6));
+      if (crag + f * 0.5 > 0.85) W.terrain[i] = TKEY.rock; else if (W.terrain[i] === TKEY.rock || W.terrain[i] === TKEY.snow) W.terrain[i] = TKEY.grass;
+      W.density[i] = Math.min(W.density[i], Math.round(40 + (1 - f) * 80));
+    }
+  }
+  // The castle: everything a little in from the edge.
+  const inside = (x, y) => Math.hypot(x - cx, y - cy) <= Rat(Math.atan2(y - cy, x - cx)) - 3;
+  const taken = new Set(), take = (x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) taken.add(x + "," + y); };
+  const free = (x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!inside(x, y) || taken.has(x + "," + y)) return false; return true; };
+  const seedB = () => Math.floor(rnd() * 1e6);
+  const towers = [];
+  const tower = (a, floors, theme, roofType) => {
+    const r = Rat(a) - 3, tx = Math.round(cx + Math.cos(a) * r), ty = Math.round(cy + Math.sin(a) * r);
+    if (towers.some(([px, py]) => Math.hypot(px - tx, py - ty) < 7)) return;
+    W.objects.buildings.push({ x: tx - 1, y: ty - 1, w: 3, h: 3, z: T, floors, theme, roofType, use: "tower", door: "S", seed: seedB() });
+    take(tx - 2, ty - 2, tx + 2, ty + 2); towers.push([tx, ty]);
+  };
+  // Gatehouse: two towers either side of where the ledge comes up.
+  const gr = Rat(ga) - 3, gx = Math.round(cx + Math.cos(ga) * gr), gy = Math.round(cy + Math.sin(ga) * gr);
+  tower(ga + 5 / gr, 3, "stone", "flat"); tower(ga - 5 / gr, 3, "stone", "flat");
+  const nT = between(4, 7, rnd), off = rnd() * Math.PI * 2;
+  for (let k = 0; k < nT; k++) { const a = off + k / nT * Math.PI * 2; if (Math.abs(angDiff(a, ga)) > 0.5) tower(a, between(3, 4, rnd), rnd() < 0.5 ? "stone" : "fieldstone", rnd() < 0.5 ? "flat" : undefined); }
+  // The curtain wall along the edge, two storeys of fieldstone, open at the gate and stopping at the towers.
+  const Q = 4, ox = cx % Q, oy = cy % Q;
+  const insideQ = (x, y) => inside(Math.floor((x - ox) / Q) * Q + ox + (Q >> 1), Math.floor((y - oy) / Q) * Q + oy + (Q >> 1)) && inside(x, y);
+  const ew = new Set(), ns = new Set();
+  for (let y = cy - span; y <= cy + span; y++) for (let x = cx - span; x <= cx + span; x++) {
+    if (!inMap(x, y) || !insideQ(x, y)) continue;
+    if (!insideQ(x, y - 1)) ew.add(x + "," + (y - 1)); if (!insideQ(x, y + 1)) ew.add(x + "," + y);
+    if (!insideQ(x - 1, y)) ns.add((x - 1) + "," + y); if (!insideQ(x + 1, y)) ns.add(x + "," + y);
+  }
+  for (const key of new Set([...ew, ...ns])) {
+    const [x, y] = key.split(",").map(Number);
+    if (!inMap(x, y) || Math.hypot(x - gx, y - gy) < 2.5 || towers.some(([tx, ty]) => Math.abs(x - tx) <= 2 && Math.abs(y - ty) <= 2)) continue;
+    const id = ew.has(key) && ns.has(key) ? PROP.wallCorner : ew.has(key) ? PROP.wallEW : PROP.wallNS;
+    addStatic0(id, x, y, T); addStatic0(id, x, y, T + 20);
+    W.height_[x + y * N] = T;
+  }
+  // The keep, away from the gate, with its tall donjon; a hall; a courtyard of cobbles and grass.
+  const away = ga + Math.PI, facing = Math.abs(Math.cos(ga)) > Math.abs(Math.sin(ga)) ? (Math.cos(ga) > 0 ? "E" : "W") : (Math.sin(ga) > 0 ? "S" : "N");
+  const place = (w, h, dist, spec) => {
+    for (let tries = 0; tries < 40; tries++) {
+      const a = away + (rnd() - 0.5) * (tries < 20 ? 1.2 : 3), r = dist * (0.8 + rnd() * 0.4);
+      const x = Math.round(cx + Math.cos(a) * r - w / 2), y = Math.round(cy + Math.sin(a) * r - h / 2);
+      if (!free(x - 2, y - 2, x + w + 1, y + h + 1)) continue;
+      W.objects.buildings.push({ x, y, w, h, z: T, seed: seedB(), ...spec }); take(x - 2, y - 2, x + w + 1, y + h + 1); return [x, y];
+    }
+    return null;
+  };
+  const keep = place(Math.min(10, Math.round(R0 * 0.3)), Math.min(8, Math.round(R0 * 0.25)), R0 * 0.25, { floors: 3, theme: "fieldstone", use: "tavern", door: facing });
+  const donjon = place(4, 4, R0 * 0.35, { floors: 4, theme: "stone", roofType: "flat", use: "tower", door: facing });
+  if (donjon) { addStatic0(WILD.brazier, donjon[0] + 1, donjon[1] + 1, T + 80); addStatic0(WILD.brazier, donjon[0] + 2, donjon[1] + 2, T + 80); }
+  place(6, 4, R0 * 0.45, { floors: 2, theme: "fieldstone", use: rnd() < 0.5 ? "storage" : "guard", door: facing });
+  if (R0 >= 24) place(5, 4, R0 * 0.5, { floors: 1, theme: "wood", use: "farm", door: facing });
+  for (let y = cy - span; y <= cy + span; y++) for (let x = cx - span; x <= cx + span; x++) {
+    if (!inMap(x, y) || !inside(x, y)) continue;
+    const i = x + y * N; W.height_[i] = T; W.density[i] = 0;
+    W.terrain[i] = Math.hypot(x - gx, y - gy) < R0 * 0.55 || fbm(x / 5, y / 5, nseed + 21, 2) > 0.55 ? TKEY.cobblestone : TKEY.grass;
+  }
+  const yard = [Math.round((gx + cx) / 2), Math.round((gy + cy) / 2)];
+  if (!taken.has(yard[0] + "," + yard[1])) { addStatic0(PROP.trough[0], yard[0], yard[1], T); addStatic0(PROP.trough[1], yard[0] + 1, yard[1], T); }
+  for (const [tx, ty] of [[gx + Math.round(Math.cos(ga + Math.PI / 2) * 2), gy + Math.round(Math.sin(ga + Math.PI / 2) * 2)], [gx - Math.round(Math.cos(ga + Math.PI / 2) * 2), gy - Math.round(Math.sin(ga + Math.PI / 2) * 2)]])
+    if (inMap(tx, ty) && !taken.has(tx + "," + ty)) addStatic0(PROP.lamp, tx - Math.round(Math.cos(ga) * 2), ty - Math.round(Math.sin(ga) * 2), T);
+  // A path from the foot of the ledge out to the nearest road.
+  const fr = Rat(footA) + 4, fx = Math.round(cx + Math.cos(footA) * fr), fy = Math.round(cy + Math.sin(footA) * fr);
+  let best = null;
+  for (const L of W._roadLines || []) for (const p of L.pts) { const d = Math.hypot(p[0] - fx, p[1] - fy); if (!best || d < best.d) best = { p, d }; }
+  if (!best || best.d > 250) for (const t of townsOf()) for (const p of t.exits || []) { const d = Math.hypot(p[0] - fx, p[1] - fy); if (!best || d < best.d) best = { p, d }; }
+  if (best && best.d < 400) {
+    const out = [Math.round(fx + Math.cos(footA - arc * 0.3) * 6), Math.round(fy + Math.sin(footA - arc * 0.3) * 6)];
+    OPS.path({ points: [[fx, fy], out, best.p], width: 2, terrain: "dirt", jitter: 2, within: keepT });
+  }
+  const name = o.name || uniqueName("Castle " + townName(rnd), rnd);
+  W.places.push({ name, kind: "castle", x: cx, y: cy, radius: R0 + 6 });
+  if (o.life ?? featOn("life")) W.objects.serverItems.push({ kind: "region", x: Math.max(0, cx - R0 - 2), y: Math.max(0, cy - R0 - 2), w: 2 * R0 + 5, h: 2 * R0 + 5, z: 0, name, guarded: true });
+  return { name, top: T, ground: g };
+}
+/** Castles on crags near towns, on dry land with room round them. */
+function castlesPass(rnd, occ, want) {
+  const cands = [];
+  for (let y = 70; y < W.height - 70; y += 12) for (let x = 70; x < W.width - 70; x += 12) {
+    const i = x + y * W.width, t = W.terrain[i];
+    if (t === TKEY.water || t === TKEY.sand || isRockT(t) || occ[i]) continue;
+    const near = nearestTown(x, y), d = near ? Math.hypot(near.x - x, near.y - y) : 999;
+    if (!near || d < near.radius + 60 || d > near.radius + 260 || nearTown(x, y, 60)) continue;
+    let ok = true;
+    for (let a = 0; a < 24 && ok; a++) for (const r of [10, 22, 34, 44]) { const X = Math.round(x + Math.cos(a / 12 * Math.PI) * r), Y = Math.round(y + Math.sin(a / 12 * Math.PI) * r);
+      if (!inMap(X, Y) || isWater(X, Y) || occ[X + Y * W.width] || W.terrain[X + Y * W.width] === TKEY.lava) { ok = false; break; } }
+    if (ok && rectFree(occ, x - 44, y - 44, x + 44, y + 44)) cands.push({ x, y });
+  }
+  let made = 0;
+  for (const c of spread(cands, want, 380, rnd)) {
+    try { castleCrag({ cx: c.x, cy: c.y, radius: between(20, 30, rnd), seed: Math.floor(rnd() * 1e9) }); markRect(occ, c.x - 44, c.y - 44, c.x + 44, c.y + 44, 1); made++; } catch {}
+  }
+  return made;
+}
+
 /** Adds the world features to a populated map (or a map with towns of its own). */
 OPS.world_features = o => (W._lastFeatures = worldFeatures(o));
 function worldFeatures(o) {
@@ -3183,6 +3322,7 @@ function worldFeatures(o) {
     if (featOn("huts")) r.huts = hutsPass(rnd, occ, wb, Math.max(1, Math.round(area * 1.5)));
     if (featOn("signs")) r.signs = signsPass(rnd);
     if (featOn("forts")) r.forts = fortsPass(rnd, occ, Math.max(1, Math.round(area * 0.8)));
+    if (featOn("castles")) r.castles = castlesPass(rnd, occ, Math.max(1, Math.round(area * 0.3)));
     if (featOn("hedges")) r.hedges = hedgesPass(rnd, occ);
     if (featOn("farms")) r.mills = millsPass(rnd, occ, wb);
     if (featOn("caves")) Object.assign(r, cavesPass(o, rnd, occ));
@@ -3739,6 +3879,19 @@ function townOptions(x, y) {
 }
 let lastTown = null;
 function foundTown(op) {
+  if (op.op === "town" && op.setting === "castle") {
+    // The Castle setting raises a crag with a castle on it instead of a town; the radius sets the crag's size.
+    busy("Raising a crag and building a castle…");
+    const cop = { op: "castle_crag", cx: op.cx, cy: op.cy, radius: Math.round(Math.max(16, Math.min(45, op.radius * 0.45))), name: op.name, seed: op.seed };
+    setTimeout(() => {
+      const r = applyOps([cop])[0]; fullRedraw(); busy();
+      if (!r.ok) { addMsg("claude", "Couldn't raise the castle: " + escapeHtml(r.why), "error"); return; }
+      lastTown = { op, depth: undoStack.length }; $("btnReroll").disabled = false;
+      const p = W.places.filter(q => q.kind === "castle").at(-1);
+      addMsg("claude", `Raised <b>${escapeHtml(p.name)}</b> on a crag: one way up, a ledge round the cliff to the gate. <b>Reroll</b> tries another.`);
+    }, 20);
+    return;
+  }
   busy("Founding a settlement…");
   setTimeout(() => {
     applyOps([op]);
@@ -3791,7 +3944,7 @@ async function loadDungeonMaps() {
 function featureReport(r) {
   if (!r) return "";
   const parts = [["mouths", "cave mouth"], ["linked", "into the dungeon map"], ["waterfalls", "waterfall"], ["lighthouses", "lighthouse"], ["huts", "fishing hut"], ["signs", "signpost"],
-    ["forts", "watchtower or fort", "watchtowers and forts"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
+    ["forts", "watchtower or fort", "watchtowers and forts"], ["castles", "castle on a crag", "castles on crags"], ["mills", "water mill"], ["wrecks", "wreck"], ["oases", "oasis", "oases"], ["stones", "stone circle"], ["gates", "moongate"]];
   return parts.filter(([k]) => r[k]).map(([k, one, many]) => k === "linked" ? `${r[k]} ${one}` : `${r[k]} ${r[k] === 1 ? one : many || one + "s"}`).join(", ");
 }
 $("btnFeatures").onclick = () => {
@@ -4019,6 +4172,7 @@ Ops (JSON objects, applied in order):
 - {"op":"fill","terrain","height"?} whole map (use only to start over).
 Settlements are laid out as roads, squares and building plots (flattened, cleared, facing their road) that people build on by hand; nothing is on a grid:
 - {"op":"town","cx","cy","size":"hamlet"|"village"|"town"|"city","style"?:"rustic"|"fishing"|"town"|"city"|"desert"|"mountain"|"frontier","name"?,"radius"?,"walls"?:bool,"mainRoads"?,"lanes"?,"square"?:terrain key (dirt, cobblestone, sand, grass, farmland),"plots"?:"sparse"|"normal"|"dense","setting"?:"farmland"|"clearing"|"hilltop"|"harbour" (a lane to the shore and a dock plot; no pier)|"winter"|"oasis","deco"?:{"lamps","market","square","signs","street","flowers","gardens","fields","graveyard": bool each,"amount":0.5..1.7},"seed"?} an irregular square, main roads that wander out following the land, branching lanes, plots along them (inn, shops, smithy, chapel, hall near the square; homes; farms with fields on the outskirts), lamps, market stalls, signposts, gardens, a graveyard. Radii: hamlet 22, village 36, town 60, city 95 (cities get stone walls with gates). Needs mostly dry land; slopes are fine.
+- {"op":"castle_crag","cx","cy","radius"?:14-45,"height"?:30-55,"name"?,"seed"?} raises a sheer-sided crag (grass on top, rock cliffs, scree round the foot) with one way up, a ledge climbing round the cliff to the gate, and builds a castle on top: curtain wall along the edge, towers, a gatehouse, a keep with a tall donjon, a hall and a courtyard; a path joins the nearest road.
 - {"op":"world_features","features"?:{"docks","waterfalls","fords","lighthouses","huts","signs","forts","hedges","farms","caves","ruins","wrecks","oases","stones","life","gates": true|false},"caves"?:1.2,"seed"?} adds what makes a populated world lived in: piers with moored boats, waterfalls off high ground, lighthouses on headlands, fishing huts by lakes, signposts naming the towns at crossroads, watchtowers and forts at passes, walls and hedges by towns, water mills, cave mouths (spread out) into caves and mines carved inside the mountains with teleporters both ways, wrecks and driftwood, oases, standing stones, and moongates linking the towns. populate_world already does this unless "features": false.
 - {"op":"populate_world","cities"?,"towns"?,"villages"?,"hamlets"?,"roads"?:true,"wilderness"?:true,"bridges"?:"mixed"|"masonry"|"wood"|"stone"|"ironstone"|"arcade"|"sandstone"|"brick"|"marble"|"gargish"|"crystal"|"rustic"|"log","seed"?} picks good sites over the whole map, founds settlements with styles from their surroundings, joins them with country roads (along valleys, over passes, round lakes; wooden bridges over narrow rivers) and adds camps, ruins and shrines.
 - {"op":"roads"} connects all settlements. {"op":"lot","x","y","w","h","face"?:"N"|"S"|"E"|"W","kind"?:"home"|"shop"|"inn"|"smithy"|"chapel"|"farm"|"hall"|"keep"} one plot.

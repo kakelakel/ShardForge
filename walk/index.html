@@ -3952,7 +3952,7 @@ $("btnLoad").onclick = async () => {
     for (const p of places) (groups[p[3] || ""] ??= []).push(p);
     const opt = p => `<option value="${p[1]},${p[2]}">${escapeHtml(p[0])}</option>`;
     $("places").innerHTML = `<option value="">Known places…</option>` + Object.entries(groups).map(([k, ps]) =>
-      k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines", dungeon: "Caves and dungeons", cave: "Cave mouths",
+      k ? `<optgroup label="${escapeHtml(({ city: "Cities", town: "Towns", village: "Villages", hamlet: "Hamlets", camp: "Camps", ruins: "Ruins", shrine: "Shrines", dungeon: "Caves and dungeons", castle: "Castles", cave: "Cave mouths",
         fort: "Forts", tower: "Watchtowers", lighthouse: "Lighthouses", mill: "Mills", wreck: "Wrecks", oasis: "Oases", stones: "Standing stones" })[k] || k)}">${ps.map(opt).join("")}</optgroup>` : ps.map(opt).join("")).join("");
     const start = places[0] || ["", M.w >> 1, M.h >> 1];
     const land = nearestWalkable(start[1], start[2]) || nearestWalkable(M.w >> 1, M.h >> 1);

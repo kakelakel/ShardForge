@@ -1,3 +1,11 @@
+## ShardForge 0.8.0
+
+- **Castles on crags.** A plateau rises sheer out of the land, grass on top and rock cliffs down its sides with
+  scree round the foot. The only way up is a ledge that climbs round the cliff to the gate. On top: a curtain wall
+  along the edge, towers, a gatehouse, a keep with a tall donjon, a hall and a courtyard, and a path down to the
+  nearest road. Populate world places them near towns (World features → Castles on crags), or pick
+  **Castle on a crag** as the Town tool's setting and click where you want one.
+
 ## ShardForge 0.7.1
 
 - **Piers** are laid like the client's own docks: a solid plank floor and posts standing in the water off the
